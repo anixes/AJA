@@ -18,12 +18,14 @@
     }
   ],
   "swarm_settings": {
+    "offline_mode": true,
     "max_agents": 5,
     "check_interval": 30,
     "models": {
-      "planner": "google:gemini-3-flash-preview",
+      "planner": "llama_cpp:gemma-4-e2b",
       "worker": "llama_cpp:gemma-4-e2b",
       "critic": "llama_cpp:gemma-4-e2b"
-    }
+    },
+    "operating_mode": "offline"
   }
 }

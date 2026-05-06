@@ -27,6 +27,12 @@ This phase adds strict containerized execution, tracks structural changes across
 3. **Session State Updates**:
    - Allow modifications to node inputs dynamically while paused.
 
+## Wave 0: Environment Stabilization (COMPLETE)
+- [x] **Packaging Fix**: Resolved shadowing conflict between `agentx.py` and `agentx/` package.
+- [x] **Path Resolution**: Robust `find_project_root()` implemented in CLI and TUI.
+- [x] **API Gateway**: Verified connectivity for online/offline/hybrid modes.
+
 ---
 
-*Status*: Ready to begin Wave 1.
+*Status*: Wave 0 Complete. Ready to begin Wave 1: Hard Sandbox (Docker Integration).
+

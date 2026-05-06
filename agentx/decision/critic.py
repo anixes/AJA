@@ -53,24 +53,25 @@ def llm_critique(plan: PlanGraph, state: dict) -> dict:
     plan_json = json.dumps(plan.to_dict() if hasattr(plan, "to_dict") else str(plan))
     state_json = json.dumps(state)
     
+    # OPTIMIZATION: Put State before Plan so llama.cpp can reuse the KV cache 
+    # for the state across multiple plan evaluations.
     prompt = f"""
 You are a Reasoning Critic for an AI Agent.
-Analyze the following plan and the current state for logical inconsistencies, hidden assumptions, or reasoning flaws.
-
-Plan:
-```json
-{plan_json}
-```
+Analyze the current state and the proposed plan for logical inconsistencies or hidden assumptions.
 
 State:
 ```json
 {state_json}
 ```
 
-Identify any logical flaws or hidden assumptions. Return a JSON object with:
-- "issues": A list of dictionaries, each with "type" (e.g., "hidden_assumption", "logical_inconsistency"), "node": <node_id or desc>, "detail": <description>
-- "severity": An integer score from 0 to 10.
-Return ONLY valid JSON.
+Plan:
+```json
+{plan_json}
+```
+
+Return ONLY valid JSON with:
+- "issues": list of {{"type": str, "node": str, "detail": str}}
+- "severity": int (0-10)
 """
     try:
         response = completion(prompt, system_prompt="You are a strict reasoning critic.")
@@ -92,8 +93,16 @@ Return ONLY valid JSON.
 def deep_critique(plan: PlanGraph, state: dict) -> dict:
     """
     Combines rule-based critique and LLM critique.
+    Optimized for latency: Fast-fails if rule-based critique finds severe issues.
     """
     rule_crit = critique_plan(plan, state)
+    
+    # LATENCY OPTIMIZATION: Fast-fail
+    # If the rule-based critic already found multiple issues, don't waste 
+    # LLM inference time (and 128k context compute) on a broken plan.
+    if rule_crit.get("severity", 0) >= 2:
+        return rule_crit
+        
     llm_crit = llm_critique(plan, state)
     
     issues = rule_crit.get("issues", []) + llm_crit.get("issues", [])

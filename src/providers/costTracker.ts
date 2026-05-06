@@ -113,7 +113,7 @@ export class CostTracker {
 
   /**
    * Record a turn's usage for session tracking.
-   * @param provider - The provider name (e.g. 'openai', 'anthropic', 'ollama')
+   * @param provider - The provider name (e.g. 'openai', 'anthropic', 'llama_cpp')
    */
   recordTurn(model: string, usage: TokenUsage, provider: string = 'unknown'): void {
     const cost = this.estimateCost(model, usage);
@@ -319,8 +319,8 @@ export class CostTracker {
       if (model.startsWith(key)) return PRICING[key];
     }
 
-    // Local models (ollama, lm-studio, etc.)
-    if (model.includes('local') || model.includes('ollama') || model.includes('llama')) {
+    // Local models (llama_cpp, lm-studio, etc.)
+    if (model.includes('local') || model.includes('llama_cpp') || model.includes('llama') || model.includes('gemma')) {
       return PRICING['local'];
     }
 

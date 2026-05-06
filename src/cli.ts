@@ -37,7 +37,7 @@ program
 program
   .option('--mode <mode>', 'Execution mode: read-only, suggest-only, ask-before-edit, auto-edit-safe, autonomous-branch', 'ask-before-edit')
   .option('--model <model>', 'Model override (e.g. gpt-4o, claude-sonnet-4-20250514, gemini-2.5-flash)')
-  .option('--provider <name>', 'Provider override (e.g. openai, anthropic, gemini, ollama)')
+  .option('--provider <name>', 'Provider override (e.g. openai, anthropic, gemini, llama_cpp)')
   .option('--stream', 'Enable streaming output')
   .option('--cost', 'Show cost summary after execution')
   .option('--verbose', 'Verbose output');

@@ -71,7 +71,7 @@ def log_decision_outcome(objective: str, decision_type: str, confidence: float, 
             from scripts.core.gateway import UnifiedGateway
             gateway = UnifiedGateway()
             # OpenRouter / OpenAI embeddings fallback
-            emb = gateway.embed("text-embedding-3-small", objective)
+            emb = gateway.embed("llama_cpp:embedding", objective)
             if emb:
                 import json
                 embedding_blob = json.dumps(emb).encode('utf-8')
@@ -131,7 +131,7 @@ def get_similar_decisions(objective: str, limit: int = 10):
         try:
             from scripts.core.gateway import UnifiedGateway
             gateway = UnifiedGateway()
-            target_embedding = gateway.embed("text-embedding-3-small", objective)
+            target_embedding = gateway.embed("llama_cpp:embedding", objective)
         except Exception:
             pass
 

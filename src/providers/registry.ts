@@ -82,12 +82,12 @@ export class ProviderRegistry {
     // 2. Auto-detect from environment variables
     this.detectFromEnv();
 
-    // 3. Fallback: Ollama local
+    // 3. Fallback: llama.cpp local
     if (this.providers.size === 0) {
-      this.register('ollama', new OpenAICompatProvider({
-        name: 'ollama',
-        baseUrl: 'http://localhost:11434/v1',
-        defaultModel: 'llama3.2',
+      this.register('llama_cpp', new OpenAICompatProvider({
+        name: 'llama_cpp',
+        baseUrl: 'http://localhost:8080/v1',
+        defaultModel: 'gemma-4-e2b',
       }, this.costTracker));
     }
   }
@@ -187,7 +187,7 @@ export class ProviderRegistry {
       openai: 'gpt-4o-mini',
       anthropic: 'claude-sonnet-4-20250514',
       gemini: 'gemini-2.5-flash',
-      ollama: 'llama3.2',
+      llama_cpp: 'gemma-4-e2b',
     };
     return defaults[name] || 'gpt-4o-mini';
   }

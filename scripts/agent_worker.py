@@ -40,10 +40,10 @@ async def work(baton_path: str):
     baton = json.loads(path.read_text())
     print(f"Worker {baton['id']} started. Task: {baton['task']}")
 
-    provider = os.getenv("AI_PROVIDER", "nvidia")
-    key = os.getenv("AI_KEY", "dummy")
-    model = os.getenv("AI_MODEL", "llama-3")
-    gateway = UnifiedGateway(provider, key)
+    # Use the central LLM router which respects operating_mode
+    from agentx.llm import get_gateway_for_model
+    model_str = os.getenv("AI_MODEL", "gemma-4-e2b")
+    gateway, model_name = get_gateway_for_model(model_str)
 
     prompt = (
         f"Context: {baton['context']}\n"

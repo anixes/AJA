@@ -62,13 +62,13 @@ The **Priority Engine** is the core logic that prevents "agent drift." It cross-
 - **Frontend**: React 19, Framer Motion, Tailwind CSS, Vite
 - **Security**: AES-256-GCM, Zod Validation, Custom Command Stripper
 - **Orchestration**: Baton-Handoff Pattern (Multi-Process isolation)
-- **Local AI Engine**: Ollama (E: Drive optimization)
+- **Local AI Engine**: llama.cpp (CUDA optimized)
 
 ---
 
 ## Local AI Configuration (Optimized for 4GB VRAM)
 
-AgentX Core is optimized to run AJA fully offline using **Ollama**. For hardware with 4GB VRAM (e.g., GTX 1650 Ti), we use a multi-model "Swarm" approach:
+AgentX Core is optimized to run AJA fully offline using **llama.cpp**. For hardware with 4GB VRAM (e.g., GTX 1650 Ti), we use a multi-model "Swarm" approach:
 
 - **Brain (Planner/Critic)**: `phi4-mini` (3.8B, Q4_K_M) - High reasoning, 2.5 GB.
 - **Hands (Worker)**: `qwen2.5:3b` (3B, Q4_K_M) - Coding specialist, 1.9 GB.
@@ -89,10 +89,11 @@ cd dashboard && npm install
 ```
 
 ### 2. Launch the Ecosystem
-Run the unified dashboard to start the API Bridge and the Visual Command Center:
+Run the unified command to start the API Bridge and the Visual Command Center:
 ```bash
-python agentx.py dash
+agentx dash
 ```
+
 
 ### Telegram Remote Control
 AJA can accept Telegram text commands through the AgentX Core FastAPI bridge. Set these environment variables before starting `scripts/api_bridge.py`:
@@ -118,15 +119,17 @@ Executive review commands: `morning review`, `night review`, `weekly review`, `w
 ### 3. CLI Missions
 Use the CLI for autonomous planning:
 ```bash
-python agentx.py run "Build a new module for X"
+agentx run "Build a new module for X"
 ```
+
 
 ---
 
 ## Project Structure
-- `scripts/`: Python-based AI agents, health checks, and API bridges.
-- `src/tools/`: Hardened AgentX Core capabilities (Vault, BashTool).
+- `agentx/`: Core engine logic and CLI entry points.
+- `scripts/`: Supplemental AI agents, health checks, and API bridges.
 - `.agentx/runtime-state.json`: Shared AgentX Core runtime state consumed by AJA and the dashboard API bridge.
+
 - `.agentx/aja_secretary.sqlite3`: SQLite secretary memory for AJA obligations and follow-ups.
 - `src/runtime_actions.ts`: Dashboard-triggered approve/deny action runner for pending runtime approvals.
 - `src/telegram_file_guardian_check.ts`: Adapter that lets the Telegram bridge route command previews through FileGuardian.

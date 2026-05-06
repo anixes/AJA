@@ -1,13 +1,19 @@
 import asyncio
 import sys
-import json
 import os
+from pathlib import Path
+
+# Add project root to sys.path to allow absolute imports
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+import json
 import shutil
 import subprocess
 import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Header, Depends

@@ -21,7 +21,7 @@ export type TaskComplexity = 'trivial' | 'simple' | 'medium' | 'hard' | 'review'
 // ── Route Result ─────────────────────────────────────────────
 
 export interface RouteResult {
-  /** The provider name to use (e.g. 'ollama', 'openai', 'anthropic') */
+  /** The provider name to use (e.g. 'llama_cpp', 'openai', 'anthropic') */
   provider: string;
   /** The specific model ID to use */
   model: string;
@@ -56,7 +56,7 @@ export interface RouterConfig {
 // ── Default Configurations ───────────────────────────────────
 
 const DEFAULT_ROUTER_CONFIG: RouterConfig = {
-  local:   { provider: 'ollama',    model: 'qwen2.5:3b' },
+  local:   { provider: 'llama_cpp', model: 'gemma-4-e2b' },
   cheap:   { provider: 'openai',    model: 'gpt-4o-mini' },
   mid:     { provider: 'openai',    model: 'gpt-4o' },
   premium: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
@@ -149,7 +149,7 @@ export class ModelRouter {
   ) {
     this.config = { ...DEFAULT_ROUTER_CONFIG, ...config };
     this.availableProviders = new Set(availableProviders ?? [
-      'ollama', 'openai', 'anthropic', 'gemini', 'openrouter',
+      'llama_cpp', 'openai', 'anthropic', 'gemini', 'openrouter',
     ]);
   }
 
@@ -334,15 +334,15 @@ export class ModelRouter {
     // Fallback chain per tier
     const fallbackChains: Record<string, ModelTierConfig[]> = {
       local: [
-        { provider: 'ollama', model: 'qwen2.5:3b' },
-        { provider: 'ollama', model: 'llama3.2' },
+        { provider: 'llama_cpp', model: 'gemma-4-e2b' },
+        { provider: 'llama_cpp', model: 'phi4-mini' },
         { provider: 'openai', model: 'gpt-4o-mini' },
       ],
       cheap: [
         { provider: 'openai', model: 'gpt-4o-mini' },
         { provider: 'gemini', model: 'gemini-2.0-flash' },
         { provider: 'openrouter', model: 'meta-llama/llama-3.1-8b-instruct' },
-        { provider: 'ollama', model: 'qwen2.5:3b' },
+        { provider: 'llama_cpp', model: 'gemma-4-e2b' },
       ],
       mid: [
         { provider: 'openai', model: 'gpt-4o' },

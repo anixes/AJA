@@ -89,9 +89,11 @@ class DecisionEngine:
 
         
         try:
-            # Using a cheap model for decision making
+            # Phase 16: Local gemma model for offline inference
+            _model = "llama_cpp:gemma-4-e2b"
+            prompt = self._build_prompt(objective, context)
             raw_response = self.gateway.chat(
-                model="gpt-4o-mini",
+                model=_model,
                 prompt=prompt,
                 system=self.SYSTEM_PROMPT
             )
