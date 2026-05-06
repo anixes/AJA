@@ -19,11 +19,15 @@ bus = EventBus()
 
 # Standard Event Types
 EVENTS = {
-    "TASK_RECEIVED": "TASK_RECEIVED",
-    "NODE_STARTED": "NODE_STARTED",
-    "NODE_SUCCESS": "NODE_SUCCESS",
-    "NODE_FAILED": "NODE_FAILED",
-    "ROLLBACK": "ROLLBACK",
-    "REPAIR": "REPAIR",
-    "PLAN_CREATED": "PLAN_CREATED"
+    "TASK_RECEIVED":      "TASK_RECEIVED",
+    "NODE_STARTED":       "NODE_STARTED",
+    "NODE_SUCCESS":       "NODE_SUCCESS",
+    "NODE_FAILED":        "NODE_FAILED",
+    "ROLLBACK":           "ROLLBACK",
+    "REPAIR":             "REPAIR",
+    "PLAN_CREATED":       "PLAN_CREATED",
+    # Wave 3: Human-in-the-Loop events
+    "AWAITING_APPROVAL":  "AWAITING_APPROVAL",
+    "NODE_APPROVED":      "NODE_APPROVED",
+    "NODE_REJECTED":      "NODE_REJECTED",
 }
