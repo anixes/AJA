@@ -244,12 +244,59 @@ class PlanGraph:
         return f"PlanGraph(goal={self.goal!r}, nodes={len(self.nodes)})"
 
 # ---------------------------------------------------------------------------
-# PlanVersion
+# PlanVersion  (Wave 2 - Plan Versioning System)
 # ---------------------------------------------------------------------------
 
+@dataclass
 class PlanVersion:
-    def __init__(self, plan: PlanGraph, parent: str = None):
-        self.id = str(uuid.uuid4())
-        self.parent = parent
-        self.plan = plan
-        self.timestamp = time.time()
+    """
+    Immutable snapshot of a PlanGraph at a specific point in time.
+
+    Fields
+    ------
+    id        : Unique version UUID.
+    parent    : ID of the preceding version (None for v1).
+    plan      : Full PlanGraph snapshot for this version.
+    timestamp : Unix epoch when the version was created.
+    label     : Human-readable reason for the cut (e.g. "repair", "initial").
+    """
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    parent: str | None = None
+    plan: PlanGraph = field(default_factory=lambda: PlanGraph(goal=""))
+    timestamp: float = field(default_factory=time.time)
+    label: str = "initial"
+
+    # -- helpers ------------------------------------------------------------
+
+    @property
+    def iso_timestamp(self) -> str:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "parent": self.parent,
+            "timestamp": self.timestamp,
+            "iso_timestamp": self.iso_timestamp,
+            "label": self.label,
+            "plan": self.plan.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PlanVersion":
+        return cls(
+            id=d["id"],
+            parent=d.get("parent"),
+            plan=PlanGraph.from_dict(d["plan"]),
+            timestamp=d["timestamp"],
+            label=d.get("label", "unknown"),
+        )
+
+    def __repr__(self) -> str:
+        pid = (self.parent[:8] + '...') if self.parent else 'None'
+        return (
+            f"PlanVersion(id={self.id[:8]}..., parent={pid}, "
+            f"label={self.label!r}, t={self.iso_timestamp})"
+        )

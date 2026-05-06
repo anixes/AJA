@@ -36,6 +36,7 @@ from agentx.planning.scheduler import Scheduler
 from agentx.planning.execution_bridge import ExecutionBridge
 from agentx.planning.replanner import Replanner, RecoveryAction, RepairRecord
 from agentx.planning.plan_store import PlanStore
+from agentx.planning.version_store import VersionStore
 
 
 # ---------------------------------------------------------------------------
@@ -70,8 +71,9 @@ class ReActExecutor:
         self.repair_history: List[RepairRecord] = []
         self._bridge = ExecutionBridge(self.graph, task_id=self.task_id)
         self._replanner = Replanner(self.graph, self.repair_history)
-        from agentx.planning.models import PlanVersion
-        self.current_version = PlanVersion(self.graph)
+        # Cut initial version snapshot
+        initial = VersionStore.cut(self.plan_id, self.graph, parent_id=None, label="initial")
+        self.current_version_id: str = initial.id
 
     # -- public API ---------------------------------------------------------
 
@@ -239,8 +241,9 @@ class ReActExecutor:
                         repaired = self._replanner.repair_subtree(node, self._bridge.system_state)
                         if repaired:
                             node.repair_attempts = getattr(node, 'repair_attempts', 0) + 1
-                            from agentx.planning.models import PlanVersion
-                            self.current_version = PlanVersion(self.graph, parent=self.current_version.id)
+                            v = VersionStore.cut(self.plan_id, self.graph, parent_id=self.current_version_id, label="repair")
+                            self.current_version_id = v.id
+                            print(f"[ReActExecutor] Version cut: {v.id[:8]}... (pre-exec repair on '{node.id}')")
                             # Break the batch, rebuild scheduler next iteration
                             break
                         else:
@@ -311,9 +314,9 @@ class ReActExecutor:
                                     has_escalated = True
                             else:
                                 node.repair_attempts = getattr(node, 'repair_attempts', 0) + 1
-                                from agentx.planning.models import PlanVersion
-                                self.current_version = PlanVersion(self.graph, parent=self.current_version.id)
-                                
+                                v = VersionStore.cut(self.plan_id, self.graph, parent_id=self.current_version_id, label="repair")
+                                self.current_version_id = v.id
+                                print(f"[ReActExecutor] Version cut: {v.id[:8]}... (post-failure repair on '{node.id}')")
                         break # Break current batch to pick up repaired nodes in next scheduler loop
                 
                 if has_escalated:

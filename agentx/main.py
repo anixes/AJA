@@ -35,25 +35,9 @@ from scripts.secretary_memory import (
     parse_task_intent,
 )
 
-# ---------------------------------------------------------------------------
-# Resolve project root portably
-# ---------------------------------------------------------------------------
-def find_project_root():
-    """Finds the AgentX project root by looking for agentx.json."""
-    # Start from this file's location
-    current = Path(__file__).resolve().parent
-    # Check up to 3 levels up for agentx.json
-    for _ in range(3):
-        if (current / "agentx.json").exists():
-            return current
-        if (current / ".git").exists():
-            return current
-        current = current.parent
-    # Fallback to the parent of the package directory
-    return Path(__file__).resolve().parent.parent
+from agentx.config import PROJECT_ROOT, find_project_root
 
 PYTHON = sys.executable
-PROJECT_ROOT = find_project_root()
 BATON_DIR = PROJECT_ROOT / "temp_batons"
 RUNTIME_STATE = PROJECT_ROOT / ".agentx" / "runtime-state.json"
 

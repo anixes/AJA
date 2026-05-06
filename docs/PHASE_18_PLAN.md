@@ -2,21 +2,24 @@
 
 This phase adds strict containerized execution, tracks structural changes across replanning events, and brings humans into the critical path.
 
-## Wave 1: Hard Sandbox (Container Isolation)
+## Wave 1: Hard Sandbox (Container Isolation) — COMPLETE
 1. **Docker Execution (`agentx/runtime/sandbox.py`)**:
-   - Upgrade the `execute_command` function to route through Docker:
-     `docker run --rm --network=none --read-only --cpus=0.5 -m=256m ...`
-   - Enforce resource limits (CPU, memory, timeout).
+   - `execute_command()` routes through Docker when daemon is available.
+   - Graceful fallback to direct subprocess when Docker is offline.
+   - Project workspace mounted at `/workspace`; resource limits enforced.
 2. **Terminal Capability Integration**:
-   - Ensure `TerminalExec` leverages this hard sandbox instead of direct host execution.
+   - `TerminalExec` uses `run_in_sandbox()` which selects Docker or fallback automatically.
+   - Execution `mode` (`'docker'` | `'direct_fallback'`) surfaced in output for observability.
 
-## Wave 2: Plan Versioning System
-1. **PlanVersion Model (`agentx/planning/models.py`)**:
-   - Create a `PlanVersion` object linking `plan`, `parent` version, and `timestamp`.
-2. **Version Tracking (`agentx/planning/react_executor.py` & `replanner.py`)**:
-   - When the graph is modified during subtree repair, a new `PlanVersion` is cut.
-3. **Storage & Replay (`agentx/observability/trace.py`)**:
-   - Integrate version ID into the trace logger for accurate playback of evolving plans.
+## Wave 2: Plan Versioning System — COMPLETE
+1. **PlanVersion (`agentx/planning/models.py`)**:
+   - Full `@dataclass` with `id`, `parent`, `plan`, `timestamp`, `label`, `iso_timestamp`.
+   - `to_dict()` / `from_dict()` for JSON persistence.
+2. **VersionStore (`agentx/planning/version_store.py`)**:
+   - `cut()` — deep-snapshot the graph and persist to `.agentx/plan_versions/<plan_id>/`.
+   - `chain()` / `latest()` / `load()` for retrieval.
+3. **ReActExecutor** wires `VersionStore.cut()` at plan start and on every repair.
+4. **TraceStore** (`agentx/observability/trace.py`) now records `version_id` per event.
 
 ## Wave 3: Human-in-the-Loop Control
 1. **Risk Gates (`agentx/planning/react_executor.py`)**:
@@ -29,10 +32,10 @@ This phase adds strict containerized execution, tracks structural changes across
 
 ## Wave 0: Environment Stabilization (COMPLETE)
 - [x] **Packaging Fix**: Resolved shadowing conflict between `agentx.py` and `agentx/` package.
-- [x] **Path Resolution**: Robust `find_project_root()` implemented in CLI and TUI.
+- [x] **Path Resolution**: Robust `find_project_root()` centralised in `agentx/config.py`.
 - [x] **API Gateway**: Verified connectivity for online/offline/hybrid modes.
 
 ---
 
-*Status*: Wave 0 Complete. Ready to begin Wave 1: Hard Sandbox (Docker Integration).
+*Status*: Wave 0, 1, 2 Complete. Ready for Wave 3: Human-in-the-Loop Control.
 
