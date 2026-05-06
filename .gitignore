@@ -47,3 +47,8 @@ dashboard/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs & Temporary Files
+*.log
+*.txt
+!README.md

@@ -4,32 +4,43 @@ import json
 
 def test_model(model_name, prompt):
     print(f"\n[TEST] Testing Model: {model_name}...")
-    url = "http://localhost:11434/api/generate"
+    url = "http://localhost:8080/completion"
     payload = {
-        "model": model_name,
         "prompt": prompt,
+        "n_predict": 128,
         "stream": False
     }
     
     start_time = time.time()
     try:
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(url, json=payload, timeout=120)
         end_time = time.time()
         
         if response.status_code == 200:
             data = response.json()
             duration = end_time - start_time
-            # Ollama provides token counts in the response
-            eval_count = data.get("eval_count", 0)
-            tps = eval_count / duration if duration > 0 else 0
+            # llama.cpp server response has content and timings
+            # Note: The response format might vary depending on the version
+            # Usually it returns text in "content"
+            content = data.get("content", "")
+            tokens_generated = len(content.split()) # Rough estimate if not provided
+            
+            # Try to get exact token count from timings if available
+            timings = data.get("timings", {})
+            predicted_n = timings.get("predicted_n", 0)
+            if predicted_n > 0:
+                tokens_generated = predicted_n
+            
+            tps = tokens_generated / duration if duration > 0 else 0
             
             print(f"  - Status   : Success")
             print(f"  - Duration : {duration:.2f} seconds")
-            print(f"  - Tokens   : {eval_count}")
+            print(f"  - Tokens   : {tokens_generated}")
             print(f"  - Speed    : {tps:.2f} tokens/sec")
             return tps
         else:
             print(f"  - Status   : Failed (Code {response.status_code})")
+            print(f"  - Error    : {response.text}")
             return 0
     except Exception as e:
         print(f"  - Status   : Error ({str(e)})")
@@ -38,10 +49,11 @@ def test_model(model_name, prompt):
 if __name__ == "__main__":
     test_prompt = "Write a Python script to sort a list of numbers without using .sort()."
     
-    models = ["phi4-mini", "qwen2.5:3b"]
+    # We are testing the current running llama-server
+    models = ["gemma-4-e2b-it-local"]
     results = {}
     
-    print("--- AgentX Model Performance Benchmark ---")
+    print("--- AgentX Model Performance Benchmark (llama-server) ---")
     for m in models:
         tps = test_model(m, test_prompt)
         results[m] = tps
