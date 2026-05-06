@@ -21,14 +21,16 @@ This phase adds strict containerized execution, tracks structural changes across
 3. **ReActExecutor** wires `VersionStore.cut()` at plan start and on every repair.
 4. **TraceStore** (`agentx/observability/trace.py`) now records `version_id` per event.
 
-## Wave 3: Human-in-the-Loop Control
-1. **Risk Gates (`agentx/planning/react_executor.py`)**:
-   - Add a `risk` score to `PlanNode`.
-   - If `node.risk > threshold`, emit `AWAITING_APPROVAL` and pause execution.
-2. **API Control (`agentx/server/api.py`)**:
-   - Expose endpoints: `POST /approve`, `POST /reject`, `POST /modify_node`.
-3. **Session State Updates**:
-   - Allow modifications to node inputs dynamically while paused.
+## Wave 3: Human-in-the-Loop Control — COMPLETE
+1. **Session (`agentx/runtime/session.py`)**:
+   - Added `is_rejected` flag and `reject()` method to unblock executor on rejection.
+2. **Event Bus (`agentx/runtime/event_bus.py`)**:
+   - Added `AWAITING_APPROVAL`, `NODE_APPROVED`, `NODE_REJECTED` event types.
+3. **API (`agentx/server/api.py`)**:
+   - `POST /hitl/approve` — approve pending node with optional `input_overrides`.
+   - `POST /hitl/reject` — reject with reason; triggers `session.reject()`.
+   - `POST /hitl/modify_node` — live-patch any node field while paused.
+   - `GET /hitl/status/{user_id}` — inspect pending node + session state.
 
 ## Wave 0: Environment Stabilization (COMPLETE)
 - [x] **Packaging Fix**: Resolved shadowing conflict between `agentx.py` and `agentx/` package.
@@ -37,5 +39,5 @@ This phase adds strict containerized execution, tracks structural changes across
 
 ---
 
-*Status*: Wave 0, 1, 2 Complete. Ready for Wave 3: Human-in-the-Loop Control.
+*Status*: **Phase 18 COMPLETE** — Wave 0, 1, 2, 3 all done. Ready for next phase.
 
