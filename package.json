@@ -7,14 +7,18 @@
   "bin": {
     "agentx": "./dist/cli.js"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "tsx src/main.tsx",
-    "dev:cli": "tsx src/cli.ts",
-    "build": "tsc",
-    "start": "node dist/main.js",
-    "start:cli": "node dist/cli.js",
-    "dash": "python agentx.py dash",
-    "status": "python agentx.py status"
+    "dev": "tsx apps/cli-ts/src/main.tsx",
+    "dev:cli": "tsx apps/cli-ts/src/cli.ts",
+    "build": "npm run build --workspaces",
+    "start": "node apps/cli-ts/dist/main.js",
+    "start:cli": "node apps/cli-ts/dist/cli.js",
+    "dash": "set PYTHONPATH=packages/agentx-core && python -m agentx dash",
+    "status": "set PYTHONPATH=packages/agentx-core && python -m agentx status"
   },
   "keywords": [],
   "author": "",

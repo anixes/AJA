@@ -58,37 +58,22 @@ The **Priority Engine** is the core logic that prevents "agent drift." It cross-
 ---
 
 ## Technology Stack
-- **Backend**: Node.js (TypeScript), Python 3.12 (FastAPI/Textual)
-- **Frontend**: React 19, Framer Motion, Tailwind CSS, Vite
+- **Core Engine**: Python 3.12 (Modular Package)
+- **CLI App**: TypeScript / Node.js (Ink-based)
+- **Dashboard**: React 19, Framer Motion, Tailwind CSS, Vite
 - **Security**: AES-256-GCM, Zod Validation, Custom Command Stripper
 - **Orchestration**: Baton-Handoff Pattern (Multi-Process isolation)
 - **Local AI Engine**: llama.cpp (CUDA optimized)
 
 ---
 
-## Local AI Configuration (Optimized for 4GB VRAM)
-
-AgentX Core is optimized to run AJA fully offline using **llama.cpp**. For hardware with 4GB VRAM (e.g., GTX 1650 Ti), we use a high-throughput **Speculative Decoding** configuration:
-
-- **Main Model**: `gemma-4-e2b-it` (4.6B, Q4_K_M) - Unified high-performance reasoning model.
-- **Draft Model**: `gemma-3-270m-it` (270M, Q4_K_M) - High-speed draft model for speculative decoding.
-- **Context Optimization**: 128k context window with Flash Attention and tuned batch sizes (`-b 128 -ub 128`).
-- **Speed**: Achieves ~30-50+ TPS through speculative drafting and CUDA acceleration.
-
-### Model Performance
-Run the benchmark to verify GPU acceleration and speculative throughput:
-```powershell
-python benchmark_tps.py
-```
-*Goal: >35 TPS for real-time agentic swarms.*
-
 ## Quick Start
 
 ### 1. Setup Environment
 ```bash
 npm install
-cd dashboard && npm install
 ```
+*Note: This will install dependencies for all workspaces (apps and packages).*
 
 ### 2. Launch the Ecosystem
 Run the unified command to start the API Bridge and the Visual Command Center:
@@ -96,49 +81,27 @@ Run the unified command to start the API Bridge and the Visual Command Center:
 agentx dash
 ```
 
-
-### Telegram Remote Control
-AJA can accept Telegram text commands through the AgentX Core FastAPI bridge. Set these environment variables before starting `scripts/api_bridge.py`:
-```bash
-TELEGRAM_BOT_TOKEN=123456:bot-token
-TELEGRAM_ALLOWED_USER_ID=123456789
-TELEGRAM_WEBHOOK_SECRET=long-random-secret
-```
-
-Expose the bridge to Telegram and register the webhook:
-```bash
-curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=https://YOUR_PUBLIC_URL/telegram/webhook&secret_token=$TELEGRAM_WEBHOOK_SECRET"
-```
-
-Supported commands: `status`, `check gpu`, `run training job`, `git pull repo`, `shutdown laptop tonight`, and `restart notebook process`. Risky commands create structured approval requests with `approve <id>` / `reject <id>`. History is persisted in `.agentx/telegram-history.jsonl`; immutable approval audit entries are persisted in `.agentx/approval-audit.jsonl`.
-
-Secretary commands: `tasks`, `task review`, `complete <task_id>`, `archive <task_id>`, or natural obligations like `follow up with recruiter next Tuesday`.
-
-Messaging commands: `draft recruiter follow-up`, `draft professional reply to recruiter`, `remind Rahul about project deadline`, `approve message <message_id>`, `send message <message_id>`, and `check pending unanswered messages`.
-
-Executive review commands: `morning review`, `night review`, `weekly review`, `what am I avoiding today`, `what slipped this week`, `snooze <task_id> tomorrow`, `what should I do first`, `what actually matters today`, and `what can be ignored this week`.
-
 ### 3. CLI Missions
 Use the CLI for autonomous planning:
 ```bash
 agentx run "Build a new module for X"
 ```
 
-
 ---
 
 ## Project Structure
-- `agentx/`: Core engine logic and CLI entry points.
-- `scripts/`: Supplemental AI agents, health checks, and API bridges.
-- `.agentx/runtime-state.json`: Shared AgentX Core runtime state consumed by AJA and the dashboard API bridge.
 
-- `.agentx/aja_secretary.sqlite3`: SQLite secretary memory for AJA obligations and follow-ups.
-- `src/runtime_actions.ts`: Dashboard-triggered approve/deny action runner for pending runtime approvals.
-- `src/telegram_file_guardian_check.ts`: Adapter that lets the Telegram bridge route command previews through FileGuardian.
-- `.agentx/approval-audit.jsonl`: Append-only approval lifecycle audit log.
-- `src/vault/`: Cryptographic core and storage logic.
-- `dashboard/`: The Visual Command Center (React).
-- `graphify-out/`: Live-updated Knowledge Graph of the codebase.
+The project follows a modern **Apps/Packages Monorepo** architecture:
+
+- **`apps/`**
+  - `cli-ts/`: TypeScript-based terminal application and simulation tools.
+  - `dashboard/`: Premium React + Vite Visual Command Center.
+- **`packages/`**
+  - **`agentx-core/`**: The main Python orchestration engine.
+    - `agentx/`: Core module logic (agents, goals, memory, security, utils).
+- **`tests/`**: Unified testing environment for both Python and TypeScript suites.
+- **`.agentx/`**: Centralized runtime state, secretary memory (SQLite), and audit logs.
+- **`agentx.bat`**: Unified launcher for the entire ecosystem.
 
 ---
 
