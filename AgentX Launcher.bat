@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 TITLE AgentX Master Launcher
 :: =======================================================
 :: AgentX Master Launcher (Optimized for GTX 1650 Ti)
