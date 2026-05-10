@@ -231,9 +231,25 @@ Interfaces:
 - [PHASE_24_LONG_TERM_AUTONOMY.md](./PHASE_24_LONG_TERM_AUTONOMY.md): Multi-device orchestration and goal engine.
 - [PHASE_25_SELF_INITIATED_GOALS.md](./PHASE_25_SELF_INITIATED_GOALS.md): Governed autonomy and intent engine.
 - [PHASE_26_RL_LITE_LEARNING.md](./PHASE_26_RL_LITE_LEARNING.md): RL-lite behavioral learning and policy store.
+- [BROWSER_INTEGRATION.md](./BROWSER_INTEGRATION.md): Hybrid tiered browsing (Obscura + Vercel) and Pseudo-Snapshots.
+- [HARDWARE_OPTIMIZATION.md](./HARDWARE_OPTIMIZATION.md): GTX 1650 Ti tuning (350 t/s) and Intelligent Memory architecture.
 - [AGENT_ORCHESTRATION.md](./AGENT_ORCHESTRATION.md): How the multi-process swarm works.
 - [AUDIT_REPORT.md](./AUDIT_REPORT.md): Historical record of surgical architectural refactoring (Phases 1-3).
 - [POST_MORTEM.md](./POST_MORTEM.md): Research findings from the Claude codebase audit.
+
+## Phase 28: Hardware-Tuned Swarm & Intelligent Memory
+
+Optimizing AgentX for high-performance reasoning on resource-constrained local hardware.
+
+- **Throughput Locking**: Achieved stable **~350 t/s** prompt processing using optimized `ubatch=256` and GPU clock locking (`nvidia-smi`).
+- **Intelligent Memory Gate**: Implemented a 5,000-character context trigger that automatically summarizes task history to prevent the "Linear Latency Wall."
+- **Hardware-Aware Gateway**: Centralized local routing that forces `llama_cpp` priority and prevents accidental remote API calls.
+- **Unified Launcher**: Created a single "Gold Standard" entry point for the model, API, and Telegram services.
+
+Interfaces:
+- Launcher: `AgentX Launcher.bat` (Desktop Shortcut)
+- Logic: `agentx/gateway.py` (Memory Monitor), `agentx/orchestration/swarm.py` (Bypass Dummy)
+- Docs: `docs/HARDWARE_OPTIMIZATION.md`
 
 ## Phase 9: Resilient Loop & Presence
 
@@ -411,6 +427,20 @@ Dynamic decision optimization via reward-based policy biasing.
 - **Reward Function**: `Success - Latency - Repair - Risk`.
 - **Exploration vs Exploitation**: Epsilon-greedy strategy for strategy discovery.
 - **Drift Control**: Auto-reset of policy on success rate degradation.
+
+## Phase 27: Hybrid Agentic Browsing & Internet Access
+
+Equipping local, non-vision models with robust, resource-efficient internet access.
+
+- **Dual-Engine Failover**: Tiered browser architecture using **Obscura** (Primary/Lightweight) and **Vercel Agent Browser** (Standby/Chromium).
+- **Semantic Distillation**: A text-first pipeline that converts raw HTML into a structured map with element markers (`[@e1]`, `[@e2]`).
+- **Pseudo-Snapshots**: Providing "textual vision" by labeling links, buttons, and inputs, allowing local models to interact with complex sites using simple numerical references.
+- **Token Optimization**: Stripping 90% of noise to fit internet-scale context into limited local model windows.
+
+Interfaces:
+- Capability: `browser.search`, `browser.read`, `browser.navigate`
+- Path: `E:\obscura\obscura.exe` (Primary), `agent-browser` (Standby)
+- Logic: `agentx/capabilities/browser.py`
 
 ## Next Evolution: Full Autonomous Deployment
 

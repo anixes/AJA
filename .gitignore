@@ -58,6 +58,9 @@ Thumbs.db
 # Logs & Temporary Files
 *.log
 *.txt
+*.gguf
+*.lnk
+context_test_results.json
 !README.md
 !SPEC.md
 !.gsd/**/PLAN.md

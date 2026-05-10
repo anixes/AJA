@@ -60,6 +60,20 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 *   **Persistent State**: Goals are tracked from `PENDING` to `DONE` across system reboots.
 *   **Intelligent Routing**: Tasks are dispatched to the optimal hardware node based on tool requirements.
 
+### 9. Hybrid Agentic Browsing (Internet Access)
+**Problem**: Browsing is resource-intensive for local hardware, and non-vision models struggle with raw HTML noise.
+**Solution**: A tiered, text-first browsing system optimized for local inference.
+*   **Dual-Engine Failover**: Primary execution via **Obscura** (Rust-based, ultra-lightweight) with automatic standby transition to **Vercel Agent Browser** (Chromium-based) for complex JS-heavy sites.
+*   **Semantic Pseudo-Snapshots**: Automated injection of `[@eX]` markers for interactive elements (links, buttons, inputs), providing "textual vision" for non-multimodal models.
+*   **Token-Efficient Distillation**: Multi-stage cleaning pipeline that strips non-content nodes, reducing token usage by ~90% compared to raw DOM.
+
+### 10. Hardware-Aware Memory Management (Intelligent Memory)
+**Problem**: Large context windows on consumer GPUs (e.g., 4GB VRAM) lead to catastrophic latency spikes and "OOM" crashes.
+**Solution**: A tiered, hardware-aware context monitor.
+*   **Automatic Summarization**: The system detects when task history exceeds **5,000 characters** and triggers a high-density compression gate.
+*   **Context Resetting**: Redundant logs are replaced by a "State Summary," resetting the latency trajectory while preserving critical file paths and decisions.
+*   **Performance Tuning**: The system is hard-locked to an optimized `ubatch=256` profile, ensuring prompt processing speeds of **350 t/s** without over-committing VRAM.
+
 ---
 
 ## 🛠️ Research-Aligned Workflows

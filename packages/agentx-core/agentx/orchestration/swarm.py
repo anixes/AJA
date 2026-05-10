@@ -1,13 +1,18 @@
 import os
-import sys
-import time
 import json
 import asyncio
+import sys
+import time
 import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
-from agentx.orchestration.gateway import UnifiedGateway
+
+# Local imports - ensuring we use the optimized local gateway
+try:
+    from agentx.gateway import UnifiedGateway
+except ImportError:
+    from agentx.orchestration.gateway import UnifiedGateway
 
 PYTHON = sys.executable
 
@@ -109,11 +114,6 @@ class SwarmEngine:
             plan = [
                 {"id": 1, "task": objective, "delegated_worker": "test-worker"}
             ]
-        elif self.gateway.api_key == "dummy":
-            plan = [
-                {"id": 1, "task": "Review security docs", "file_context": "docs/SAFE_SHELL.md"},
-                {"id": 2, "task": "Propose TUI enhancement", "file_context": "packages/agentx-core/agentx/interface/tui.py"},
-            ]
         else:
             planning_prompt = (
                 f"Break down this objective into 2-3 independent sub-tasks: '{objective}'. "
@@ -150,11 +150,15 @@ class SwarmEngine:
             result = await self._execute_baton_worker(baton_path)
             results.append(result)
 
-        if self.gateway.api_key == "dummy":
-            final_report = "Final Synthesis [DUMMY]: Tasks completed."
-        else:
-            synthesis_prompt = f"Objective: {objective}\nSub-task results: {json.dumps(results, indent=2)}\nSynthesize these results into a final report."
-            final_report = self.gateway.chat(self.model, synthesis_prompt)
+        results_str = json.dumps(results, indent=2)
+        
+        # MEMORY CHECK: If the results are too large, summarize them first to stay under the 'Latency Wall'
+        if len(results_str) > 5000: # Aggressive 5k limit for 4GB VRAM stability
+            print("[MEMORY] Context threshold reached. Summarizing task history to maintain reasoning speed...")
+            results_str = self.gateway.summarize(results_str, objective=objective)
+            
+        synthesis_prompt = f"Objective: {objective}\nSub-task results: {results_str}\nSynthesize these results into a final report."
+        final_report = self.gateway.chat(self.model, synthesis_prompt)
 
         print("\nFinal Synthesis Complete:\n" + final_report)
 
