@@ -20,7 +20,7 @@ def get_gateway_for_model(model_str):
     # 1. Check Operating Mode from agentx.json
     operating_mode = "online"
     local_model_fallback = "gemma-4-e2b"
-    cloud_model_fallback = "gemini-3.1-pro"
+    cloud_model_fallback = "gemini-2.5-flash"
     try:
         if os.path.exists("agentx.json"):
             with open("agentx.json", "r") as f:
@@ -84,9 +84,9 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None)
         try:
             with open("agentx.json", "r") as f:
                 config = json.load(f)
-                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "google:gemini-3-flash-preview")
+                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "google:gemini-2.5-flash")
         except Exception:
-            model = "google:gemini-3-flash-preview"
+            model = "google:gemini-2.5-flash"
             
     gw, model_name = get_gateway_for_model(model)
     return gw.chat(model=model_name, prompt=prompt, system=system_prompt) or ""

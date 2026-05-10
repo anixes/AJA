@@ -1,16 +1,19 @@
 import json
+import os
 import urllib.request
 import asyncio
 from agentx.runtime.event_bus import bus, EVENTS
 from agentx.config import TELEGRAM_TOKEN, TELEGRAM_ALLOWED_USER_ID
 
+BOT_TOKEN = TELEGRAM_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN", "")
+
 async def async_send_telegram_message(chat_id: str, message: str):
     """Non-blocking Telegram send."""
-    if not TELEGRAM_TOKEN or not TELEGRAM_ALLOWED_USER_ID:
+    if not BOT_TOKEN or not TELEGRAM_ALLOWED_USER_ID:
         print(f"[Telegram Bot] [MOCKED] {message}")
         return
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = json.dumps({
         "chat_id": chat_id,
         "text": message
@@ -59,4 +62,3 @@ def setup_telegram_listener():
     bus.subscribe(EVENTS["ROLLBACK"], lambda n: broadcast(f"⏪ **Rolling back:** {getattr(n, 'task', 'Task')}"))
     bus.subscribe(EVENTS["REPAIR"], lambda n: broadcast(f"🔧 **Attempting repair for:** {getattr(n, 'task', 'Task')}"))
     bus.subscribe(EVENTS["PLAN_CREATED"], lambda data: broadcast(f"📋 **Here's the plan:**\n{data.get('plan_summary', 'Executing objective.')}"))
-

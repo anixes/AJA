@@ -15,9 +15,15 @@ const SENSITIVE_FILES = [
   '.env',
   '.env.local',
   '.env.production',
-  'scripts/stripper.py',
+  'packages/agentx-core/agentx/security/stripper.py',
   'src/tools/bashTool.ts'
 ];
+
+function isSensitivePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  const fileName = normalized.split('/').pop() || '';
+  return SENSITIVE_FILES.some((sensitive) => sensitive === fileName || normalized.endsWith(sensitive));
+}
 
 /**
  * Load custom safe paths from .agentx/safe-paths.json if it exists.
@@ -38,10 +44,8 @@ export async function validateFileOperation(
   content: string,
   cwd?: string
 ): Promise<'ALLOW' | 'ASK' | 'DENY'> {
-  const fileName = filePath.split(/[/\\]/).pop() || '';
-  
   // 1. Critical System Blocks — always denied
-  if (SENSITIVE_FILES.includes(fileName) || filePath.includes('.git')) {
+  if (isSensitivePath(filePath) || filePath.includes('.git')) {
     return 'DENY';
   }
 
@@ -63,10 +67,8 @@ export async function validateFileOperation(
  * Combines built-in rules with custom .agentx/safe-paths.json.
  */
 export function isFileAutonomousSafe(filePath: string, cwd: string = process.cwd()): boolean {
-  const fileName = filePath.split(/[/\\]/).pop() || '';
-
   // Never auto-edit sensitive files
-  if (SENSITIVE_FILES.includes(fileName) || filePath.includes('.git')) {
+  if (isSensitivePath(filePath) || filePath.includes('.git')) {
     return false;
   }
 

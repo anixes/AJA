@@ -149,18 +149,18 @@ def cmd_mode(mode: str = None):
             config["swarm_settings"]["operating_mode"] = "online"
             config["swarm_settings"]["offline_mode"] = False
             config["swarm_settings"]["models"] = {
-                "planner": "google:gemini-flash-latest",
-                "worker": "google:gemini-flash-latest",
-                "critic": "google:gemini-flash-latest"
+                "planner": "google:gemini-2.5-flash",
+                "worker": "google:gemini-2.5-flash",
+                "critic": "google:gemini-2.5-flash"
             }
             print("[OK] Switched to ONLINE mode (Gemini/Cloud Inference).")
         elif mode == "hybrid":
             config["swarm_settings"]["operating_mode"] = "hybrid"
             config["swarm_settings"]["offline_mode"] = False # Network allowed
             config["swarm_settings"]["models"] = {
-                "planner": "google:gemini-flash-latest",
+                "planner": "google:gemini-2.5-flash",
                 "worker": "llama_cpp:gemma-4-e2b",
-                "critic": "google:gemini-flash-latest"
+                "critic": "google:gemini-2.5-flash"
             }
             print("[OK] Switched to HYBRID mode (Gemma + Cloud Inference).")
         else:
@@ -198,7 +198,7 @@ def cmd_dash():
     try:
         subprocess.run(
             ["npm", "run", "dev"],
-            cwd=str(PROJECT_ROOT / "dashboard"),
+            cwd=str(PROJECT_ROOT / "apps" / "dashboard"),
             shell=True,
         )
     except KeyboardInterrupt:
@@ -669,7 +669,8 @@ def cmd_run(objective: str = "", background: bool = False, task: dict = None):
 
             cmd = [
                 PYTHON,
-                str(PROJECT_ROOT / "packages" / "agentx-core" / "agentx" / "orchestration" / "swarm.py"),
+                "-m",
+                "agentx.orchestration.swarm",
                 "--mode", "baton",
                 "--objective", objective,
                 "--run-id", run_id

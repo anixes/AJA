@@ -7,7 +7,7 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
-from core.gateway import UnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway
 
 PYTHON = sys.executable
 
@@ -57,7 +57,7 @@ class SwarmEngine:
             if os.path.exists(territory):
                 print(f"[-] Dispatching Healing Worker to territory: {territory}")
                 process = subprocess.Popen(
-                    [PYTHON, "scripts/self_healer.py", territory],
+                    [PYTHON, "-m", "agentx.utils.self_healer", territory],
                     env=env
                 )
                 self.workers[territory] = process
@@ -77,7 +77,7 @@ class SwarmEngine:
     def _run_agent_sync(self, agent_id: int, task: str, target_provider: str):
         print(f"🐝 [Agent {agent_id}] Starting task on {target_provider.upper()}...")
         cmd = [
-            PYTHON, "scripts/core/gateway.py", 
+            PYTHON, "-m", "agentx.orchestration.gateway",
             "--provider", target_provider,
             "--key", self.gateway.api_key,
             "--model", self.model,
@@ -103,7 +103,7 @@ class SwarmEngine:
         return results
 
     # --- MODE 3: BATON ORCHESTRATOR ---
-    async def plan_and_execute_batons(self, objective: str, run_id: str = None):
+    async def plan_and_execute_batons(self, objective: str, run_id: str = None, worker_id: str = "swarm-maintenance"):
         print(f"Orchestrating Objective: {objective}")
         if objective.startswith("test:"):
             plan = [
@@ -112,7 +112,7 @@ class SwarmEngine:
         elif self.gateway.api_key == "dummy":
             plan = [
                 {"id": 1, "task": "Review security docs", "file_context": "docs/SAFE_SHELL.md"},
-                {"id": 2, "task": "Propose TUI enhancement", "file_context": "scripts/tui_shell.py"},
+                {"id": 2, "task": "Propose TUI enhancement", "file_context": "packages/agentx-core/agentx/interface/tui.py"},
             ]
         else:
             planning_prompt = (
@@ -141,6 +141,7 @@ class SwarmEngine:
                 "updated_at": now_iso(),
                 "history": [],
                 "run_id": run_id,
+                "delegated_worker": task.get("delegated_worker", worker_id),
             }
             append_baton_history(baton_data, "queued", "Baton created by orchestrator.")
             write_baton(baton_path, baton_data)
@@ -165,7 +166,7 @@ class SwarmEngine:
         write_baton(baton_path, baton_data)
 
         process = subprocess.run(
-            [PYTHON, "scripts/agent_worker.py", str(baton_path)],
+            [PYTHON, "-m", "agentx.agents.worker", str(baton_path)],
             capture_output=True, text=True
         )
 
@@ -227,4 +228,4 @@ if __name__ == "__main__":
         if not task_input:
             print("Error: --task or --objective required for baton mode.")
             sys.exit(1)
-        asyncio.run(engine.plan_and_execute_batons(task_input, run_id=args.run_id))
+        asyncio.run(engine.plan_and_execute_batons(task_input, run_id=args.run_id, worker_id=args.worker))

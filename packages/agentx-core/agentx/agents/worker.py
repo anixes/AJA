@@ -1,11 +1,10 @@
 import asyncio
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.config import PROJECT_ROOT
 
 
 def now_iso():
@@ -40,18 +39,7 @@ async def work(baton_path: str):
     baton = json.loads(path.read_text())
     print(f"Worker {baton['id']} started. Task: {baton['task']}")
 
-    # Use the central LLM router which respects operating_mode
-    from agentx.llm import get_gateway_for_model
-    model_str = os.getenv("AI_MODEL", "gemma-4-e2b")
-    gateway, model_name = get_gateway_for_model(model_str)
-
-    prompt = (
-        f"Context: {baton['context']}\n"
-        f"Task: {baton['task']}\n"
-        "Execute this task and provide a detailed report of the work completed."
-    )
-
-    from scripts.dispatch_adapters import dispatch_worker
+    from agentx.orchestration.adapters import dispatch_worker
 
     try:
         baton["status"] = "executing"
@@ -59,7 +47,7 @@ async def work(baton_path: str):
         append_baton_history(baton, "working", f"Worker {baton.get('delegated_worker', 'unknown')} started execution.")
         save_baton(path, baton)
 
-        workspace_dir = str(Path(__file__).resolve().parent.parent)
+        workspace_dir = str(PROJECT_ROOT)
         worker_id = baton.get("delegated_worker", "swarm-maintenance")
         
         # Execute via specialized dispatch adapter
@@ -75,7 +63,7 @@ async def work(baton_path: str):
             baton["tests_output"] = adapter_result.get("tests", "")
             baton["rollback_path"] = adapter_result.get("rollback_path", "")
             
-            from scripts.verification_engine import run_verification
+            from agentx.orchestration.verification_engine import run_verification
             verif = run_verification(baton, workspace_dir)
             baton["verification"] = verif
             

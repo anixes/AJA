@@ -909,6 +909,7 @@ const Dashboard = () => {
                       className="w-full bg-[#0f1115] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500/40 transition-colors appearance-none"
                     >
                       <option value="openrouter">OpenRouter (recommended)</option>
+                      <option value="google">Google Gemini (AI Studio)</option>
                       <option value="openai">OpenAI</option>
                       <option value="groq">Groq</option>
                       <option value="nvidia">NVIDIA</option>

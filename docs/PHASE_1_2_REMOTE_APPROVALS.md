@@ -21,10 +21,16 @@ Telegram Bot API -> FastAPI bridge -> AgentX Core runtime -> safety gate -> exec
 
 Implemented endpoints:
 
-- `POST /telegram/webhook`: Telegram Bot API webhook.
-- `POST /telegram/command`: local test endpoint for the same command router.
 - `GET /telegram/status`: bridge configuration and pending count.
 - `GET /telegram/history`: recent Telegram command history.
+- **Local Long-Polling Loop**: Replaced brittle webhooks with a robust local polling loop in `bridge.py`. This ensures reliability behind NAT and avoids conflict with public-facing webhooks.
+
+### Command Priority Logic
+Telegram messages are processed with the following priority:
+1. **Approval/Rejection**: Explicit confirmation of pending actions.
+2. **Supported Shortcuts**: Hardcoded commands in `build_supported_command` (e.g., `check gpu`) execute immediately.
+3. **Secretary Intent**: Natural language tasks, reminders, and drafts.
+4. **General Chat**: fallback LLM interaction.
 
 Required environment:
 

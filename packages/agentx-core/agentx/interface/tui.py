@@ -305,7 +305,7 @@ if __name__ == "__main__":
     config_path = cwd_config if cwd_config.exists() else PROJECT_ROOT / "agentx.json"
     
     provider = "google"
-    model = "gemini-flash-latest"
+    model = "gemini-2.5-flash"
     
     if config_path.exists():
         try:
@@ -316,7 +316,7 @@ if __name__ == "__main__":
             
             # Default fallback
             provider = "google"
-            model = "gemini-flash-latest"
+            model = "gemini-2.5-flash"
 
             if mode == "offline":
                 provider = "llama_cpp"
@@ -324,7 +324,7 @@ if __name__ == "__main__":
             else:
                 # For online or hybrid, we prefer the planner model for the TUI shell
                 model_settings = swarm.get("models", {})
-                planner_model = model_settings.get("planner", "google:gemini-flash-latest")
+                planner_model = model_settings.get("planner", "google:gemini-2.5-flash")
                 if planner_model and ":" in planner_model:
                     p, m = planner_model.split(":", 1)
                     provider, model = p, m

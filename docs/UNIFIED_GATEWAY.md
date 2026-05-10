@@ -16,11 +16,18 @@ python scripts/gateway.py \
 ```
 
 ### Supported Providers
+- `google` (**Native SDK**): Uses the `generativelanguage.googleapis.com` v1beta REST API directly. Bypasses OpenAI compatibility issues for superior stability with Gemini 1.5 and 2.0 models.
 - `nvidia` (NVIDIA NIM)
 - `groq` (Groq LPU)
 - `together` (Together AI)
 - `openrouter` (OpenRouter Aggregator)
 - `custom` (Requires `--url` flag)
+
+### Native Protocol Switching
+The gateway automatically detects if a `google:` provider is requested. It will:
+1. Strip `/openai` from the base URL if present.
+2. Use `x-goog-api-key` headers instead of Bearer tokens.
+3. Call the `generateContent` endpoint using `urllib` for zero-dependency reliability.
 
 ---
 

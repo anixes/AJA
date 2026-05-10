@@ -3,10 +3,10 @@ import sys
 import os
 from pathlib import Path
 
-# Add project root to sys.path to allow absolute imports
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
+# Add package root to sys.path to allow absolute imports when launched directly.
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.append(str(PACKAGE_ROOT))
 
 import json
 import shutil
@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from agentx.security.stripper import CommandStripper
+from agentx.config import PROJECT_ROOT
 from agentx.memory.secretary import (
     SecretaryMemory,
     format_communication_for_mobile,
@@ -38,19 +39,28 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        "http://localhost:5176",
+        "http://127.0.0.1:5176",
+        "http://localhost:5177",
+        "http://127.0.0.1:5177",
+        "http://localhost:5178",
+        "http://127.0.0.1:5178",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 RUNTIME_STATE_PATH = Path(".agentx") / "runtime-state.json"  # debug export only
-BATON_DIR = Path("temp_batons")
+BATON_DIR = PROJECT_ROOT / "temp_batons"
 API_TOKEN = os.getenv("AGENTX_API_TOKEN", "dev-token-123")
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TELEGRAM_HISTORY_PATH = Path(".agentx") / "telegram-history.jsonl"
 TELEGRAM_PENDING_PATH = Path(".agentx") / "telegram-pending.json"  # debug export only
 APPROVAL_AUDIT_PATH = Path(".agentx") / "approval-audit.jsonl"   # debug export only
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 TELEGRAM_COMMAND_TIMEOUT = int(os.getenv("TELEGRAM_COMMAND_TIMEOUT", "60"))
@@ -564,6 +574,7 @@ def build_supported_command(text: str):
                     "- task review",
                     "- complete <task_id>",
                     "",
+                    "You can also talk naturally. AJA will answer as a chat assistant.",
                     "Risky commands create structured approval requests.",
                     "Use approve <id> or reject <id> after reviewing the request.",
                 ]
@@ -571,7 +582,7 @@ def build_supported_command(text: str):
         }
     if normalized == "status":
         return {"kind": "status"}
-    if normalized == "check gpu":
+    if normalized in {"check gpu", "gpu status", "gpu", "/gpu", "check_gpu"}:
         return {"kind": "execute", "command": "nvidia-smi", "requires_confirmation": False, "action_type": "gpu_check", "risk_level": "low"}
     if normalized == "run training job":
         return {
@@ -611,8 +622,7 @@ def build_supported_command(text: str):
             "risk_level": "high",
         }
     return {
-        "kind": "deny",
-        "message": "Command denied: unsupported text command. Send /help for the current allowlist.",
+        "kind": "chat",
     }
 
 
@@ -925,6 +935,67 @@ def get_telegram_message(update: dict):
     return update.get("message") or update.get("edited_message") or {}
 
 
+def build_aja_chat_context(limit: int = 5):
+    memory = get_secretary_memory()
+    context: list[str] = []
+    try:
+        tasks = memory.list_tasks(statuses=["pending", "active", "blocked"], limit=limit)
+        if tasks:
+            context.append("Current tasks:")
+            for task in tasks:
+                due = task.get("due_at") or task.get("due_date") or "no due date"
+                context.append(f"- {task.get('title')} [{task.get('priority')}, due {due}]")
+    except Exception:
+        pass
+
+    try:
+        pending = memory.get_active_approval()
+        if pending:
+            context.append(
+                f"Pending approval: {pending.get('approval_id')} for {pending.get('command_preview') or pending.get('command')}"
+            )
+    except Exception:
+        pass
+
+    return "\n".join(context) or "No current task context is available."
+
+
+def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
+    system_prompt = (
+        "You are AJA, the natural-language assistant/operator for AgentX Core. "
+        "Be warm, concise, and practical, like a capable collaborator in Telegram. "
+        "Do not claim you executed commands unless the safety-gated command path did so. "
+        "When the user asks for risky system action, explain that they should use an explicit supported command "
+        "or the dashboard so AgentX can create an approval request. "
+        "For reminders, follow-ups, tasks, and communication drafts, mention that you can save them when phrased as a task or draft request."
+    )
+    user_prompt = (
+        f"Telegram user id: {user_id}\n"
+        f"Chat id: {chat_id}\n\n"
+        f"AJA context:\n{build_aja_chat_context()}\n\n"
+        f"User message:\n{text}\n\n"
+        "Reply naturally for Telegram. Keep it under 900 characters unless detail is necessary."
+    )
+
+    try:
+        from agentx.llm import completion
+
+        reply = (completion(user_prompt, system_prompt=system_prompt) or "").strip()
+        if reply:
+            return compact_text(reply, 1800)
+    except Exception as exc:
+        return (
+            "I can chat naturally, but my language model backend is not reachable right now. "
+            f"Bridge error: {exc}\n\n"
+            "I can still handle command paths like status, tasks, task review, approve <id>, and reject <id>."
+        )
+
+    return (
+        "I am here. Natural chat is wired through the AJA bridge, but the model returned an empty response. "
+        "Check your provider key or local model server, then message me again."
+    )
+
+
 async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
     pending = load_telegram_pending()
     normalized = " ".join((text or "").strip().split())
@@ -956,11 +1027,6 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "communication_send" if result["ok"] else "communication_send_failed", "message_id": message_id})
         return result["message"]
 
-    secretary_reply = await asyncio.to_thread(execute_secretary_command_sync, text, "Telegram", f"telegram:{user_id}")
-    if secretary_reply:
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "secretary_memory"})
-        return secretary_reply
-
     spec = build_supported_command(text)
     if spec["kind"] == "help":
         return spec["message"]
@@ -968,10 +1034,20 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         payload = await asyncio.to_thread(build_status_payload)
         append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "status"})
         return format_status_for_mobile(payload)
-    if spec["kind"] == "deny":
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "denied", "reason": spec["message"]})
-        return spec["message"]
 
+    # Only if it's not a hardcoded command or status/help, try the secretary
+    if spec["kind"] == "chat":
+        secretary_reply = await asyncio.to_thread(execute_secretary_command_sync, text, "Telegram", f"telegram:{user_id}")
+        if secretary_reply:
+            append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "secretary_memory"})
+            return secretary_reply
+
+        # Fallback to general AI chat
+        reply = await asyncio.to_thread(generate_aja_chat_reply, text, user_id, chat_id)
+        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "aja_chat"})
+        return reply
+
+    # If we are here, it's an 'execute' kind from build_supported_command
     command = spec["command"]
     file_guardian = await run_file_guardian_check(command)
     if file_guardian["decision"] == "DENY":
@@ -2216,8 +2292,8 @@ async def swarm_run(request: Request):
 
     try:
         proc = subprocess.Popen(
-            [sys.executable, "scripts/swarm_engine.py", "--mode", "baton", "--objective", objective, "--worker", worker_id],
-            cwd=str(Path(__file__).resolve().parent.parent),
+            [sys.executable, "-m", "agentx.orchestration.swarm", "--mode", "baton", "--objective", objective, "--worker", worker_id],
+            cwd=str(PROJECT_ROOT),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -2292,6 +2368,80 @@ async def update_config(request: Request):
 
     save_config(cfg)
     return {"ok": True, "message": "Configuration saved."}
+
+
+async def telegram_polling_loop():
+    """Poll Telegram for updates when running locally without a webhook."""
+    offset = 0
+    print(f"[Telegram Poller] Starting polling loop for bot token: {TELEGRAM_BOT_TOKEN[:10]}...")
+    
+    while True:
+        if not TELEGRAM_BOT_TOKEN:
+            await asyncio.sleep(10)
+            continue
+            
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=20"
+            def _fetch():
+                try:
+                    with urllib.request.urlopen(url, timeout=25) as response:
+                        return json.loads(response.read().decode("utf-8"))
+                except Exception as e:
+                    return {"ok": False, "error": str(e)}
+
+            res = await asyncio.to_thread(_fetch)
+            if res.get("ok"):
+                updates = res.get("result", [])
+                if updates:
+                    print(f"[Telegram Poller] Received {len(updates)} new updates.")
+                
+                for update in updates:
+                    offset = update["update_id"] + 1
+                    message = get_telegram_message(update)
+                    chat = message.get("chat") or {}
+                    sender = message.get("from") or {}
+                    chat_id = chat.get("id")
+                    user_id = sender.get("id")
+                    text = message.get("text")
+
+                    if not chat_id or not user_id or not text:
+                        continue
+
+                    print(f"[Telegram Poller] Processing message from {user_id}: {text}")
+
+                    # Process update exactly like the webhook does
+                    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
+                        print(f"[Telegram Poller] Unauthorized user: {user_id}")
+                        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "unauthorized"})
+                        await send_telegram_message(chat_id, "Access denied: this Telegram user is not whitelisted for AJA.")
+                        continue
+
+                    reply = await execute_telegram_command(text, int(user_id), chat_id)
+                    print(f"[Telegram Poller] Sending reply to {user_id}")
+                    await send_telegram_message(chat_id, reply)
+            else:
+                error_msg = res.get("error", "")
+                # If error is "Conflict", another bot instance might be running or a webhook is set
+                if "409" in error_msg or "Conflict" in error_msg:
+                    print(f"[Telegram Poller] Conflict (409): {error_msg}. Polling is blocked by a webhook or another instance.")
+                    await asyncio.sleep(10)
+                elif "401" in error_msg:
+                    print(f"[Telegram Poller] Unauthorized (401): Your bot token is invalid.")
+                    await asyncio.sleep(60)
+                else:
+                    # Don't spam the log for common timeouts
+                    if "timeout" not in error_msg.lower():
+                        print(f"[Telegram Poller] Fetch error: {error_msg}")
+                
+        except Exception as e:
+            print(f"[Telegram Poller] Loop error: {e}")
+            
+        await asyncio.sleep(1)
+
+@app.on_event("startup")
+async def startup_event():
+    if TELEGRAM_BOT_TOKEN:
+        asyncio.create_task(telegram_polling_loop())
 
 
 if __name__ == "__main__":

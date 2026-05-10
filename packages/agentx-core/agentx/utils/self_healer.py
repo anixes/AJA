@@ -1,6 +1,6 @@
 import sys
 import os
-from scripts.health_check import run_health_check
+from agentx.utils.health_check import run_health_check
 from agentx.orchestration.gateway import UnifiedGateway
 from pathlib import Path
 

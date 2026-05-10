@@ -310,7 +310,7 @@ def meta_validate(
 EVALUATORS = [
     os.environ.get("AGENTX_EVALUATOR_A", "gpt-4o"),
     os.environ.get("AGENTX_EVALUATOR_B", "claude-3-5-sonnet-20241022"),
-    os.environ.get("AGENTX_EVALUATOR_C", "gemini-1.5-pro")
+    os.environ.get("AGENTX_EVALUATOR_C", "gemini-2.5-flash")
 ]
 
 # Ensure diversity warning

@@ -75,11 +75,16 @@ npm install
 ```
 *Note: This will install dependencies for all workspaces (apps and packages).*
 
-### 2. Launch the Ecosystem
-Run the unified command to start the API Bridge and the Visual Command Center:
+### 2. Launch the Ecosystem (AJA Stack)
+Run the unified command to start the API Bridge (Python), the Telegram Poller, and the Visual Command Center (Vite):
 ```bash
-agentx dash
+npm run aja
 ```
+
+### 3. Telegram Interaction
+AJA now uses a **robust local polling loop**. No webhooks are required, making it perfect for local development. 
+- Ensure `TELEGRAM_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are set in `.env`.
+- Message your bot directly. Try `status` or `gpu`.
 
 ### 3. CLI Missions
 Use the CLI for autonomous planning:

@@ -5,5 +5,5 @@
   "openrouter": "https://openrouter.ai/api/v1",
   "openai": "https://api.openai.com/v1",
   "llama_cpp": "http://localhost:8080/v1",
-  "google": "https://generativelanguage.googleapis.com/v1beta"
+  "google": "https://generativelanguage.googleapis.com/v1beta/openai"
 }

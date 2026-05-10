@@ -1,6 +1,7 @@
 import time
 import subprocess
 import os
+import sys
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from pathlib import Path
@@ -30,7 +31,7 @@ class GraphUpdateHandler(FileSystemEventHandler):
             # We run a specialized local-only extraction
             # This uses local CPU to map functions/classes (Zero Tokens)
             subprocess.run([
-                "python", "scripts/local_extractor.py"
+                sys.executable, "-m", "agentx.utils.local_extractor"
             ], capture_output=True, text=True)
             print("  - Local Map Updated. (0 tokens used)")
         except Exception as e:
@@ -43,7 +44,7 @@ if __name__ == "__main__":
     observer.schedule(event_handler, path, recursive=True)
     
     print("Zero-Cost Graph Watcher Started.")
-    print("Watching for changes in src/, scripts/, and docs/...")
+    print("Watching for changes in apps/, packages/, and docs/...")
     
     observer.start()
     try:

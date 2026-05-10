@@ -17,6 +17,8 @@
     "build": "npm run build --workspaces",
     "start": "node apps/cli-ts/dist/main.js",
     "start:cli": "node apps/cli-ts/dist/cli.js",
+    "aja": "node tools/start-aja.mjs",
+    "start:aja": "node tools/start-aja.mjs",
     "dash": "set PYTHONPATH=packages/agentx-core && python -m agentx dash",
     "status": "set PYTHONPATH=packages/agentx-core && python -m agentx status",
     "test": "npm run test:ts && npm run test:py",
