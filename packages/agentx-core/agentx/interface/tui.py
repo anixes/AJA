@@ -29,8 +29,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 
-from scripts.core.stripper import CommandStripper
-from scripts.core.gateway import UnifiedGateway
+from agentx.security.stripper import CommandStripper
+from agentx.orchestration.gateway import UnifiedGateway
 
 class RiskPanel(Static):
     """A panel to display AI Risk Analysis."""
@@ -196,7 +196,7 @@ class SafeShellTUI(App):
                 
                 if api_key and api_key != "dummy":
                     self.gateway.api_key = api_key
-                    # chat is sync in scripts.core.gateway.UnifiedGateway
+                    # chat is sync in agentx.orchestration.gateway.UnifiedGateway
                     import asyncio
                     loop = asyncio.get_event_loop()
                     response = await loop.run_in_executor(None, self.gateway.chat, self.model, intent_prompt)

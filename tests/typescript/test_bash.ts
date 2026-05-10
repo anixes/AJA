@@ -1,4 +1,4 @@
-import { bashTool } from './tools/bashTool.js';
+import { bashTool } from '../../apps/cli-ts/src/tools/bashTool.js';
 
 async function testSafety() {
   const context = {

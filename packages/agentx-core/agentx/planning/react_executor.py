@@ -203,9 +203,9 @@ class ReActExecutor:
                     
                     # 1.5 Permission Check
                     from agentx.security.permissions import default_permissions
-                    if not default_permissions.allow(node.tool):
+                    if not default_permissions.allow(getattr(node, 'tool', 'agent.coder')):
                         node.status = "FAILED"
-                        node.error = f"PermissionError: {node.tool} is not allowed by current security policies."
+                        node.error = f"PermissionError: {getattr(node, 'tool', 'agent.coder')} is not allowed by current security policies."
                         has_escalated = True
                         break
 
@@ -285,13 +285,13 @@ class ReActExecutor:
                         # Handle LOGIC or EXTERNAL failures
                         from agentx.planning.failure_memory import FailureMemory
                         from agentx.embeddings.service import EmbeddingService
-                        embed = EmbeddingService().embed_text
+                        embed = EmbeddingService().embed
                         
                         FailureMemory.record({
                             "goal": self.graph.goal,
                             "node": node.id,
                             "state": self._bridge.system_state,
-                            "plan_embedding": embed(self.graph.summary()),
+                            "plan_embedding": embed(self.graph.to_json()),
                             "error": node.error,
                             "failure_type": f_type
                         })

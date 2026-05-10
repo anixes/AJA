@@ -94,7 +94,7 @@ def evaluate_semantic(objective: str, result: str, context: Dict[str, Any] = Non
         print("[Evaluator] EVALUATOR_MODEL_OVERLAP: same model used for execution and evaluation.")
 
     try:
-        from scripts.core.gateway import UnifiedGateway
+        from agentx.orchestration.gateway import UnifiedGateway
         gateway = UnifiedGateway()
         
         prompt = f"Objective:\n{objective}\n\nExecution Result:\n{result}\n\nDoes the execution result successfully fulfill the objective?"
@@ -147,7 +147,7 @@ def evaluate_semantic_with_reasoning(
     """
     context = context or {}
     try:
-        from scripts.core.gateway import UnifiedGateway
+        from agentx.orchestration.gateway import UnifiedGateway
         gateway = UnifiedGateway()
 
         prompt = (
@@ -272,7 +272,7 @@ def meta_validate(
     "CONFIRMED" | "DOUBTFUL"
     """
     try:
-        from scripts.core.gateway import UnifiedGateway
+        from agentx.orchestration.gateway import UnifiedGateway
         gateway = UnifiedGateway()
 
         panel_summary = "\n".join(

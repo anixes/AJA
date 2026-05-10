@@ -1,7 +1,7 @@
 import sys
 import os
 from scripts.health_check import run_health_check
-from scripts.core.gateway import UnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway
 from pathlib import Path
 
 # Config

@@ -175,6 +175,8 @@ class ExecutionBridge:
         Mutates node.status, node.result, node.error, node.attempt in-place.
         """
         if node.is_compound:
+            node.status = "FAILED"
+            node.error = "HTN Violation: Cannot execute compound node directly"
             print(f"[ExecutionBridge] [FAIL] Node '{node.id}' FAILED: {node.error}")
             return False
 
@@ -224,8 +226,7 @@ class ExecutionBridge:
                 cap = registry.get('agent.coder')
 
             # Merge node inputs with built context
-            cap_inputs = getattr(node, 'inputs', {}).copy()
-            cap_inputs.update(context)
+            cap_inputs = context.copy()
             cap_inputs['task'] = node.task
 
             result = cap.execute(cap_inputs)

@@ -2,19 +2,14 @@
   "project_name": "AgentX_Core",
   "territories": [
     {
-      "path": "src/prod",
-      "health_cmd": "node src/prod/app.ts",
+      "path": "apps/cli-ts",
+      "health_cmd": "node dist/cli.js",
       "auto_heal": true
     },
     {
-      "path": "src/vault",
-      "health_cmd": "ls src/vault",
+      "path": "packages/agentx-core",
+      "health_cmd": "python -m agentx status",
       "auto_heal": false
-    },
-    {
-      "path": "src/tools",
-      "health_cmd": "ls src/tools",
-      "auto_heal": true
     }
   ],
   "swarm_settings": {

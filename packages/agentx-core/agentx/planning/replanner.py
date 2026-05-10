@@ -63,10 +63,10 @@ class FailureKind(Enum):
 
 _PATTERNS: List[Tuple[re.Pattern, FailureKind]] = [
     (re.compile(r"auth|unauthori[zs]ed|403|401", re.I), FailureKind.AUTH_ERROR),
-    (re.compile(r"rate.-limit|429|too many request", re.I), FailureKind.RATE_LIMIT),
-    (re.compile(r"tool.-not.-found|no such tool|unknown skill", re.I), FailureKind.TOOL_NOT_FOUND),
-    (re.compile(r"context|missing.-input|key.-error", re.I), FailureKind.CONTEXT_MISSING),
-    (re.compile(r"timeout|timed.-out|deadline", re.I), FailureKind.TIMEOUT),
+    (re.compile(r"rate[-_ ]limit|429|too many request", re.I), FailureKind.RATE_LIMIT),
+    (re.compile(r"tool[-_ ]not[-_ ]found|no such tool|unknown skill", re.I), FailureKind.TOOL_NOT_FOUND),
+    (re.compile(r"context|missing[-_ ]input|key[-_ ]error", re.I), FailureKind.CONTEXT_MISSING),
+    (re.compile(r"timeout|timed[-_ ]out|deadline", re.I), FailureKind.TIMEOUT),
 ]
 
 

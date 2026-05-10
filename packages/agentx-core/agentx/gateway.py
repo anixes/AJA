@@ -1,5 +1,5 @@
 
-from scripts.core.gateway import UnifiedGateway as OriginalUnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway as OriginalUnifiedGateway
 import json
 
 class UnifiedGateway(OriginalUnifiedGateway):

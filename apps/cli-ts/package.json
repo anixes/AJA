@@ -8,7 +8,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@agentx/core": "workspace:*",
+    "@agentx/core": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^14.0.3",
     "ink": "^7.0.1",

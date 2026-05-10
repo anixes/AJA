@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.core.gateway import UnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway
 
 
 def now_iso():

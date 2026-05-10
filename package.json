@@ -18,7 +18,10 @@
     "start": "node apps/cli-ts/dist/main.js",
     "start:cli": "node apps/cli-ts/dist/cli.js",
     "dash": "set PYTHONPATH=packages/agentx-core && python -m agentx dash",
-    "status": "set PYTHONPATH=packages/agentx-core && python -m agentx status"
+    "status": "set PYTHONPATH=packages/agentx-core && python -m agentx status",
+    "test": "npm run test:ts && npm run test:py",
+    "test:py": "pytest",
+    "test:ts": "tsx tests/typescript/test_bash.ts && tsx tests/typescript/test_file_safety.ts && tsx tests/typescript/test_query.ts"
   },
   "keywords": [],
   "author": "",

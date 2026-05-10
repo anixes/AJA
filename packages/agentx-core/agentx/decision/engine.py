@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List
-from scripts.core.gateway import UnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway
 
 logger = logging.getLogger("agentx.decision")
 

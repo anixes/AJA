@@ -134,7 +134,7 @@ def test_invariant_2_tool_idempotency():
     
     def run_mission():
         # Manually invoke swarm_engine to control run_id
-        cmd = [PYTHON, "scripts/swarm_engine.py", "--mode", "baton", "--objective", objective, "--run-id", run_id]
+        cmd = [PYTHON, "-m", "agentx.orchestration.swarm", "--mode", "baton", "--objective", objective, "--run-id", run_id]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -143,7 +143,7 @@ def test_invariant_2_tool_idempotency():
         
         # Now try to run the tool manually with SAME run_id and SAME args
         # The tool logic should see it's already RUNNING.
-        tool_cmd = [PYTHON, "scripts/test_idempotent_tool.py", run_id, "wait"]
+        tool_cmd = [PYTHON, "tests/python/test_idempotent_tool.py", run_id, "wait"]
         res_tool = subprocess.run(tool_cmd, capture_output=True, text=True)
         
         f1.result()

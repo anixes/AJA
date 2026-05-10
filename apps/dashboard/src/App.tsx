@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useStore } from './store/useStore';
+import { useFadeInUp, useStaggerChildren } from './hooks/useAnimations';
 import {
   Activity,
   FileText,
@@ -260,7 +262,9 @@ const emptyStatus: DashboardStatus = {
 };
 
 const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState<'status' | 'files' | 'history' | 'workers' | 'settings'>('status');
+  const { activeTab, setActiveTab, connectionState, setConnectionState, setStats } = useStore();
+  const headerRef = useFadeInUp<HTMLElement>(0);
+  const statsGridRef = useStaggerChildren<HTMLDivElement>(':scope > *', 50);
   const [data, setData] = useState<DashboardStatus>(emptyStatus);
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
   const [history, setHistory] = useState<GitCommit[]>([]);
@@ -270,7 +274,6 @@ const Dashboard = () => {
   const [priorities, setPriorities] = useState<PriorityEngine | null>(null);
   const [approvalAction, setApprovalAction] = useState<'approve' | 'deny' | null>(null);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
-  const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const [missionInput, setMissionInput] = useState('');
   const [missionStatus, setMissionStatus] = useState<string | null>(null);
   const [missionLoading, setMissionLoading] = useState(false);
@@ -308,11 +311,18 @@ const Dashboard = () => {
     eventSource.onmessage = (event) => {
       try {
         const snapshot = JSON.parse(event.data) as RuntimeSnapshot;
-        setData(snapshot.status ?? emptyStatus);
+        const s = snapshot.status ?? emptyStatus;
+        setData(s);
         setEvents(snapshot.events ?? []);
         setHistory(snapshot.history ?? []);
         setBatons(snapshot.batons ?? []);
         setConnectionState('live');
+        setStats({
+          totalFiles: s.total_files,
+          activeAgents: s.active_agents,
+          safetyAlerts: s.safety_alerts,
+          batonCount: s.baton_count ?? 0,
+        });
       } catch {
         setConnectionState('offline');
       }
@@ -560,7 +570,7 @@ const Dashboard = () => {
       </nav>
 
       <main className="pl-20 min-h-screen flex flex-col">
-        <header className="px-12 py-8 flex justify-between items-center bg-[#0f1115]/50 backdrop-blur-xl sticky top-0 z-40 border-b border-white/[0.02]">
+        <header ref={headerRef} className="px-12 py-8 flex justify-between items-center bg-[#0f1115]/50 backdrop-blur-xl sticky top-0 z-40 border-b border-white/[0.02]">
           <div>
             <h1 className="text-lg font-medium text-white tracking-tight">Executive Desk</h1>
             <p className="text-sm text-slate-500 font-normal">Manage agenda, approvals, and delegations</p>
@@ -610,7 +620,7 @@ const Dashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-10 max-w-7xl"
               >
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div ref={statsGridRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <StatusCard
                     title="Urgent Tasks"
                     status={tasks.length > 0 ? 'healing' : 'stable'}

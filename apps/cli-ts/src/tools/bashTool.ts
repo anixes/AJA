@@ -94,7 +94,7 @@ function summarizeReasons(reasons: string[]): string {
 }
 
 async function analyzeCommand(command: string): Promise<StripperAnalysis> {
-  const stripperPath = path.join(process.cwd(), 'scripts', 'core', 'stripper.py');
+  const stripperPath = path.join(process.cwd(), 'packages', 'agentx-core', 'agentx', 'security', 'stripper.py');
   const { stdout } = await execFileAsync(resolvePythonExecutable(), [stripperPath, command], {
     windowsHide: true,
   });
@@ -252,10 +252,14 @@ export const bashTool: ToolDefinition<any> = {
       }
 
       const safeEnvVars = analysis['Env Vars'] ?? {};
+      const isWin = process.platform === 'win32';
       const { stdout, stderr } = await execAsync(command, {
         cwd: context.cwd,
         signal: context.abortSignal,
         env: { ...process.env, ...safeEnvVars },
+        shell: isWin ? 'powershell.exe' : '/bin/bash',
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 10,
       });
 
       const output = stderr ? `${stdout}\nErrors:\n${stderr}` : stdout;

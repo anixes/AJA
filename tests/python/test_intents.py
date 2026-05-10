@@ -1,5 +1,5 @@
 import json
-from scripts.core.stripper import CommandStripper
+from agentx.security.stripper import CommandStripper
 
 # Mock AI Translation Logic (Simulating what happens in the TUI)
 INTENT_MAPPING = {
@@ -16,7 +16,7 @@ RISK_DB = {
     'sudo': ('HIGH', 'Root Privilege Escalation.')
 }
 
-def test_intent(intent):
+def run_intent_test(intent):
     print(f"\n[USER INTENT]: {intent}")
     
     # 1. AI Translation (Simulated)
@@ -41,7 +41,7 @@ def test_intent(intent):
 
 if __name__ == "__main__":
     print("--- AGENTX HUMAN INTENT INTEGRATION TEST ---")
-    test_intent("list all files")
-    test_intent("delete the temp folder")
-    test_intent("check network connections")
-    test_intent("find the main file")
+    run_intent_test("list all files")
+    run_intent_test("delete the temp folder")
+    run_intent_test("check network connections")
+    run_intent_test("find the main file")

@@ -1,4 +1,4 @@
-import { ToolManager } from './engine/ToolManager.js';
+import { ToolManager } from '../../apps/cli-ts/src/engine/ToolManager.js';
 import path from 'path';
 
 async function testFileSafety() {

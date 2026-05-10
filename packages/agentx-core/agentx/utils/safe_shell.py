@@ -1,8 +1,8 @@
 import os
 import subprocess
 import json
-from scripts.core.stripper import CommandStripper
-from scripts.core.gateway import UnifiedGateway
+from agentx.security.stripper import CommandStripper
+from agentx.orchestration.gateway import UnifiedGateway
 
 class SafeShell:
     """

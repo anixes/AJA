@@ -68,7 +68,7 @@ def log_decision_outcome(objective: str, decision_type: str, confidence: float, 
         # --- Vectorization Phase 11 ---
         embedding_blob = None
         try:
-            from scripts.core.gateway import UnifiedGateway
+            from agentx.orchestration.gateway import UnifiedGateway
             gateway = UnifiedGateway()
             # OpenRouter / OpenAI embeddings fallback
             emb = gateway.embed("llama_cpp:embedding", objective)
@@ -129,7 +129,7 @@ def get_similar_decisions(objective: str, limit: int = 10):
         # --- Vectorization Phase 11 ---
         target_embedding = None
         try:
-            from scripts.core.gateway import UnifiedGateway
+            from agentx.orchestration.gateway import UnifiedGateway
             gateway = UnifiedGateway()
             target_embedding = gateway.embed("llama_cpp:embedding", objective)
         except Exception:

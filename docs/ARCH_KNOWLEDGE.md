@@ -3,6 +3,21 @@
 ## Overview
 The AgentX project has been refactored from a "scattered" root-level directory structure into a modern **Apps/Packages Monorepo**. This structure enforces a clean separation between core logic, peripheral applications, and runtime state.
 
+## 🕸️ Semantic Knowledge Graph
+The codebase is indexed via **Graphify**, providing a navigable map of semantic relationships and architectural hubs.
+
+**Latest Graph Report**: [GRAPH_REPORT.md](../graphify-out/GRAPH_REPORT.md)
+
+### Key Architectural Hubs
+Based on the latest graph analysis, the system is clustered into the following functional domains:
+*   **Planning & HTN System**: Core HTN implementation, DAG validation, and serializability.
+*   **Decision Engine**: LLM-assisted routing and meta-evaluation logic.
+*   **API & Security**: The bridge between the Python core and TypeScript apps, including command stripping and sandboxing.
+*   **Memory & Intelligence**: Experience stores, failure categorization, and embedding-based retrieval.
+*   **Skill Execution**: The idempotent execution loop and runtime state management.
+
+---
+
 ## Core Structure
 
 ### 1. Packages (`/packages`)

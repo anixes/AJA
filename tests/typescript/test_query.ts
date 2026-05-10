@@ -1,5 +1,5 @@
-import { QueryEngine } from './engine/QueryEngine.js';
-import { ToolManager } from './engine/ToolManager.js';
+import { QueryEngine } from '../../apps/cli-ts/src/engine/QueryEngine.js';
+import { ToolManager } from '../../apps/cli-ts/src/engine/ToolManager.js';
 
 async function main() {
   const prompt = process.argv.slice(2).join(' ') || '/help';
