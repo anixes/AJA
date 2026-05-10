@@ -20,7 +20,9 @@ credentials.json
 auth.json
 
 # Tool/System State
-.gsd/
+# Tool/System State
+.gsd/**
+!.gsd/**/
 !.gsd/**/PLAN.md
 .kilo/
 graphify-out/
