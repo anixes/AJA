@@ -1,6 +1,6 @@
-# AgentX Core Dashboard for AJA
+# AgentX Core Dashboard
 
-The dashboard is the Visual Command Center for AgentX Core. AJA uses it as a human-in-the-loop control surface for runtime state, approval requests, task telemetry, and security events exposed by `scripts/api_bridge.py`.
+The dashboard is the Visual Command Center for AgentX Core. AgentX uses it as a human-in-the-loop control surface for runtime state, approval requests, task telemetry, and security events exposed by `scripts/api_bridge.py`.
 
 ## Current Views
 
@@ -25,7 +25,7 @@ and still uses these action endpoints when the user clicks buttons:
 - `POST /runtime/approve`
 - `POST /runtime/deny`
 
-Secretary memory endpoints are available for AJA task panels:
+Secretary memory endpoints are available for AgentX task panels:
 
 - `GET /memory/tasks`
 - `POST /memory/tasks`
@@ -81,7 +81,7 @@ Risky actions are shown as structured approval requests, not opaque command prom
 - `dryRunSummary`
 - `reasons`
 
-This is the same object AJA sends through Telegram for Phase 2 remote control.
+This is the same object AgentX sends through Telegram for Phase 2 remote control.
 
 ## Runtime Notes
 
@@ -90,7 +90,7 @@ This is the same object AJA sends through Telegram for Phase 2 remote control.
 - Pending approvals are single-item for now: one risky action can be awaiting review at a time.
 - The bridge is state-driven: it reads `.agentx/runtime-state.json` rather than keeping its own in-memory approval queue.
 - Approval decisions are written to `.agentx/approval-audit.jsonl` as append-only JSONL records.
-- Secretary memory is stored in `.agentx/aja_secretary.sqlite3` and survives bridge restarts.
+- Secretary memory is stored in `.agentx/secretary.sqlite3` and survives bridge restarts.
 - Communication records are stored in the same SQLite database and require approval before delivery.
 - Scheduler delivery events are stored in SQLite to avoid repeated review spam.
 

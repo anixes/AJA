@@ -7,6 +7,7 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
+from agentx.config import PROJECT_ROOT
 
 # Local imports - ensuring we use the optimized local gateway
 try:
@@ -35,16 +36,17 @@ class SwarmEngine:
     Unified Swarm Engine replacing BatonOrchestrator, SwarmController, and SwarmLauncher.
     """
     def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3"):
-        self.gateway = UnifiedGateway(provider, key)
+        self.gateway = UnifiedGateway(model_id=model)
         self.model = model
         self.provider = provider
         self.workers = {}
-        self.baton_dir = Path("temp_batons")
-        self.baton_dir.mkdir(exist_ok=True)
+        # Using the unified BatonManager location
+        self.baton_dir = PROJECT_ROOT / ".agentx" / "batons"
+        self.baton_dir.mkdir(parents=True, exist_ok=True)
         
     # --- MODE 1: BACKGROUND TERRITORY MONITORING (Swarm Controller) ---
     def load_config(self):
-        config_path = Path("agentx.json")
+        config_path = PROJECT_ROOT / "agentx.json"
         if not config_path.exists():
             return {"territories": []}
         with open(config_path, "r") as f:
@@ -94,10 +96,11 @@ class SwarmEngine:
         except subprocess.CalledProcessError as e:
             return {"agent_id": agent_id, "provider": target_provider, "status": "failed", "error": e.stderr}
 
-    def launch_parallel_swarm(self, overall_task: str, sub_tasks: list, providers: list):
         print(f"🚀 Launching Parallel Swarm with {len(sub_tasks)} agents...")
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(sub_tasks)) as executor:
+        # Cap workers at CPU count to prevent resource exhaustion (PERF-04)
+        max_w = min(len(sub_tasks), os.cpu_count() or 2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
             future_to_agent = {
                 executor.submit(
                     self._run_agent_sync, i, sub_tasks[i], providers[i % len(providers)]
@@ -119,7 +122,7 @@ class SwarmEngine:
                 f"Break down this objective into 2-3 independent sub-tasks: '{objective}'. "
                 "Return ONLY a JSON list of objects with 'id', 'task', and 'file_context'."
             )
-            plan_str = self.gateway.chat(self.model, planning_prompt)
+            plan_str = await self.gateway.chat(planning_prompt)
             try:
                 plan_str = plan_str.strip().replace("```json", "").replace("```", "")
                 plan = json.loads(plan_str)
@@ -129,36 +132,20 @@ class SwarmEngine:
 
         results = []
         for task in plan:
-            baton_path = self.baton_dir / f"baton_{task['id']}.json"
-            baton_data = {
-                "id": task["id"],
-                "task": task["task"],
-                "context": task.get("file_context", ""),
-                "status": "pending",
-                "stage": "queued",
-                "output": "",
-                "created_at": now_iso(),
-                "updated_at": now_iso(),
-                "history": [],
-                "run_id": run_id,
-                "delegated_worker": task.get("delegated_worker", worker_id),
-            }
-            append_baton_history(baton_data, "queued", "Baton created by orchestrator.")
-            write_baton(baton_path, baton_data)
-
             print(f"  - Dispatching Worker for Task {task['id']}: {task['task']}")
-            result = await self._execute_baton_worker(baton_path)
-            results.append(result)
+            # Use the high-performance Arrow-backed spawn mechanism
+            code = await self.gateway.spawn_sub_agent(f"worker-{task['id']}", task['task'])
+            results.append({"id": task['id'], "status": "dispatched", "baton_code": code})
 
         results_str = json.dumps(results, indent=2)
         
         # MEMORY CHECK: If the results are too large, summarize them first to stay under the 'Latency Wall'
         if len(results_str) > 5000: # Aggressive 5k limit for 4GB VRAM stability
             print("[MEMORY] Context threshold reached. Summarizing task history to maintain reasoning speed...")
-            results_str = self.gateway.summarize(results_str, objective=objective)
+            results_str = await self.gateway.summarize(results_str, objective=objective)
             
         synthesis_prompt = f"Objective: {objective}\nSub-task results: {results_str}\nSynthesize these results into a final report."
-        final_report = self.gateway.chat(self.model, synthesis_prompt)
+        final_report = await self.gateway.chat(synthesis_prompt)
 
         print("\nFinal Synthesis Complete:\n" + final_report)
 

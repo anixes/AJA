@@ -1,10 +1,10 @@
-import sqlite3
 import os
-import json
+import pyarrow.compute as pc
 from datetime import datetime, timezone, timedelta
+from agentx.memory.manager import MemoryManager, get_memory_manager
 
-from agentx.persistence.tasks import DB_PATH
-from agentx.persistence.tracker import TRACKER_DB
+_manager = get_memory_manager()
+
 
 def get_system_state() -> dict:
     state = {
@@ -23,53 +23,48 @@ def get_system_state() -> dict:
     }
 
     try:
-        # Check loop status
         if os.path.exists(".agentx/stop_loop"):
             state["loop_status"] = "stopped (flagged)"
             state["circuit_breaker_triggered"] = True
 
-        with sqlite3.connect(DB_PATH) as conn:
-            # Task counts
-            row = conn.execute(
-                "SELECT status, COUNT(*) FROM tasks GROUP BY status"
-            ).fetchall()
-            for r in row:
-                if r[0] == "RUNNING":
-                    state["active_tasks"] = r[1]
-                elif r[0] == "PENDING":
-                    state["pending_tasks"] = r[1]
-                elif r[0] == "FAILED":
-                    state["failed_tasks"] = r[1]
-                elif r[0] == "FAILED_PERMANENT":
-                    state["stalled_tasks_exist"] = True
+        # ── Task counts via Arrow compute — zero Python-level iteration (PERF-02) ──
+        tasks_table = _manager.get_table("core_tasks")
+        arrow = tasks_table.to_arrow()
+        if len(arrow) > 0:
+            status_col = arrow["status"]
+            state["active_tasks"]  = pc.sum(pc.equal(status_col, "RUNNING")).as_py() or 0
+            state["pending_tasks"] = pc.sum(pc.equal(status_col, "PENDING")).as_py() or 0
+            state["failed_tasks"]  = pc.sum(pc.equal(status_col, "FAILED")).as_py() or 0
+            stalled = pc.sum(pc.equal(status_col, "FAILED_PERMANENT")).as_py() or 0
+            state["stalled_tasks_exist"] = stalled > 0
 
-            # Trigger count
-            row = conn.execute("SELECT COUNT(*) FROM triggers WHERE is_active = 1").fetchone()
-            if row:
-                state["trigger_count"] = row[0]
+        # ── Trigger count ────────────────────────────────────────────────────
+        try:
+            triggers_table = _manager.get_table("core_triggers")
+            active_triggers = triggers_table.search().where("status = 'ACTIVE'").to_list()
+            state["trigger_count"] = len(active_triggers)
+        except Exception:
+            pass
 
-        # Recent events and loop tick from tracker
-        if os.path.exists(TRACKER_DB):
-            with sqlite3.connect(TRACKER_DB) as conn:
-                conn.row_factory = sqlite3.Row
-                events = conn.execute(
-                    "SELECT event_type, payload, timestamp FROM agent_events ORDER BY timestamp DESC LIMIT 20"
-                ).fetchall()
-                
-                recent = []
-                for e in events:
-                    ev = dict(e)
-                    recent.append(ev)
-                    if ev["event_type"] == "AGENT_LOOP_TICK" and not state["last_loop_tick"]:
-                        state["last_loop_tick"] = ev["timestamp"]
-                    if ev["event_type"] == "CIRCUIT_BREAKER_TRIGGERED":
-                        state["circuit_breaker_triggered"] = True
-                    if ev["event_type"] == "TASK_FAILED":
-                        state["recent_failures"] += 1
-                
-                state["recent_events"] = recent
+        # ── Recent events from Arrow event feed ──────────────────────────────
+        try:
+            events_table = _manager.get_table("aja_runtime_events")
+            events = events_table.to_arrow().to_pylist()
+            events.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+            recent = events[:20]
+            for ev in recent:
+                etype = ev.get("event_type", "")
+                if etype == "AGENT_LOOP_TICK" and not state["last_loop_tick"]:
+                    state["last_loop_tick"] = ev.get("created_at")
+                if etype == "CIRCUIT_BREAKER_TRIGGERED":
+                    state["circuit_breaker_triggered"] = True
+                if etype == "TASK_FAILED":
+                    state["recent_failures"] += 1
+            state["recent_events"] = recent
+        except Exception:
+            pass
 
-        # Compute loop status based on last tick
+        # ── Loop status from last tick timestamp ─────────────────────────────
         if state["loop_status"] != "stopped (flagged)" and state["last_loop_tick"]:
             last_tick_dt = datetime.fromisoformat(state["last_loop_tick"])
             if datetime.now(timezone.utc) - last_tick_dt < timedelta(minutes=2):
@@ -77,18 +72,12 @@ def get_system_state() -> dict:
             else:
                 state["loop_status"] = "stopped (timeout)"
 
-        # Compute Health
+        # ── Health & Load ─────────────────────────────────────────────────────
         if state["circuit_breaker_triggered"] or state["recent_failures"] >= 5 or state["stalled_tasks_exist"]:
             state["is_healthy"] = False
 
-        # Compute Load
         pt = state["pending_tasks"]
-        if pt > 20:
-            state["load_level"] = "HIGH"
-        elif pt > 5:
-            state["load_level"] = "MEDIUM"
-        else:
-            state["load_level"] = "LOW"
+        state["load_level"] = "HIGH" if pt > 20 else "MEDIUM" if pt > 5 else "LOW"
 
     except Exception as e:
         print(f"[State] Error retrieving system state: {e}")

@@ -20,7 +20,7 @@ from agentx.runtime.session import session_manager
 from agentx.runtime.event_bus import bus, EVENTS
 import agentx.config
 
-app = FastAPI(title="AgentX Jarvis Server")
+app = FastAPI(title="AgentX Core Server")
 
 
 # ---------------------------------------------------------------------------

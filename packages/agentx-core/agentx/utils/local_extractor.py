@@ -40,7 +40,7 @@ class LocalExtractor:
                     func_id = f"{module_name}.{node.name}"
                     self.add_node(func_id, node.name, "function", line=node.lineno, path=path)
                     self.edges.append({"source": module_name, "target": func_id, "type": "contains"})
-        except:
+        except Exception:
             pass
 
     def extract_ts(self, path):

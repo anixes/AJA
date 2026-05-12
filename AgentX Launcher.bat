@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 TITLE AgentX Master Launcher
 :: =======================================================
-:: AgentX Master Launcher (Optimized for GTX 1650 Ti)
+:: AgentX Master Launcher (Optimized for High Efficiency)
 :: Launches: Llama Gold Server + API Bridge + Dashboard
 :: =======================================================
 
@@ -17,7 +17,7 @@ echo [MASTER] Starting Llama Gold Server (Optimized Backend)...
 start "Llama Gold Server" cmd /c "start_llama_gold.bat"
 
 echo [MASTER] Waiting for model to initialize (15s)...
-:: Increased timeout for 1650 Ti to ensure weights are fully loaded
+:: Ensure weights are fully loaded before starting services
 timeout /t 15 /nobreak >nul
 
 echo [MASTER] Starting AJA Services (API, Dashboard, Telegram)...

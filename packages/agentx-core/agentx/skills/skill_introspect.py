@@ -3,7 +3,7 @@ agentx/skills/skill_introspect.py
 ==================================
 Phase 9 — Gap 4: Skill explainability and management interface.
 
-Hermes supports viewing, editing, and invoking skills directly.
+AgentX supports viewing, editing, and invoking skills directly.
 This module provides the explainability layer, formatting skills into
 human-readable summaries, diffs, and validation reports.
 
@@ -126,7 +126,7 @@ def format_ambiguity_prompt(query: str, skills: list) -> str:
             seq = json.loads(s.get("tool_sequence", "[]"))
             tools = [step.get("tool_name") for step in seq]
             out.append(f"     Tools:   {' ⟶ '.join(tools)}")
-        except:
+        except Exception:
             pass
         out.append("")
     

@@ -68,11 +68,11 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 *   **Token-Efficient Distillation**: Multi-stage cleaning pipeline that strips non-content nodes, reducing token usage by ~90% compared to raw DOM.
 
 ### 10. Hardware-Aware Memory Management (Intelligent Memory)
-**Problem**: Large context windows on consumer GPUs (e.g., 4GB VRAM) lead to catastrophic latency spikes and "OOM" crashes.
+**Problem**: Large context windows on resource-constrained hardware lead to catastrophic latency spikes and memory crashes.
 **Solution**: A tiered, hardware-aware context monitor.
 *   **Automatic Summarization**: The system detects when task history exceeds **5,000 characters** and triggers a high-density compression gate.
 *   **Context Resetting**: Redundant logs are replaced by a "State Summary," resetting the latency trajectory while preserving critical file paths and decisions.
-*   **Performance Tuning**: The system is hard-locked to an optimized `ubatch=256` profile, ensuring prompt processing speeds of **350 t/s** without over-committing VRAM.
+*   **Performance Tuning**: The system is tuned for high-throughput prompt processing, utilizing optimized batching profiles to ensure rapid reasoning without over-committing local resources.
 
 ---
 

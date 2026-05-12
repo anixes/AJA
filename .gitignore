@@ -1,66 +1,83 @@
-# AgentX State & Persistence
-.agentx/
-agentx_state.json
-agentx_policy.json
-agentx_strategies.json
-agentx_exploration_state.json
-agentx_history.jsonl
-agentx_memory.db
-temp_batons/
-plan_graph.json
-vault_data.json
-
-# API & Credentials
-.env
-.env.*
-secrets.json
-credentials.json
-*.pem
-*.key
-auth.json
-
-# Tool/System State
-# Tool/System State
-.gsd/**
-!.gsd/**/
-!.gsd/**/PLAN.md
-.kilo/
-graphify-out/
-scratch/
-pytest_output.txt
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.coverage
-htmlcov/
-venv/
-.venv/
-
-# Build & Modules
-**/node_modules/
-**/dist/
-**/build/
-.next/
-.out/
-
-# IDE & OS
+# IDEs and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# OS Files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs & Temporary Files
+# Rust / Native
+/target/
+**/target/
+Cargo.lock
+*.pyd
+*.so
+*.dll
+*.dylib
+*.lib
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+.venv/
+venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Node / JavaScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+.next/
+out/
+.tauri/
+
+# AgentX Specific
+.agentx/
+temp_batons/
+*.lancedb/
+*.arrow
+*.db
+*.db-journal
+*.sqlite3
+*.sqlite3-journal
+.env
+providers.json.local
+agentx.json.local
+
+# Project Specific Junk
+.graphify*
+graphify-out/
+scratch/
+external/
+temp/
+tmp/
+*.bak
+*.tmp
 *.log
-*.txt
-*.gguf
-*.lnk
-context_test_results.json
-!README.md
-!SPEC.md
-!.gsd/**/PLAN.md

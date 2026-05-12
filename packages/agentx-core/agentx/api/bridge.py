@@ -1289,11 +1289,11 @@ CONSEQUENCE_MAP: dict[str, int] = {
 
 DELEGATION_RULES = {
     # Keywords in task title / description that suggest who should handle it
-    "code": "Delegate to Claude Code",
-    "debug": "Delegate to Claude Code",
-    "fix bug": "Delegate to Claude Code",
-    "refactor": "Delegate to Claude Code",
-    "test": "Delegate to Claude Code",
+    "code": "Delegate to AgentX Worker",
+    "debug": "Delegate to AgentX Worker",
+    "fix bug": "Delegate to AgentX Worker",
+    "refactor": "Delegate to AgentX Worker",
+    "test": "Delegate to AgentX Worker",
     "deploy": "Ask user first",
     "send": "Ask user first",
     "approve": "Ask user first",
@@ -1367,7 +1367,7 @@ def run_priority_engine(memory: "SecretaryMemory") -> dict:
       2. Stakeholder Weight — recruiter > client > friend > system
       3. Consequence      — financial, trust, opportunity, deadline risk
       4. Executive Intent — explicitly high-priority, repeated commitments
-      5. Delegatability   — AJA / Claude Code / human
+      5. Delegatability   — AJA / AgentX Worker / human
 
     Returns:
         top3        — top 3 tasks with full scoring metadata

@@ -16,8 +16,11 @@ class Permission:
 class PermissionError(Exception):
     pass
 
-# Default strict permission set
+# Default permission set
+# We keep only the most critical system-destroying strings here.
+# Other dangerous commands like 'rm' are handled by the Risk Level system
+# which prompts the user for confirmation instead of a hard block.
 default_permissions = Permission(
     allowed_capabilities=["terminal.exec", "agent.coder", "agent.browser"],
-    blocked_commands=["rm -rf", "shutdown", "mkfs", ":(){:|:&};:"]
+    blocked_commands=["shutdown", "mkfs", ":(){:|:&};:", "mv /", "rm /"]
 )

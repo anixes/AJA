@@ -33,94 +33,45 @@ Public API
 
 import json
 import os
-import sqlite3
+import pyarrow as pa
 from datetime import datetime, timezone, timedelta
+from agentx.memory.manager import MemoryManager, get_memory_manager
 
+_manager = get_memory_manager()
 
-# ---------------------------------------------------------------------------
-# DB path — respects AGENTX_DB_PATH so tests can use an isolated sandbox
-# ---------------------------------------------------------------------------
+# Arrow schema for step-level checkpoints
+_CHECKPOINT_SCHEMA = pa.schema([
+    ("checkpoint_id", pa.string()),
+    ("skill_id", pa.string()),
+    ("run_id", pa.string()),
+    ("step_index", pa.int32()),
+    ("tool_name", pa.string()),
+    ("result", pa.string()),
+    ("completed_at", pa.string()),
+])
 
-def _db_path() -> str:
-    return os.environ.get(
-        "AGENTX_DB_PATH",
-        os.path.join(".agentx", "aja_secretary.sqlite3"),
-    )
+def _ensure_checkpoint_table():
+    if "skill_step_checkpoints" not in _manager.db.table_names():
+        _manager.db.create_table("skill_step_checkpoints", schema=_CHECKPOINT_SCHEMA)
 
-
-def _get_conn() -> sqlite3.Connection:
-    path = _db_path()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
-    _bootstrap_executor_tables(conn)
-    return conn
-
-
-def _bootstrap_executor_tables(conn: sqlite3.Connection) -> None:
-    """Create tables needed exclusively by skill_executor (idempotent)."""
-    # ── Gap 1: step-level checkpoint table ───────────────────────────────
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS skill_step_checkpoints (
-            skill_id    TEXT NOT NULL,
-            run_id      TEXT NOT NULL,
-            step_index  INTEGER NOT NULL,
-            tool_name   TEXT NOT NULL,
-            result      TEXT,
-            completed_at TIMESTAMP NOT NULL,
-            PRIMARY KEY (skill_id, run_id, step_index)
-        )
-    """)
-    # ── Gap 2+3: extend skills table with staleness tracking ─────────────
-    # last_used_at — updated every time skill is attempted
-    # is_stale      — set to 1 when validity decay kicks in
-    for col_def in (
-        "ALTER TABLE skills ADD COLUMN last_used_at  TIMESTAMP",
-        "ALTER TABLE skills ADD COLUMN is_stale      INTEGER NOT NULL DEFAULT 0",
-    ):
-        try:
-            conn.execute(col_def)
-        except Exception:
-            pass  # column already exists
-    conn.commit()
+_ensure_checkpoint_table()
 
 
 # ---------------------------------------------------------------------------
 # Gap 3 — Validity decay
 # ---------------------------------------------------------------------------
 
-STALE_AFTER_DAYS = 30   # skills unused for this long are considered stale
+STALE_AFTER_DAYS = 30
 
 
 def mark_stale_skills(stale_after_days: int = STALE_AFTER_DAYS) -> int:
     """
-    Mark skills whose last_used_at (or created_at) is older than stale_after_days.
-
-    Called once on AgentX startup.  Stale skills are excluded from
-    recommend_skill() but NOT deleted — they can be reactivated by re-execution.
-
-    Returns the number of skills newly marked stale.
+    Mark skills unused for stale_after_days days as stale in the Arrow skill store.
+    Returns the count of skills newly marked stale.
     """
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=stale_after_days)
-    ).isoformat()
+    from agentx.skills.skill_store import mark_skills_stale
     try:
-        conn = _get_conn()
-        cur = conn.execute(
-            """UPDATE skills
-               SET    is_stale = 1,
-                      updated_at = ?
-               WHERE  is_stale = 0
-               AND    COALESCE(last_used_at, created_at) < ?""",
-            (datetime.now(timezone.utc).isoformat(), cutoff),
-        )
-        marked = cur.rowcount
-        conn.commit()
-        conn.close()
-        if marked:
-            print(f"[SkillExec] Marked {marked} skill(s) stale (unused > {stale_after_days}d).")
-        return marked
+        return mark_skills_stale(stale_after_days)
     except Exception as e:
         print(f"[SkillExec] mark_stale_skills() error: {e}")
         return 0
@@ -129,19 +80,8 @@ def mark_stale_skills(stale_after_days: int = STALE_AFTER_DAYS) -> int:
 def _refresh_last_used(skill_id: str) -> None:
     """Touch last_used_at + clear stale flag whenever a skill is attempted."""
     try:
-        conn = _get_conn()
-        conn.execute(
-            """UPDATE skills
-               SET last_used_at = ?,
-                   is_stale     = 0,
-                   updated_at   = ?
-               WHERE id = ?""",
-            (datetime.now(timezone.utc).isoformat(),
-             datetime.now(timezone.utc).isoformat(),
-             skill_id),
-        )
-        conn.commit()
-        conn.close()
+        from agentx.skills.skill_store import touch_skill
+        touch_skill(skill_id)
     except Exception:
         pass
 
@@ -275,18 +215,12 @@ def _risk_gate(skill: dict, confirm_fn=None) -> bool:
 # ---------------------------------------------------------------------------
 
 def _load_completed_steps(skill_id: str, run_id: str) -> dict:
-    """
-    Return {step_index: result} for all already-completed steps
-    of this (skill_id, run_id) pair.
-    """
+    """Return {step_index: result} for all already-completed steps."""
     try:
-        conn = _get_conn()
-        rows = conn.execute(
-            """SELECT step_index, result FROM skill_step_checkpoints
-               WHERE skill_id = ? AND run_id = ?""",
-            (skill_id, run_id),
-        ).fetchall()
-        conn.close()
+        t = _manager.db.open_table("skill_step_checkpoints")
+        rows = t.search().where(
+            f"skill_id = '{skill_id}' AND run_id = '{run_id}'"
+        ).to_list()
         return {r["step_index"]: r["result"] for r in rows}
     except Exception:
         return {}
@@ -294,32 +228,35 @@ def _load_completed_steps(skill_id: str, run_id: str) -> dict:
 
 def _checkpoint_step(skill_id: str, run_id: str, step_index: int,
                      tool_name: str, result: str) -> None:
-    """Persist a completed step checkpoint (INSERT OR REPLACE for idempotency)."""
+    """Persist a completed step checkpoint (upsert for idempotency)."""
+    import uuid
     try:
-        conn = _get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO skill_step_checkpoints
-               (skill_id, run_id, step_index, tool_name, result, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (skill_id, run_id, step_index, tool_name, result,
-             datetime.now(timezone.utc).isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        t = _manager.db.open_table("skill_step_checkpoints")
+        existing = t.search().where(
+            f"skill_id = '{skill_id}' AND run_id = '{run_id}' AND step_index = {step_index}"
+        ).limit(1).to_list()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if existing:
+            t.update(
+                where=f"skill_id = '{skill_id}' AND run_id = '{run_id}' AND step_index = {step_index}",
+                values={"result": result, "completed_at": now_iso}
+            )
+        else:
+            t.add([{"checkpoint_id": uuid.uuid4().hex, "skill_id": skill_id, "run_id": run_id,
+                    "step_index": step_index, "tool_name": tool_name,
+                    "result": result, "completed_at": now_iso}])
     except Exception as e:
         print(f"[SkillExec] _checkpoint_step() error: {e}")
 
 
 def _clear_checkpoints(skill_id: str, run_id: str) -> None:
-    """Remove checkpoints after full success or terminal failure."""
+    """Mark checkpoints complete after full success — LanceDB has no row-delete in OSS."""
     try:
-        conn = _get_conn()
-        conn.execute(
-            "DELETE FROM skill_step_checkpoints WHERE skill_id = ? AND run_id = ?",
-            (skill_id, run_id),
+        t = _manager.db.open_table("skill_step_checkpoints")
+        t.update(
+            where=f"skill_id = '{skill_id}' AND run_id = '{run_id}'",
+            values={"result": "__CLEARED__"}
         )
-        conn.commit()
-        conn.close()
     except Exception:
         pass
 
@@ -415,34 +352,13 @@ def _is_permanent_error(error: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _update_skill_metrics(skill_id: str, success: bool) -> None:
-    """Atomically update success_count / failure_count / confidence_score."""
+    """Atomically update success_count / failure_count / confidence_score via skill_store."""
     try:
-        path = _db_path()
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with sqlite3.connect(path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT success_count, failure_count FROM skills WHERE id = ?",
-                (skill_id,)
-            ).fetchone()
-            if row is None:
-                return
-
-            s    = row["success_count"] + (1 if success else 0)
-            f    = row["failure_count"] + (0 if success else 1)
-            conf = round(s / (s + f), 4) if (s + f) > 0 else 1.0
-
-            conn.execute(
-                """UPDATE skills
-                   SET success_count    = ?,
-                       failure_count    = ?,
-                       confidence_score = ?,
-                       updated_at       = ?
-                   WHERE id = ?""",
-                (s, f, conf, datetime.now(timezone.utc).isoformat(), skill_id),
-            )
+        from agentx.skills.skill_store import update_skill_metrics
+        update_skill_metrics(skill_id, success=success)
     except Exception as e:
         print(f"[SkillExec] _update_skill_metrics() error: {e}")
+
 
 
 # ---------------------------------------------------------------------------

@@ -25,15 +25,15 @@ The static execution loop has been replaced with a real-time event system.
 - **Failure Classification**: Errors are automatically classified as `TRANSIENT` (retryable), `LOGIC` (repairable), or `EXTERNAL` (escalation required).
 - **Forward Recovery**: On failure, the system performs a state rollback AND executes the compensation action if defined in the policy.
 
-## 5. Jarvis Layer (Remote Control)
+## 5. AgentX API Layer (Remote Control)
 AgentX now supports persistent, remote interaction via a FastAPI server.
 - **Session Management**: Tracks user history and active plans across multiple interactions.
-- **Async Task Queue**: Tasks submitted via API are processed by a background `jarvis_loop` to keep the interface responsive.
+- **Async Task Queue**: Tasks submitted via API are processed by a background `agentx_loop` to keep the interface responsive.
 - **Real-Time Streaming**: Live execution updates are streamed to clients (e.g., mobile phones) via WebSockets.
 
 ## Interfaces & Logic
 - **`ir.py`**: Canonical execution representation and policies.
 - **`event_bus.py`**: Publisher/Subscriber bus for runtime events.
 - **`capabilities/`**: Capability registry, base contracts, and sandboxed tools.
-- **`server/`**: FastAPI implementation, task queueing, and Jarvis loop.
+- **`server/`**: FastAPI implementation, task queueing, and AgentX loop.
 - **`agents/`**: Specialized sub-agent abstractions.

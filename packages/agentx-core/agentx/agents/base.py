@@ -18,7 +18,7 @@ class CodingAgent(SubAgent):
     allowed_tools = ["file.read", "file.write", "terminal.exec"]
 
     def run(self, task: str, context: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, Any]:
-        # Placeholder for Claude Code or similar specific coding agent logic
+        # Placeholder for specific coding agent logic
         # For now, we simulate execution
         print(f"[CodingAgent] Executing task: {task} within limits {limits}")
         return {"status": "success", "code_changes": True}

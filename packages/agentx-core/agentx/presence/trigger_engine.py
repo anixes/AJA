@@ -1,10 +1,12 @@
 import os
 import json
-import sqlite3
 from datetime import datetime, timezone, timedelta
 
-from agentx.persistence.triggers import fetch_active_triggers, update_trigger_time
-from agentx.persistence.tasks import DB_PATH, create_task
+from agentx.persistence.triggers import fetch_active_triggers, disable_trigger
+from agentx.persistence.tasks import create_task
+from agentx.memory.manager import MemoryManager, get_memory_manager
+
+_manager = get_memory_manager()
 
 try:
     from agentx.persistence.tracker import log_event
@@ -53,15 +55,16 @@ def evaluate_triggers():
                         
             elif trigger_type == "TASK_STATE":
                 status = condition_payload.get("status")
-                with sqlite3.connect(DB_PATH) as conn:
-                    # only fire if new matching task appears AFTER last_seen
+                try:
+                    tasks_table = _manager.get_table("core_tasks")
                     last_seen_iso = last_triggered if last_triggered else (now - timedelta(days=365)).isoformat()
-                    row = conn.execute(
-                        "SELECT COUNT(*) FROM tasks WHERE status = ? AND updated_at > ?",
-                        (status, last_seen_iso)
-                    ).fetchone()
-                    if row and row[0] > 0:
+                    matching = tasks_table.search().where(
+                        f"status = '{status}' AND updated_at > '{last_seen_iso}'"
+                    ).to_list()
+                    if matching:
                         condition_met = True
+                except Exception as e:
+                    print(f"[TriggerEngine] TASK_STATE check error: {e}")
                         
             elif trigger_type == "FILE_FLAG":
                 path = condition_payload.get("path")
@@ -87,13 +90,12 @@ def evaluate_triggers():
             recent_task_exists = False
             
             try:
-                with sqlite3.connect(DB_PATH) as conn:
-                    row = conn.execute(
-                        "SELECT id FROM tasks WHERE input = ? AND created_at >= ?",
-                        (action_str, dup_cutoff)
-                    ).fetchone()
-                    if row:
-                        recent_task_exists = True
+                tasks_table = _manager.get_table("core_tasks")
+                recent_rows = tasks_table.search().where(
+                    f"input = '{action_str}' AND created_at >= '{dup_cutoff}'"
+                ).limit(1).to_list()
+                if recent_rows:
+                    recent_task_exists = True
             except Exception as e:
                 print(f"[TriggerEngine] Dedupe check error: {e}")
                 
@@ -105,10 +107,19 @@ def evaluate_triggers():
             # Enqueue task
             try:
                 task_id = create_task(action_payload)
-                update_trigger_time(trigger_id, now.isoformat())
+                # Update trigger timestamp in Arrow table
+                try:
+                    triggers_table = _manager.get_table("core_triggers")
+                    triggers_table.update(
+                        where=f"trigger_id = '{trigger_id}'",
+                        values={"created_at": now.isoformat()}  # reusing created_at as last_fired
+                    )
+                except Exception:
+                    pass
                 log_event("TRIGGER_FIRED", {"trigger_id": trigger_id, "task_id": task_id})
                 send_notification("TRIGGER_FIRED", {"trigger_id": trigger_id, "task_id": task_id})
             except Exception as e:
                 print(f"[TriggerEngine] Failed to fire trigger {trigger_id}: {e}")
+
         else:
             log_event("TRIGGER_SKIPPED", {"trigger_id": trigger_id})

@@ -158,47 +158,44 @@ def build_chain(
 def _skill_done(run_id: str, skill_id: str) -> bool:
     """Return True if this skill already completed in this run_id."""
     try:
-        import sqlite3, os
-        path = os.environ.get("AGENTX_DB_PATH", ".agentx/aja_secretary.sqlite3")
-        if not os.path.exists(path):
+        from agentx.memory.manager import MemoryManager
+        db = MemoryManager().db
+        if "skill_composition_log" not in db.table_names():
             return False
-        conn = sqlite3.connect(path); conn.row_factory = sqlite3.Row
-        row  = conn.execute(
-            "SELECT 1 FROM skill_composition_log WHERE run_id=? AND skill_id=? AND status='COMPLETED'",
-            (run_id, skill_id)
-        ).fetchone()
-        conn.close()
-        return row is not None
+        t = db.open_table("skill_composition_log")
+        results = t.search().where(
+            f"run_id = '{run_id}' AND skill_id = '{skill_id}' AND status = 'COMPLETED'"
+        ).limit(1).to_list()
+        return len(results) > 0
     except Exception:
         return False
 
 
 def _log_skill_status(run_id: str, skill_id: str, status: str,
                        position: int, total: int) -> None:
-    """Persist composition progress to skill_composition_log table."""
+    """Persist composition progress to the Arrow skill_composition_log table."""
     try:
-        import sqlite3, os
-        path = os.environ.get("AGENTX_DB_PATH", ".agentx/aja_secretary.sqlite3")
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with sqlite3.connect(path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS skill_composition_log (
-                    run_id     TEXT NOT NULL,
-                    skill_id   TEXT NOT NULL,
-                    status     TEXT NOT NULL,
-                    position   INTEGER,
-                    total      INTEGER,
-                    logged_at  TIMESTAMP,
-                    PRIMARY KEY (run_id, skill_id)
-                )
-            """)
-            conn.execute(
-                """INSERT OR REPLACE INTO skill_composition_log
-                   (run_id, skill_id, status, position, total, logged_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (run_id, skill_id, status, position, total,
-                 datetime.now(timezone.utc).isoformat()),
-            )
+        import pyarrow as pa
+        from agentx.memory.manager import MemoryManager
+        _mgr = MemoryManager()
+        schema = pa.schema([
+            ("run_id", pa.string()), ("skill_id", pa.string()),
+            ("status", pa.string()), ("position", pa.int32()),
+            ("total", pa.int32()), ("logged_at", pa.string()),
+        ])
+        if "skill_composition_log" not in _mgr.db.table_names():
+            _mgr.db.create_table("skill_composition_log", schema=schema)
+        t = _mgr.db.open_table("skill_composition_log")
+        existing = t.search().where(
+            f"run_id = '{run_id}' AND skill_id = '{skill_id}'"
+        ).limit(1).to_list()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if existing:
+            t.update(where=f"run_id = '{run_id}' AND skill_id = '{skill_id}'",
+                     values={"status": status, "logged_at": now_iso})
+        else:
+            t.add([{"run_id": run_id, "skill_id": skill_id, "status": status,
+                    "position": position, "total": total, "logged_at": now_iso}])
     except Exception:
         pass
 

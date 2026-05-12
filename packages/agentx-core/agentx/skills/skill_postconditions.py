@@ -52,7 +52,6 @@ Public API
 
 import json
 import os
-import sqlite3
 from datetime import datetime, timezone
 
 
@@ -215,25 +214,14 @@ def _flatten_results(step_results: list) -> dict:
 def _penalise_confidence(skill_id: str) -> None:
     """Increment failure_count and recalculate confidence_score on correctness failure."""
     try:
-        path = _db_path()
-        if not os.path.exists(path):
+        from agentx.skills.skill_store import get_skill_by_id, update_skill_metrics
+        skill = get_skill_by_id(skill_id)
+        if skill is None:
             return
-        with sqlite3.connect(path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT success_count, failure_count FROM skills WHERE id = ?",
-                (skill_id,)
-            ).fetchone()
-            if row is None:
-                return
-            s    = row["success_count"]
-            f    = row["failure_count"] + 1
-            conf = round(s / (s + f), 4) if (s + f) > 0 else 1.0
-            conn.execute(
-                """UPDATE skills SET failure_count=?, confidence_score=?, updated_at=?
-                   WHERE id=?""",
-                (f, conf, datetime.now(timezone.utc).isoformat(), skill_id),
-            )
+        s = skill.get("success_count", 0)
+        f = (skill.get("failure_count", 0) or 0) + 1
+        conf = round(s / (s + f), 4) if (s + f) > 0 else 1.0
+        update_skill_metrics(skill_id, success=False, confidence=conf)
     except Exception as e:
         print(f"[Postconditions] _penalise_confidence() error: {e}")
 
@@ -346,38 +334,22 @@ def validate_postconditions(
 def add_postcondition(skill_id: str, postcondition: dict) -> bool:
     """
     Append a postcondition dict to an existing skill's postconditions list.
-
-    postcondition must have at minimum: {"type": str, "target": str, "expected": ...}
-    "required" defaults to True if absent.
-
-    Returns True on success, False on error (e.g. skill not found).
+    Returns True on success, False on error.
     """
     postcondition.setdefault("required", True)
-
     required_fields = {"type", "target", "expected"}
     if not required_fields.issubset(postcondition.keys()):
-        print(f"[Postconditions] add_postcondition: missing fields "
-              f"{required_fields - postcondition.keys()}")
+        print(f"[Postconditions] add_postcondition: missing fields {required_fields - postcondition.keys()}")
         return False
-
     try:
-        path = _db_path()
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with sqlite3.connect(path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT postconditions FROM skills WHERE id = ?", (skill_id,)
-            ).fetchone()
-            if row is None:
-                print(f"[Postconditions] Skill not found: {skill_id}")
-                return False
-
-            existing = parse_postconditions(row["postconditions"])
-            existing.append(postcondition)
-            conn.execute(
-                "UPDATE skills SET postconditions=?, updated_at=? WHERE id=?",
-                (json.dumps(existing), datetime.now(timezone.utc).isoformat(), skill_id),
-            )
+        from agentx.skills.skill_store import get_skill_by_id, update_skill_postconditions
+        skill = get_skill_by_id(skill_id)
+        if skill is None:
+            print(f"[Postconditions] Skill not found: {skill_id}")
+            return False
+        existing = parse_postconditions(skill.get("postconditions"))
+        existing.append(postcondition)
+        update_skill_postconditions(skill_id, json.dumps(existing))
         print(f"[Postconditions] Added {postcondition['type']} postcondition to {skill_id[:12]}...")
         return True
     except Exception as e:

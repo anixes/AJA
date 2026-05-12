@@ -60,3 +60,11 @@ class PlanIR:
             "edges": self.edges,
             "metadata": self.metadata
         }
+
+    def sync_to_db(self, task_manager: Any):
+        """Maps PlanIR nodes to TaskManager entries for execution."""
+        for node_id, node in self.nodes.items():
+            # Create a task for each primitive node
+            task_title = f"[{node.tool}] {node_id}"
+            task_manager.add_task(title=task_title, node_id=node_id)
+

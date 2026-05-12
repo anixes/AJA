@@ -1,10 +1,6 @@
 """agentx/decision/failure_analysis.py
 =======================================
-Phase 16 — Failure Attribution Layer.
-
-classify_root_cause(error, result) returns a typed root-cause label so
-feedback learning uses objective + root_cause rather than a generic
-FAILURE bucket.
+Phase 16 — Failure Attribution Layer. Now powered by LanceDB/Arrow.
 
 Root-cause taxonomy:
     TOOL_ERROR      — the external tool / subprocess failed
@@ -12,159 +8,90 @@ Root-cause taxonomy:
     REASONING_ERROR — the LLM produced malformed or contradictory output
     CONTEXT_ERROR   — missing, stale, or insufficient context
 
-All rows are persisted to task_failures for forensic querying.
+All rows are persisted to task_failures Arrow table.
 Logs: FAILURE_ATTRIBUTED
 """
 
-import sqlite3
-import json
-import logging
 import re
-import os
+import logging
+import pyarrow as pa
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+from agentx.memory.manager import MemoryManager, get_memory_manager
 
 logger = logging.getLogger("agentx.decision.failure_analysis")
+_manager = get_memory_manager()
 
-DB_PATH = os.environ.get("AGENTX_DB_PATH", os.path.join(".agentx", "aja_secretary.sqlite3"))
+_FAILURE_SCHEMA = pa.schema([
+    ("failure_id", pa.string()),
+    ("task_id", pa.string()),
+    ("objective", pa.string()),
+    ("root_cause", pa.string()),
+    ("error_summary", pa.string()),
+    ("result_summary", pa.string()),
+    ("created_at", pa.string()),
+])
 
-# ---------------------------------------------------------------------------
-# Root-cause classifiers (deterministic regex, no LLM)
-# ---------------------------------------------------------------------------
 
-_TOOL_PATTERNS = re.compile(
-    r"(subprocess|command not found|filenotfound|no such file|tool not found|"
-    r"module not found|importerror|oserror|permissionerror|timeouterror|"
-    r"connectionerror|connectionrefused|httpx|requests\.exceptions)",
-    re.I,
-)
-_DECISION_PATTERNS = re.compile(
-    r"(wrong strategy|skill mismatch|skill not applicable|no matching skill|"
-    r"fallback triggered|strategy.*failed|incompatible.*skill)",
-    re.I,
-)
-_REASONING_PATTERNS = re.compile(
-    r"(parse error|invalid json|malformed|json decode|unexpected.*output|"
-    r"llm.*contradiction|response.*empty|model.*hallucin)",
-    re.I,
-)
-_CONTEXT_PATTERNS = re.compile(
-    r"(missing.*context|stale.*context|context.*invalid|missing parameter|"
-    r"no objective|missing api key|missing.*config|keyerror|attributeerror)",
-    re.I,
-)
+def _init_failure_table():
+    if "task_failures" not in _manager.db.table_names():
+        _manager.db.create_table("task_failures", schema=_FAILURE_SCHEMA)
+
+_init_failure_table()
+
+# ── Classifiers (pure regex, zero LLM) ──────────────────────────────────────
+_TOOL_P    = re.compile(r"(subprocess|command not found|filenotfound|no such file|importerror|oserror|permissionerror|timeouterror|connectionerror)", re.I)
+_DECISION_P = re.compile(r"(wrong strategy|skill mismatch|no matching skill|fallback triggered|incompatible.*skill)", re.I)
+_REASONING_P = re.compile(r"(parse error|invalid json|malformed|json decode|unexpected.*output|response.*empty|model.*hallucin)", re.I)
+_CONTEXT_P  = re.compile(r"(missing.*context|stale.*context|missing parameter|no objective|missing api key|keyerror|attributeerror)", re.I)
 
 
 def classify_root_cause(error: str, result: str = "") -> str:
-    """
-    Return one of: TOOL_ERROR | DECISION_ERROR | REASONING_ERROR | CONTEXT_ERROR.
-
-    Checks error first, then falls back to result text.
-    Falls back to TOOL_ERROR if no pattern matches (most failures are tool-side).
-    """
     combined = f"{error} {result}"
-
-    if _CONTEXT_PATTERNS.search(combined):
-        return "CONTEXT_ERROR"
-    if _REASONING_PATTERNS.search(combined):
-        return "REASONING_ERROR"
-    if _DECISION_PATTERNS.search(combined):
-        return "DECISION_ERROR"
-    if _TOOL_PATTERNS.search(combined):
-        return "TOOL_ERROR"
-
-    # Default: if there is *any* error text, attribute to TOOL_ERROR
-    if error.strip():
-        return "TOOL_ERROR"
-    return "TOOL_ERROR"   # safe generic fallback
+    if _CONTEXT_P.search(combined):   return "CONTEXT_ERROR"
+    if _REASONING_P.search(combined): return "REASONING_ERROR"
+    if _DECISION_P.search(combined):  return "DECISION_ERROR"
+    if _TOOL_P.search(combined):      return "TOOL_ERROR"
+    return "TOOL_ERROR"
 
 
-# ---------------------------------------------------------------------------
-# DB persistence
-# ---------------------------------------------------------------------------
-
-def _init_db():
-    os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS task_failures (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id       INTEGER,
-                objective     TEXT,
-                root_cause    TEXT    NOT NULL,
-                error_summary TEXT,
-                result_summary TEXT,
-                created_at    TIMESTAMP NOT NULL
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tf_root ON task_failures(root_cause)"
-        )
-
-
-def record_failure(
-    task_id: Optional[int],
-    objective: str,
-    error: str,
-    result: str = "",
-    tracker=None,
-) -> str:
-    """
-    Classify, persist, and log a task failure.
-
-    Returns the root_cause string so callers can use it downstream
-    (e.g. in feedback logging).
-    Logs: FAILURE_ATTRIBUTED
-    """
+def record_failure(task_id, objective: str, error: str, result: str = "", tracker=None) -> str:
+    import uuid
     root_cause = classify_root_cause(error, result)
-
     try:
-        _init_db()
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute(
-                """INSERT INTO task_failures
-                   (task_id, objective, root_cause, error_summary, result_summary, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    task_id,
-                    objective[:500] if objective else "",
-                    root_cause,
-                    error[:500] if error else "",
-                    result[:500] if result else "",
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
+        table = _manager.db.open_table("task_failures")
+        table.add([{
+            "failure_id": uuid.uuid4().hex,
+            "task_id": str(task_id) if task_id else "",
+            "objective": (objective or "")[:500],
+            "root_cause": root_cause,
+            "error_summary": (error or "")[:500],
+            "result_summary": (result or "")[:500],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }])
     except Exception as e:
-        logger.error("[FailureAnalysis] DB write failed: %s", e)
+        logger.error("[FailureAnalysis] Arrow write failed: %s", e)
 
-    logger.info(
-        "[FailureAnalysis] FAILURE_ATTRIBUTED: task_id=%s root_cause=%s",
-        task_id, root_cause
-    )
+    logger.info("[FailureAnalysis] FAILURE_ATTRIBUTED: task_id=%s root_cause=%s", task_id, root_cause)
     print(f"[FailureAnalysis] FAILURE_ATTRIBUTED: {root_cause} (task={task_id})")
 
     if tracker:
         try:
-            tracker.log_event("FAILURE_ATTRIBUTED", {
-                "task_id": task_id,
-                "root_cause": root_cause,
-                "error": error[:200] if error else "",
-            })
+            tracker.log_event("FAILURE_ATTRIBUTED", {"task_id": task_id, "root_cause": root_cause, "error": (error or "")[:200]})
         except Exception:
             pass
-
     return root_cause
 
 
 def get_failure_summary() -> Dict[str, Any]:
-    """Return counts by root_cause for the CLI / metrics display."""
     try:
-        _init_db()
-        with sqlite3.connect(DB_PATH) as conn:
-            rows = conn.execute(
-                "SELECT root_cause, COUNT(*) as cnt FROM task_failures GROUP BY root_cause"
-            ).fetchall()
-        return {row[0]: row[1] for row in rows}
+        table = _manager.db.open_table("task_failures")
+        rows = table.to_arrow().to_pylist()
+        summary: Dict[str, int] = {}
+        for r in rows:
+            rc = r["root_cause"]
+            summary[rc] = summary.get(rc, 0) + 1
+        return summary
     except Exception as e:
         logger.error("[FailureAnalysis] Failed to read summary: %s", e)
         return {}

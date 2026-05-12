@@ -20,7 +20,7 @@ All terminal-based operations are isolated via **Hard Container Sandboxing**.
 - **Permission Engine**: A centralized permission system validates every command against blocked keywords (e.g., `rm -rf`, `mkfs`) before it ever reaches the sandbox.
 
 ### 🚦 3. Human-in-the-Loop (HITL) Control
-The runtime is no longer a "black box." It is fully controllable via the Jarvis Server.
+The runtime is no longer a "black box." It is fully controllable via the AgentX API Server.
 - **Risk Gates**: Nodes with a `risk >= 0.8` trigger an automatic execution interrupt.
 - **Async Interrupts**: The `ReActExecutor` supports pausing, resuming, and modifying the plan mid-flight.
 - **Control API**:
@@ -40,4 +40,4 @@ A global **EventBus** provides real-time system-wide visibility.
 - **`ReActExecutor`**: The heart of the transactional engine.
 - **`ExecutionBridge`**: Manages state checkpoints and rollbacks.
 - **`Replanner`**: Handles autonomous graph repair.
-- **`Jarvis Server`**: FastAPI-based remote control interface.
+- **`AgentX API`**: FastAPI-based remote control interface.

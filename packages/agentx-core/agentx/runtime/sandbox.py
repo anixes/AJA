@@ -64,13 +64,15 @@ def is_safe(cmd: str) -> bool:
 # Execution helpers
 # ---------------------------------------------------------------------------
 
-def _run_in_docker(cmd: str, timeout: int, memory: str, cpus: str, workdir: str) -> dict:
+def _run_in_docker(cmd: str, timeout: int, memory: str, cpus: str, workdir: str, allow_network: bool = False) -> dict:
     """Execute *cmd* inside an isolated Docker container."""
     host_path = str(PROJECT_ROOT.resolve())
 
+    network_mode = "bridge" if allow_network else "none"
+
     docker_cmd = [
         "docker", "run", "--rm",
-        "--network=none",
+        f"--network={network_mode}",
         f"--memory={memory}",
         f"--cpus={cpus}",
         "-v", f"{host_path}:{workdir}",
@@ -150,6 +152,7 @@ def execute_command(
     memory: str = "256m",
     cpus: str = "0.5",
     workdir: str = "/workspace",
+    allow_network: bool = False,
 ) -> dict:
     """
     Execute *cmd* safely.
@@ -166,6 +169,6 @@ def execute_command(
         raise ValueError(f"Unsafe command blocked by sandbox rules: {cmd!r}")
 
     if docker_available():
-        return _run_in_docker(cmd, timeout, memory, cpus, workdir)
+        return _run_in_docker(cmd, timeout, memory, cpus, workdir, allow_network=allow_network)
     else:
         return _run_direct(cmd, timeout)

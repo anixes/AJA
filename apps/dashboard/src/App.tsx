@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useStore } from './store/useStore';
-import { useFadeInUp, useStaggerChildren } from './hooks/useAnimations';
+import { useAnimations, useFadeInUp, useStaggerChildren } from './hooks/useAnimations';
+import { useWebSocket } from './hooks/useWebSocket';
 import {
   Activity,
   FileText,
@@ -263,6 +264,10 @@ const emptyStatus: DashboardStatus = {
 
 const Dashboard = () => {
   const { activeTab, setActiveTab, connectionState, setConnectionState, setStats } = useStore();
+
+  // Mobile Bridge Connection (Port 8001)
+  useWebSocket('ws://localhost:8001/ws/mobile');
+
   const headerRef = useFadeInUp<HTMLElement>(0);
   const statsGridRef = useStaggerChildren<HTMLDivElement>(':scope > *', 50);
   const [data, setData] = useState<DashboardStatus>(emptyStatus);
@@ -342,7 +347,7 @@ const Dashboard = () => {
       setSettingsProvider(res.data.provider || 'openrouter');
       setSettingsModel(res.data.model || '');
       setSettingsKeySet(res.data.api_key_set || false);
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const fetchCommunications = async () => {
@@ -554,8 +559,9 @@ const Dashboard = () => {
   const pendingApproval = data.pending_approval;
 
   return (
-    <div className="min-h-screen bg-[#0f1115] text-[#e0e0e0] font-sans selection:bg-cyan-500/20">
-      <nav className="fixed left-0 top-0 h-full w-20 bg-[#16191f] border-r border-white/[0.03] flex flex-col items-center py-10 space-y-12 z-50">
+    <div className="min-h-screen bg-[#0f1115] text-[#e0e0e0] font-sans selection:bg-cyan-500/20 relative overflow-hidden hud-grid">
+      <div className="scanning-line" />
+      <nav className="fixed left-0 top-0 h-full w-20 glass-panel border-r border-white/[0.03] flex flex-col items-center py-10 space-y-12 z-50">
         <div className="w-10 h-10 bg-cyan-600/20 rounded-2xl flex items-center justify-center">
           <Shield className="text-cyan-400" size={20} />
         </div>
@@ -569,10 +575,10 @@ const Dashboard = () => {
         <Menu className="text-slate-600 cursor-pointer hover:text-slate-400 transition-colors" size={20} />
       </nav>
 
-      <main className="pl-20 min-h-screen flex flex-col">
-        <header ref={headerRef} className="px-12 py-8 flex justify-between items-center bg-[#0f1115]/50 backdrop-blur-xl sticky top-0 z-40 border-b border-white/[0.02]">
+      <main className="pl-20 min-h-screen flex flex-col relative z-10">
+        <header ref={headerRef} className="px-12 py-8 flex justify-between items-center bg-[#0f1115]/40 backdrop-blur-2xl sticky top-0 z-40 border-b border-cyan-500/10">
           <div>
-            <h1 className="text-lg font-medium text-white tracking-tight">Executive Desk</h1>
+            <h1 className="text-lg font-bold text-white tracking-widest uppercase data-glow">Executive Desk</h1>
             <p className="text-sm text-slate-500 font-normal">Manage agenda, approvals, and delegations</p>
           </div>
           <div className="flex gap-6 items-center">
@@ -586,26 +592,26 @@ const Dashboard = () => {
             <HeaderStat label="Files" value={data.total_files} />
             <HeaderStat label="Delegations" value={data.baton_count ?? batons.length} highlight={(data.baton_count ?? batons.length) > 0} />
             <HeaderStat label="Workers" value={data.active_agents} highlight={data.active_agents > 0} />
-            
+
             {data.token_stats && (
               <div className="flex gap-4 border-l border-white/[0.05] pl-6 ml-2">
-                 <HeaderStat 
-                    label="Tokens" 
-                    value={`${(data.token_stats.total / 1000).toFixed(1)}k`} 
-                 />
-                 <HeaderStat 
-                    label="Saved" 
-                    value={`${(data.token_stats.saved / 1000).toFixed(1)}k`} 
-                    highlight={data.token_stats.saved > 0}
-                 />
-                 <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-slate-600 uppercase font-bold tracking-wider">Efficiency</span>
-                    <span className="text-sm font-medium text-emerald-400">
-                       {data.token_stats.total > 0 
-                          ? `${Math.round((data.token_stats.saved / (data.token_stats.total + data.token_stats.saved)) * 100)}%`
-                          : '100%'}
-                    </span>
-                 </div>
+                <HeaderStat
+                  label="Tokens"
+                  value={`${(data.token_stats.total / 1000).toFixed(1)}k`}
+                />
+                <HeaderStat
+                  label="Saved"
+                  value={`${(data.token_stats.saved / 1000).toFixed(1)}k`}
+                  highlight={data.token_stats.saved > 0}
+                />
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] text-slate-600 uppercase font-bold tracking-wider">Efficiency</span>
+                  <span className="text-sm font-medium text-emerald-400">
+                    {data.token_stats.total > 0
+                      ? `${Math.round((data.token_stats.saved / (data.token_stats.total + data.token_stats.saved)) * 100)}%`
+                      : '100%'}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -737,7 +743,7 @@ const Dashboard = () => {
                           <h4 className="text-xs uppercase tracking-widest text-slate-500 mb-2">Recommended Workers</h4>
                           <div className="space-y-2">
                             {delegationRecs.map((rec, idx) => (
-                              <div 
+                              <div
                                 key={rec.worker_id}
                                 onClick={() => setSelectedWorkerId(rec.worker_id)}
                                 className={`p-3 rounded-lg border cursor-pointer transition-colors ${selectedWorkerId === rec.worker_id ? 'bg-cyan-900/20 border-cyan-500/40' : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]'}`}
@@ -980,10 +986,10 @@ const Dashboard = () => {
 };
 
 const SectionTitle = ({ icon, title }: { icon: React.ReactElement; title: string }) => (
-  <h2 className="text-sm font-medium text-slate-400 flex items-center gap-2">
-    {icon}
-    {title}
-  </h2>
+  <div className="flex items-center gap-3 mb-6 hud-border-l pl-4">
+    {React.cloneElement(icon as React.ReactElement<any>, { className: 'text-cyan-400', size: 16 })}
+    <h2 className="text-sm font-bold text-white tracking-widest uppercase data-glow">{title}</h2>
+  </div>
 );
 
 const ApprovalPanel = ({
@@ -1093,15 +1099,14 @@ const EventCard = ({ event }: { event: RuntimeEvent }) => {
   return (
     <div className="flex gap-4 group p-4 rounded-[24px] bg-[#16191f] border border-white/[0.03] hover:border-white/[0.08] transition-all">
       <div
-        className={`mt-1 w-2.5 h-2.5 rounded-full ${
-          tone === 'deny'
+        className={`mt-1 w-2.5 h-2.5 rounded-full ${tone === 'deny'
             ? 'bg-red-500'
             : tone === 'ask'
               ? 'bg-amber-400'
               : tone === 'allow'
                 ? 'bg-cyan-400'
                 : 'bg-slate-600'
-        }`}
+          }`}
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-3 mb-2">
@@ -1135,7 +1140,7 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
     <div className="grid grid-cols-1 gap-4">
       {batons.map((baton) => {
         const isLive = baton.last_pulse && (Date.now() / 1000 - baton.last_pulse) < 60;
-        
+
         return (
           <div
             key={baton.file}
@@ -1143,14 +1148,14 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
           >
             {/* Live Progress Background */}
             {baton.status !== 'failed' && baton.status !== 'completed' && (
-               <div className="absolute bottom-0 left-0 h-1 bg-cyan-500/20 w-full">
-                  <motion.div 
-                    className="h-full bg-cyan-500" 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${baton.progress ?? 0}%` }}
-                    transition={{ type: 'spring', stiffness: 50 }}
-                  />
-               </div>
+              <div className="absolute bottom-0 left-0 h-1 bg-cyan-500/20 w-full">
+                <motion.div
+                  className="h-full bg-cyan-500"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${baton.progress ?? 0}%` }}
+                  transition={{ type: 'spring', stiffness: 50 }}
+                />
+              </div>
             )}
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1159,8 +1164,8 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                   <p className="text-white font-medium">{baton.task || baton.file}</p>
                   {isLive && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20">
-                       <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                       <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-wider">Live</span>
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-wider">Live</span>
                     </div>
                   )}
                 </div>
@@ -1172,19 +1177,19 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                 {baton.progress !== undefined && <span className="text-[11px] font-mono text-slate-400 pt-1">{baton.progress}%</span>}
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs text-slate-500">
               <div>
                 <p className="uppercase tracking-[0.16em] text-slate-600 mb-1">Updated</p>
                 <div className="flex items-center gap-2">
-                   <Timer size={12} className="text-slate-700" />
-                   <p>{baton.updated_at ? formatTimestamp(baton.updated_at) : 'Unknown'}</p>
+                  <Timer size={12} className="text-slate-700" />
+                  <p>{baton.updated_at ? formatTimestamp(baton.updated_at) : 'Unknown'}</p>
                 </div>
               </div>
               <div>
                 <p className="uppercase tracking-[0.16em] text-slate-600 mb-1">Pulse</p>
                 <p className={isLive ? 'text-cyan-500/80' : 'text-slate-700'}>
-                   {isLive ? 'Active Heartbeat' : 'Flatlined / Finished'}
+                  {isLive ? 'Active Heartbeat' : 'Flatlined / Finished'}
                 </p>
               </div>
               <div>
@@ -1202,10 +1207,10 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                 <p className="text-[10px] uppercase tracking-[0.18em] text-red-300/70 mb-2">Failure</p>
                 <p className="text-sm text-red-100">{baton.error}</p>
                 <div className="mt-4 flex gap-2 justify-end border-t border-red-500/10 pt-3">
-                   <p className="text-xs text-slate-400 self-center mr-auto">System recommends retrying with a higher context limit or different worker.</p>
-                   <button className="px-4 py-2 bg-[#16191f] border border-red-500/20 hover:bg-red-500/10 text-red-300 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2">
-                     <RefreshCw size={14} /> Retry
-                   </button>
+                  <p className="text-xs text-slate-400 self-center mr-auto">System recommends retrying with a higher context limit or different worker.</p>
+                  <button className="px-4 py-2 bg-[#16191f] border border-red-500/20 hover:bg-red-500/10 text-red-300 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2">
+                    <RefreshCw size={14} /> Retry
+                  </button>
                 </div>
               </div>
             )}
@@ -1240,21 +1245,21 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                   ))}
                 </div>
                 {!baton.verification.passed && (
-                   <div className="rounded bg-red-500/10 border border-red-500/20 p-3 mt-2 text-xs text-red-300">
-                     <p className="font-semibold mb-1">Merge Blocked: Verification Failed</p>
-                     <p>AJA has blocked this merge. The worker reported completion, but independent checks failed. Please review the failed checks above.</p>
-                     <div className="flex gap-2 mt-3">
-                       <button className="px-3 py-1.5 bg-[#16191f] border border-red-500/30 hover:bg-red-500/20 text-red-300 rounded transition-colors flex items-center gap-1.5">
-                         <RefreshCw size={12} /> Retry Same Worker
-                       </button>
-                       <button className="px-3 py-1.5 bg-[#16191f] border border-orange-500/30 hover:bg-orange-500/20 text-orange-300 rounded transition-colors flex items-center gap-1.5">
-                         <Users size={12} /> Fallback to Alternate Worker
-                       </button>
-                       <button className="px-3 py-1.5 bg-[#16191f] border border-yellow-500/30 hover:bg-yellow-500/20 text-yellow-300 rounded transition-colors flex items-center gap-1.5">
-                         <AlertTriangle size={12} /> Escalate to Human Review
-                       </button>
-                     </div>
-                   </div>
+                  <div className="rounded bg-red-500/10 border border-red-500/20 p-3 mt-2 text-xs text-red-300">
+                    <p className="font-semibold mb-1">Merge Blocked: Verification Failed</p>
+                    <p>AJA has blocked this merge. The worker reported completion, but independent checks failed. Please review the failed checks above.</p>
+                    <div className="flex gap-2 mt-3">
+                      <button className="px-3 py-1.5 bg-[#16191f] border border-red-500/30 hover:bg-red-500/20 text-red-300 rounded transition-colors flex items-center gap-1.5">
+                        <RefreshCw size={12} /> Retry Same Worker
+                      </button>
+                      <button className="px-3 py-1.5 bg-[#16191f] border border-orange-500/30 hover:bg-orange-500/20 text-orange-300 rounded transition-colors flex items-center gap-1.5">
+                        <Users size={12} /> Fallback to Alternate Worker
+                      </button>
+                      <button className="px-3 py-1.5 bg-[#16191f] border border-yellow-500/30 hover:bg-yellow-500/20 text-yellow-300 rounded transition-colors flex items-center gap-1.5">
+                        <AlertTriangle size={12} /> Escalate to Human Review
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -1264,21 +1269,21 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
               <div className="space-y-4 border-t border-white/[0.03] pt-4 mt-4">
                 {baton.tests_output && (
                   <div className="rounded-2xl border border-cyan-500/15 bg-cyan-500/5 p-4">
-                     <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-500 mb-2">Test Validation Results</p>
-                     <pre className="text-xs text-slate-300 overflow-x-auto custom-scrollbar p-2 bg-[#0f1115] rounded-xl border border-white/[0.03]">
-                        {baton.tests_output}
-                     </pre>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-500 mb-2">Test Validation Results</p>
+                    <pre className="text-xs text-slate-300 overflow-x-auto custom-scrollbar p-2 bg-[#0f1115] rounded-xl border border-white/[0.03]">
+                      {baton.tests_output}
+                    </pre>
                   </div>
                 )}
                 {baton.diff && (
                   <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                     <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-2">Execution Diff Summary</p>
-                     <pre className="text-xs text-slate-300 overflow-x-auto custom-scrollbar p-2 bg-[#0f1115] rounded-xl border border-white/[0.03]">
-                        {baton.diff}
-                     </pre>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-2">Execution Diff Summary</p>
+                    <pre className="text-xs text-slate-300 overflow-x-auto custom-scrollbar p-2 bg-[#0f1115] rounded-xl border border-white/[0.03]">
+                      {baton.diff}
+                    </pre>
                   </div>
                 )}
-                
+
                 {/* Executive Action Panel */}
                 <div className="flex gap-3 pt-2 items-center justify-between">
                   <div className="text-xs text-slate-500">
@@ -1288,7 +1293,7 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                     <button className="px-4 py-2 bg-[#16191f] border border-white/10 hover:bg-white/5 text-slate-300 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2">
                       <XCircle size={14} /> Reject & Retry
                     </button>
-                    <button 
+                    <button
                       disabled={!baton.verification?.passed}
                       className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 text-black text-xs font-bold rounded-lg transition-colors flex items-center gap-2"
                     >
@@ -1316,9 +1321,8 @@ const NavLink = ({
 }) => (
   <button
     onClick={onClick}
-    className={`p-3 rounded-2xl transition-all ${
-      active ? 'bg-white/[0.05] text-cyan-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'
-    }`}
+    className={`p-3 rounded-2xl transition-all ${active ? 'bg-cyan-500/10 text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)] data-glow' : 'text-slate-500 hover:text-slate-300'
+      }`}
   >
     {icon}
   </button>
@@ -1335,7 +1339,7 @@ const HeaderStat = ({
 }) => (
   <div className="flex flex-col items-end">
     <span className="text-[10px] text-slate-600 uppercase font-bold tracking-wider">{label}</span>
-    <span className={`text-sm font-medium ${highlight ? 'text-cyan-400' : 'text-white'}`}>{value}</span>
+    <span className={`text-sm font-bold font-mono ${highlight ? 'text-cyan-400 data-glow' : 'text-white'}`}>{value}</span>
   </div>
 );
 
@@ -1350,7 +1354,7 @@ const StatusCard = ({
   load: string;
   value?: string;
 }) => (
-  <div className="bg-[#16191f] p-8 rounded-3xl border border-white/[0.03] flex flex-col space-y-6">
+  <div className="glass-panel p-8 rounded-3xl flex flex-col space-y-6 transition-all hover:scale-[1.02] hover:border-cyan-500/30">
     <div className="flex justify-between items-start">
       <h3 className="text-slate-500 text-xs font-bold uppercase tracking-widest">{title}</h3>
       <div className={`w-2 h-2 rounded-full ${status === 'healing' ? 'bg-amber-400 animate-pulse' : 'bg-cyan-500'}`} />
@@ -1463,7 +1467,7 @@ const CommunicationBoard = ({ communications, onAction }: { communications: Comm
               <RiskPill tone={commTone(comm.delivery_status)}>Delivery: {comm.delivery_status}</RiskPill>
             </div>
           </div>
-          
+
           <div className="bg-[#0f1115] p-4 rounded-xl border border-white/[0.02]">
             <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono text-xs">{comm.draft_content}</p>
           </div>
@@ -1473,7 +1477,7 @@ const CommunicationBoard = ({ communications, onAction }: { communications: Comm
               {comm.follow_up_required && <span className="mr-3 text-amber-500/80">Follow-up: {comm.follow_up_due || 'ASAP'}</span>}
               <span>Tone: {comm.tone_profile}</span>
             </div>
-            
+
             <div className="flex gap-2">
               {comm.approval_status === 'pending' && (
                 <>
@@ -1507,14 +1511,12 @@ const DodChecklist = ({ items, completed = false }: { items: string[]; completed
     <ul className="space-y-1.5">
       {items.map((item, i) => (
         <li key={i} className="flex items-start gap-2">
-          <div className={`mt-0.5 w-3.5 h-3.5 rounded shrink-0 border flex items-center justify-center ${
-            completed ? 'bg-emerald-500/30 border-emerald-500/40' : 'border-white/[0.12] bg-white/[0.02]'
-          }`}>
+          <div className={`mt-0.5 w-3.5 h-3.5 rounded shrink-0 border flex items-center justify-center ${completed ? 'bg-emerald-500/30 border-emerald-500/40' : 'border-white/[0.12] bg-white/[0.02]'
+            }`}>
             {completed && <span className="text-emerald-400 text-[8px] font-bold">✓</span>}
           </div>
-          <span className={`text-xs leading-tight ${
-            completed ? 'text-slate-500 line-through' : 'text-slate-300'
-          }`}>{item}</span>
+          <span className={`text-xs leading-tight ${completed ? 'text-slate-500 line-through' : 'text-slate-300'
+            }`}>{item}</span>
         </li>
       ))}
     </ul>
@@ -1560,11 +1562,10 @@ const Top3Panel = ({ priorities }: { priorities: PriorityEngine | null }) => {
       {top3.map((task, idx) => (
         <div
           key={task.task_id}
-          className={`relative bg-[#16191f] rounded-3xl border p-6 space-y-4 transition-all hover:border-white/[0.08] overflow-hidden ${
-            idx === 0
+          className={`relative bg-[#16191f] rounded-3xl border p-6 space-y-4 transition-all hover:border-white/[0.08] overflow-hidden ${idx === 0
               ? 'border-cyan-500/20 shadow-[0_0_30px_rgba(6,182,212,0.04)]'
               : 'border-white/[0.03]'
-          }`}
+            }`}
         >
           {/* Rank watermark */}
           <span className="absolute top-4 right-5 text-[56px] font-black text-white/[0.03] select-none leading-none">#{idx + 1}</span>
@@ -1642,10 +1643,9 @@ const Top3Panel = ({ priorities }: { priorities: PriorityEngine | null }) => {
           <div className="flex flex-wrap items-center gap-3 text-[11px]">
             <RiskPill tone="neutral">{task.approval_recommendation}</RiskPill>
             {task.days_until_due !== undefined && task.days_until_due !== null && (
-              <span className={`font-mono ${
-                task.days_until_due < 0 ? 'text-red-400' :
-                task.days_until_due < 1 ? 'text-amber-400' : 'text-slate-500'
-              }`}>
+              <span className={`font-mono ${task.days_until_due < 0 ? 'text-red-400' :
+                  task.days_until_due < 1 ? 'text-amber-400' : 'text-slate-500'
+                }`}>
                 {task.days_until_due < 0
                   ? `${Math.abs(task.days_until_due).toFixed(1)}d overdue`
                   : `${task.days_until_due.toFixed(1)}d left`}
@@ -1723,11 +1723,11 @@ const TaskBoard = ({ tasks, onAction }: { tasks: Task[], onAction: (id: string, 
             <div className="flex flex-col items-end gap-2">
               <RiskPill tone={taskTone(task.status, task.priority)}>Status: {task.status}</RiskPill>
               {task.delegated_worker_status && (
-                 <RiskPill tone="neutral">Worker: {task.delegated_worker_status}</RiskPill>
+                <RiskPill tone="neutral">Worker: {task.delegated_worker_status}</RiskPill>
               )}
             </div>
           </div>
-          
+
           <div className="flex flex-wrap gap-4 text-[11px] text-slate-500 bg-[#0f1115] p-3 rounded-xl border border-white/[0.02]">
             <div className="flex flex-col">
               <span className="uppercase tracking-wider font-semibold mb-0.5 text-slate-600">Due Date</span>
@@ -1781,11 +1781,10 @@ export default Dashboard;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const CapBadge = ({ active, icon, label }: { active: boolean; icon: React.ReactElement; label: string }) => (
-  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium border ${
-    active
+  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium border ${active
       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
       : 'bg-slate-800/30 border-white/[0.04] text-slate-600 line-through'
-  }`}>
+    }`}>
     {icon}
     {label}
   </div>
@@ -1807,11 +1806,10 @@ const SpeedBadge = ({ speed }: { speed: string }) => {
 const AvailBadge = ({ status }: { status: string }) => {
   const isAvail = status === 'available';
   return (
-    <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-      isAvail
+    <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${isAvail
         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
         : 'bg-red-500/10 border-red-500/20 text-red-400'
-    }`}>
+      }`}>
       <span className={`w-1.5 h-1.5 rounded-full ${isAvail ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
       {status}
     </span>
@@ -1935,13 +1933,12 @@ const WorkerRegistryPanel = ({
                   {t}
                 </span>
               ))}
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${
-                recResult.analysis.risk_level === 'high'
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${recResult.analysis.risk_level === 'high'
                   ? 'bg-red-500/10 border-red-500/20 text-red-400'
                   : recResult.analysis.risk_level === 'low'
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                     : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-              }`}>
+                }`}>
                 Risk: {recResult.analysis.risk_level}
               </span>
               <SpeedBadge speed={recResult.analysis.speed_need} />
@@ -1962,11 +1959,10 @@ const WorkerRegistryPanel = ({
             <div className="space-y-3">
               {recResult.recommended.map((rec, idx) => (
                 <div key={rec.worker_id}
-                  className={`flex items-start gap-4 p-4 rounded-2xl border transition-all ${
-                    idx === 0
+                  className={`flex items-start gap-4 p-4 rounded-2xl border transition-all ${idx === 0
                       ? 'bg-emerald-500/5 border-emerald-500/15'
                       : 'bg-[#0f1115] border-white/[0.04] hover:border-white/[0.08]'
-                  }`}>
+                    }`}>
                   <ScoreRing score={rec.recommendation_score} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -1974,13 +1970,12 @@ const WorkerRegistryPanel = ({
                       <h4 className="text-sm font-medium text-white">{rec.worker_name}</h4>
                       <span className="text-[10px] text-slate-600">({rec.worker_type})</span>
                       <SpeedBadge speed={rec.execution_speed} />
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                        rec.cost_profile === 'free'
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${rec.cost_profile === 'free'
                           ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                           : rec.cost_profile === 'subscription'
                             ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
                             : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                      }`}>
+                        }`}>
                         <DollarSign size={8} className="inline" /> {rec.cost_profile}
                       </span>
                     </div>
@@ -2048,11 +2043,10 @@ const WorkerRegistryPanel = ({
                 {/* Header */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                      w.availability_status === 'available'
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${w.availability_status === 'available'
                         ? 'bg-emerald-500/10 text-emerald-400'
                         : 'bg-slate-800 text-slate-600'
-                    }`}>
+                      }`}>
                       <Users size={16} />
                     </div>
                     <div>

@@ -28,7 +28,7 @@ class TaskManager:
         self.manager = get_memory_manager()  # singleton — no extra LanceDB connection
         self.table_name = "core_tasks"
 
-    def add_task(self, title: str) -> str:
+    def add_task(self, title: str, node_id: str = "") -> str:
         """Adds a new mission objective to the core_tasks table."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         task_id = str(uuid.uuid4()).replace("-", "")[:12]  # 12 chars — lower collision risk
@@ -36,6 +36,7 @@ class TaskManager:
         data = [{
             "task_id":       task_id,
             "run_id":        "",
+            "node_id":       node_id,
             "objective":     title,
             "status":        STATUS_PENDING,
             "retry_count":   0,

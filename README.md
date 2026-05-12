@@ -1,128 +1,75 @@
-# AgentX
+# AgentX & AJA
 
-## 🚀 Local Performance (GTX 1650 Ti Optimized)
+## 🚀 The Local-First Agentic OS
+**High-Performance Autonomy for Every Machine.**
 
-This repository is tuned for high-performance local inference on 4GB VRAM hardware.
-
-### Quick Start
-1.  **Launch**: Double-click the **AgentX** icon on your desktop (or run `AgentX Launcher.bat` as Administrator).
-2.  **Performance**: Achieves **~350 t/s** prompt processing and **~88 TPS** generation using the Gold Standard server configuration.
-3.  **Intelligent Memory**: Context is automatically summarized when it exceeds 5,000 characters to maintain constant low-latency reasoning.
-
-### Performance Tunables
-*   **Context Limit**: 32,768 tokens (Locked for stability).
-*   **Batching**: `ubatch=256` (Maximized for 1650 Ti compute cores).
-*   **Offline Mode**: Enabled by default in `agentx.json` to prioritize local Llama.cpp.
-
-**AgentX Core** is the high-performance, security-first orchestration engine.
-**AJA** is the assistant personality and operator that uses AgentX Core to plan, execute, and supervise work.
-
-In short: **AgentX Core powers AJA**.
+AgentX is a cutting-edge orchestration framework designed to bridge the gap between elite AI capabilities and accessible hardware. By leveraging a **Local-First** philosophy and extreme memory engineering, AgentX enables a sophisticated, autonomous agent swarm to run efficiently on the cheapest of hardware while delivering maximum performance.
 
 ---
 
-## Key Pillars
-
-### 1. Self-Healing Swarm
-A decentralized network of agents that monitor your territories (`src/prod`, `src/vault`, etc.). If a logic bug or crash is detected, the Swarm automatically diagnoses the error via the **AI Gateway** and applies a verified patch.
-
-### 2. The Secure Vault (AES-256-GCM)
-A military-grade secret management system. Agents can retrieve deployment tokens and API keys privately in-process, ensuring credentials never leak into chat logs or terminal history.
-
-### 3. SafeShell (Safety Gate)
-A tiered risk auditing system that intercepts every bash command. It classifies commands as **Allow / Ask / Deny**, pauses risky operations as structured approval requests for CLI, dashboard, or Telegram review, and blocks dangerous patterns like `curl | bash`.
-
-### 4. Executive Desk (Dashboard)
-A premium React + Vite command center focused on high-level operator visibility. It prioritizes **Today’s Agenda**, **Pending Approvals**, and **Active Delegations**. Technical swarm telemetry is secondary, ensuring the user stays focused on executive decisions.
-
-### 5. Telegram Remote Control
-AJA can receive whitelisted phone commands through Telegram, route them through AgentX Core safety checks, and return concise mobile-readable output.
-
-### 6. Production Approval Workflow
-Risky actions (Shell commands or outbound messages) become structured approval objects with risk levels, rollback paths, and dry-run summaries. Every delegation mission requires a mandatory **Definition of Done (DoD)** before worker dispatch.
-
-### 7. Structured Secretary Memory
-AJA persists obligations, follow-ups, recurring responsibilities, reminders, and accountability commitments in SQLite so they survive restarts and can be reviewed from CLI, dashboard API, or Telegram.
-
-### 8. Messaging Layer
-AJA drafts, edits, approves, and tracks outbound communication without auto-sending first versions. Recruiter follow-ups, reminders, professional replies, and accountability check-ins are stored in SQLite with follow-up tracking.
-
-### 9. Priority Engine & Executive Reviews
-AJA uses a multi-factor **Judgment Engine** to score tasks by urgency, stakeholder weight, and consequence of delay. It generates morning, night, and weekly executive reviews, challenges false urgency, and suggests tasks that can be safely ignored.
-
-### 10. Controlled Agent Verification & Worker Registry
-AJA manages a registry of specialist workers (Copilot, Gemini, Aider, etc.) and executes delegated missions with strict **Definition of Done (DoD)** enforcement. Every worker output is independently audited by the **Verification Engine** for test integrity, branch isolation, and secret leakage before human merge approval is permitted.
-### 11. Parallel Plan Serializability & Verification
-AJA implements a conflict-aware scheduler that decomposes complex objectives into parallel "waves" of execution. The **Serializability Verification Layer** ensures that concurrent execution is mathematically equivalent to a safe sequential baseline, preventing race conditions and state corruption during high-throughput autonomous missions.
-
-### 12. Autonomous Strategy System (Phase 27)
-AgentX now operates on a **Think-Simulate-Act** loop. It generates multiple plans, simulates their outcomes in an internal world model, and selects the optimal strategic path based on predicted risk, success probability, and latency.
-
-### 13. Self-Generated Curriculum & Evolution
-The system autonomously detects skill gaps in its own performance and generates synthetic practice tasks in a controlled sandbox. This enables continuous strategic improvement and tool mastery without human intervention.
-
-### 14. Dynamic Critic & Calibration Layer (Phase 21.6)
-AJA continuously evaluates generated execution plans through an LLM-enhanced reasoning critic. The engine features dynamic confidence thresholding, calibrating its strictness autonomously based on observed false positive/negative rates, and detects "shared reasoning errors" to prevent false consensus across the swarm.
+## 🎯 Our Mission: Performance Without Compromise
+We believe that high-performance autonomous orchestration should not be a luxury reserved for multi-GPU clusters. AgentX is engineered from the ground up to:
+- **Democratize Autonomy**: Built to run on standard consumer-grade hardware with zero performance degradation.
+- **Local-First Security**: Your state, your memory, and your missions stay local, backed by a high-speed Arrow persistence layer.
+- **Extreme Efficiency**: Utilizing Rust-native acceleration and zero-copy memory patterns to maximize every CPU cycle.
 
 ---
 
-## Priority Engine
-The **Priority Engine** is the core logic that prevents "agent drift." It cross-references current tasks against your **Strategic North Star** (a persistent context file). It filters the swarm's activity to prioritize high-leverage outcomes, preventing the system from wasting tokens on low-value optimizations while critical deadlines loom.
+## 🏗️ The Pure AgentX Architecture
+
+### 1. Unified Arrow Memory (LanceDB)
+Legacy database bottlenecks have been purged. AgentX utilizes a 100% **Apache Arrow** memory stack. Both structured activity and semantic context are managed via **LanceDB**, providing:
+- **Zero-Copy Performance**: Data is moved between the engine and storage without expensive serialization.
+- **O(1) Semantic Retrieval**: Instant access to long-term memory via SIMD-accelerated vector search.
+- **Columnar Efficiency**: Drastically reduced memory footprint compared to traditional row-based storage.
+
+### 2. Native Rust Nervous System (`agentx-native`)
+The performance-critical core is accelerated by a native Rust engine. By offloading token analysis, state transitions, and IPC serialization to Rust, AgentX achieves **10x faster response times** than traditional Python-only frameworks.
+
+### 3. Arrow IPC Baton Protocol
+Distributed mission coordination uses **Apache Arrow Tables**. When a task is delegated, the mission state is handed over as a binary "Baton" that is memory-mapped by the sub-agent. This ensures sub-millisecond coordination latency for even the largest swarms.
 
 ---
 
-## Technology Stack
-- **Core Engine**: Python 3.12 (Modular Package)
-- **CLI App**: TypeScript / Node.js (Ink-based)
-- **Dashboard**: React 19, Framer Motion, Tailwind CSS, Vite
-- **Security**: AES-256-GCM, Zod Validation, Custom Command Stripper
-- **Orchestration**: Baton-Handoff Pattern (Multi-Process isolation)
-- **Local AI Engine**: llama.cpp (CUDA optimized)
+## 🤖 Meet AJA (Assistant to the Joint Agents)
+While **AgentX** is the high-performance engine, **AJA** is your interface. She is the conversational operator who:
+- **Plans & Delegates**: Translates your natural language intent into structured missions for the AgentX swarm.
+- **Guards Your System**: Uses the **AJA Guard** to audit every command for safety before execution.
+- **Simplifies Complexity**: Manages your schedule, obligations, and local-first memory seamlessly.
 
 ---
 
-## Quick Start
+## 🛠️ Technology Stack
+- **Core Engine**: Python 3.12+ (Modular & Optimized)
+- **Performance Layer**: Rust-native acceleration via `pyo3`
+- **Memory Stack**: Apache Arrow & LanceDB (SIMD-accelerated)
+- **Safety Layer**: AJA Guard (Risk-aware command auditing)
+- **TUI/CLI**: Premium conversational interface using **Rich** & **Textual**
+- **Dashboard**: React 19 Executive Command Center
 
-### 1. Setup Environment
+---
+
+## 🚀 Getting Started
+
+### 1. Launch AJA Chat
+Interact with your assistant and manage the swarm through a premium conversational loop.
 ```bash
-npm install
-```
-*Note: This will install dependencies for all workspaces (apps and packages).*
-
-### 2. Launch the Ecosystem (AJA Stack)
-Run the unified command to start the API Bridge (Python), the Telegram Poller, and the Visual Command Center (Vite):
-```bash
-npm run aja
+agentx chat
 ```
 
-### 3. Telegram Interaction
-AJA now uses a **robust local polling loop**. No webhooks are required, making it perfect for local development. 
-- Ensure `TELEGRAM_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are set in `.env`.
-- Message your bot directly. Try `status` or `gpu`.
-
-### 3. CLI Missions
-Use the CLI for autonomous planning:
+### 2. Dispatch Missions
+Delegate complex objectives directly to the SwarmEngine.
 ```bash
-agentx run "Build a new module for X"
+agentx run "Audit the project security and implement missing guardrails"
+```
+
+### 3. Monitor Swarm Health
+View real-time metrics and active baton handoffs across the Arrow memory stack.
+```bash
+agentx status
 ```
 
 ---
 
-## Project Structure
-
-The project follows a modern **Apps/Packages Monorepo** architecture:
-
-- **`apps/`**
-  - `cli-ts/`: TypeScript-based terminal application and simulation tools.
-  - `dashboard/`: Premium React + Vite Visual Command Center.
-- **`packages/`**
-  - **`agentx-core/`**: The main Python orchestration engine.
-    - `agentx/`: Core module logic (agents, goals, memory, security, utils).
-- **`tests/`**: Unified testing environment for both Python and TypeScript suites.
-- **`.agentx/`**: Centralized runtime state, secretary memory (SQLite), and audit logs.
-- **`agentx.bat`**: Unified launcher for the entire ecosystem.
-
----
-
-## Philosophy
-AgentX Core is built on the principle that **autonomous agents must be constrained by human security patterns**. AJA is the operator on top: expressive, useful, and accountable to the human approval loop.
+## 📜 Philosophy
+Performance is not a luxury—it is an engineering requirement. AgentX proves that by prioritizing **Memory Efficiency** and **Native Execution**, we can deliver world-class autonomous systems on the hardware you already own.

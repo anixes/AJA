@@ -39,3 +39,65 @@ body {
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
+
+/* HUD Grid Background */
+.hud-grid {
+  background-image: 
+    linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Scanning Line Animation */
+.scanning-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.5), transparent);
+  animation: scan 4s linear infinite;
+  z-index: 50;
+  pointer-events: none;
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+/* Glass HUD Panels */
+.glass-panel {
+  background: rgba(15, 17, 21, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+/* Data Glow */
+.data-glow {
+  text-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+.data-glow-red {
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+.data-glow-green {
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+/* HUD Borders */
+.hud-border-l {
+  position: relative;
+}
+
+.hud-border-l::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10%;
+  height: 80%;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(0, 255, 255, 0.5), transparent);
+}

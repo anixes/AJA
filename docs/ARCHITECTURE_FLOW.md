@@ -1,16 +1,17 @@
-# Architecture Flow
+# Architecture Flow: High-Performance Local Autonomy
+**AgentX & AJA: Built to run on the cheapest of hardware with maximum performance.**
 
 ```mermaid
 graph TD
     User((User)) -->|Natural Language| AJA[AJA Operator]
     Phone((Phone)) -->|Telegram Bot API| Telegram[Telegram Webhook]
-    AJA -->|Natural Language| TUI[SafeShell TUI]
+    AJA -->|Natural Language| TUI[AgentX Guard TUI]
     User -->|Web Browser| Dashboard[React Dashboard]
     TUI -->|Intent Translation| Gateway[AI Gateway]
     Dashboard -->|/swarm/run| API[API Bridge]
     Dashboard -->|/config| API
     Telegram -->|Text Command| API
-    Gateway -->|Tool Directive| Gate{Safety Gate}
+    Gateway -->|Tool Directive| Gate{AJA Guard}
     
     Gate -->|Allow| Engine[SwarmEngine]
     Gate -->|Ask| Approval[Structured Approval Object]
@@ -30,8 +31,8 @@ graph TD
     
     Worker -->|Runtime State| State[.agentx/runtime-state.json]
     Worker -->|Execution History + Idempotency| Recovery[(Authoritative Recovery Memory)]
-    AJA -->|Obligations + Follow-ups| Secretary[(SQLite Secretary Memory)]
-    AJA -->|Outbound Drafts| Comms[(SQLite Communication Records)]
+    AJA -->|Obligations + Follow-ups| Secretary[(LanceDB Secretary Memory)]
+    AJA -->|Outbound Drafts| Comms[(LanceDB Communication Records)]
     Recovery -->|Task State + Tool Locks| API
     Telegram -->|Secretary Commands| Secretary
     Telegram -->|Draft / Approve / Send Message| Comms
@@ -65,7 +66,7 @@ graph TD
 ## Unified CLI
 
 ```
-agentx              → Start the interactive SafeShell TUI (default)
+agentx              → Start the interactive AgentX Guard TUI (default)
 agentx dash         → Launch Dashboard + API Bridge in one command
 agentx run [--bg]   → Delegate a mission to SwarmEngine (optionally in background)
 agentx status       → Show swarm health & active batons
@@ -91,9 +92,9 @@ Both read from and write to the same config file. Gateway clients (TypeScript an
 read config.json first, falling back to environment variables if the config is missing.
 
 ### Flow Breakdown:
-1.  **Intent Layer**: User provides natural language via AJA, SafeShell TUI, Telegram, or the Dashboard's "Run Mission" input.
+1.  **Intent Layer**: User provides natural language via AJA, AgentX Guard TUI, Telegram, or the Dashboard's "Run Mission" input.
 2.  **Priority Layer**: Intent is passed through the **Priority Engine**, which ranks tasks by urgency and stake, challenging false urgency before the user commits.
-3.  **Safety Layer**: The command is stripped to its root binary by `CommandStripper`, checked for dangerous patterns, and classified as **Allow / Ask / Deny**.
+3.  **Safety Layer**: The command is stripped to its root binary by `CommandStripper`, checked for dangerous patterns by the **AJA Guard**, and classified as **Allow / Ask / Deny**.
 4.  **Approval Layer**: Risky commands pause as structured approval objects. The user sees the request ID, command preview, action type, human-readable reason, risk level, rollback path, expiration timestamp, requester source, and dry-run summary before approving or rejecting.
 5.  **Execution Layer**: The unified `SwarmEngine` handles task execution, supporting background healing, parallel processing, and objective-based baton handoffs. Every delegation mission is constrained by a mandatory **Definition of Done (DoD)** checklist.
 6.  **Feedback Layer**: Runtime events, pending approvals, approval audit records, Telegram command history, and baton task state are persisted into shared state files, then surfaced through the `API Bridge` as live SSE snapshots for the Dashboard and concise Telegram replies.
@@ -110,17 +111,17 @@ All approvals expire and are re-checked through `FileGuardian` and `CommandStrip
 
 ## Phase 3: Structured Secretary Memory
 
-AJA stores obligations in SQLite at `.agentx/aja_secretary.sqlite3`, separate from transient runtime state. This memory tracks obligations, follow-ups, recurring responsibilities, reminders, escalation level, communication history, and source.
+AJA stores obligations in LanceDB at `.agentx/`, separate from transient runtime state. This memory tracks obligations, follow-ups, recurring responsibilities, reminders, escalation level, communication history, and source.
 
 ## Phase 4: Messaging Layer
 
-AJA stores outbound communication in `secretary_communications` inside `.agentx/aja_secretary.sqlite3`.
+AJA stores outbound communication in `secretary_communications` inside LanceDB.
 
 Every outbound message starts as an approval-required draft. The direct send path is only implemented for Telegram, and it still refuses to send until approval is recorded.
 
 ## Phase 5: Scheduler and Executive Review
 
-The executive scheduler reads tasks and communications from SQLite, generates high-signal reviews, and records delivery events to prevent spam.
+The executive scheduler reads tasks and communications from LanceDB, generates high-signal reviews, and records delivery events to prevent spam.
 
 Supported reviews: Morning, Night, and Weekly.
 
@@ -137,7 +138,7 @@ The **Definition of Done (DoD)** framework enforces mandatory success criteria f
 
 Shifting from ephemeral task execution to a production-grade library of reusable, verifiable behaviors. 
 
-- **Autonomous Skill Capture**: Successful missions are crystallized into versioned skill records in SQLite.
+- **Autonomous Skill Capture**: Successful missions are crystallized into versioned skill records in LanceDB.
 - **Verifiable Correctness**: Post-execution assertions (postconditions) ensure results satisfy semantic requirements.
 - **Multi-Skill Composition**: Split complex objectives into chains with context-aware variable injection.
 - **Safe Replay Engine**: Step-level recovery via checkpoints and environment prerequisite validation.
@@ -170,7 +171,7 @@ Enhanced the Strategy Selection Module with semantic retrieval and performance o
 ## Phase 12-14: Causal Rules, Metrics & Stability
 
 - **Causal Rule Engine**: Automatically converts repeated failures into targeted, actionable rules (e.g., `AUTH_ERROR → ASK`).
-- **Decision Quality Metrics**: SQLite-backed metrics layer computes accuracy, failure rates, and retry success rates.
+- **Decision Quality Metrics**: LanceDB-backed metrics layer computes accuracy, failure rates, and retry success rates.
 - **Loop Stability (Convergence)**: Stagnation and trend analysis to prevent "hallucination finish" and infinite loops.
 
 ## Phase 15-17: Final Hardening & Control Layer
