@@ -3,7 +3,7 @@ import sys
 import json
 import uuid
 import time
-import sqlite3
+import lancedb
 import subprocess
 import threading
 import concurrent.futures
@@ -26,14 +26,14 @@ cmd_run = agentx_file.cmd_run
 
 def setup_clean_db():
     init_db()
-    with sqlite3.connect(DB_PATH) as conn:
+    with lancedb.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM tasks")
         conn.execute("DELETE FROM tool_executions")
         conn.execute("DELETE FROM task_locks")
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = lancedb.connect(DB_PATH)
+    conn.row_factory = lancedb.Row
     return conn
 
 def run_cmd(args):

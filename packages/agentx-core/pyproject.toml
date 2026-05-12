@@ -10,7 +10,6 @@ dependencies = [
     "pydantic>=2.0.0",
     "aiohttp",
     "python-dotenv",
-    "sqlalchemy",
     "lancedb",
 ]
 

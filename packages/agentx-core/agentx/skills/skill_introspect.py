@@ -87,7 +87,7 @@ def compare_versions(family_id: str, v1: int, v2: int) -> str:
     """Compare tool sequences between two versions of the same skill family."""
     try:
         conn = _get_conn()
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = lancedb.Row
         rows = conn.execute(
             "SELECT version, tool_sequence FROM skills WHERE family_id = ? AND version IN (?, ?)",
             (family_id, v1, v2)

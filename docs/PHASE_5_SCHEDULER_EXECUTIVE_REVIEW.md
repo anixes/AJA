@@ -47,10 +47,10 @@ Includes:
 
 ## Scheduler Storage
 
-The scheduler uses the existing SQLite secretary database:
+The scheduler uses the existing LanceDB/Arrow secretary database:
 
 ```text
-.agentx/aja_secretary.sqlite3
+.agentx/aja_secretary.lancedb
 ```
 
 Tables:

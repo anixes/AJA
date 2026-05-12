@@ -42,7 +42,7 @@ class UnifiedGateway:
             agentx_native.init_semantic(semantic_db_path)
             print(f"AgentX: Native Semantic Memory initialized at {semantic_db_path}")
         except Exception as e:
-            print(f"AgentX Warning: Native memory init skipped ({e}). Using SQLite fallback.")
+            print(f"AgentX Warning: Native memory init skipped ({e}). Using LanceDB/Arrow fallback.")
 
     def capture_state(self) -> Dict[str, Any]:
         """Serializes the current orchestrator state for handover."""

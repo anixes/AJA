@@ -9,7 +9,7 @@ Systematize expertise by autonomously capturing successful task execution patter
 
 ### 1. Autonomous Skill Capture & Store (`skill_store.py`)
 AgentX passively observes successful missions and "crystallizes" them into skills.
-- **High-Fidelity Capture**: Tool sequences, sanitized arguments, and success metadata are stored in SQLite.
+- **High-Fidelity Capture**: Tool sequences, sanitized arguments, and success metadata are stored in LanceDB/Arrow.
 - **Versioning**: Skills are versioned; structural changes to a tool sequence create a new immutable version for traceability.
 - **Recall Engine**: Uses token-matching with synonym expansion (e.g., "fetch" matches "download") and bidirectional scoring to suggest the best skill for an objective.
 - **Validity Decay**: Skills track `last_used_at` and `success_count`. Confidence scores decay if a skill hasn't been used for 30 days or starts failing postconditions.

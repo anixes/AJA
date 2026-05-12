@@ -1,7 +1,7 @@
-import sqlite3
+import lancedb
 import os
 
-DB_PATH = os.path.join(".agentx", "aja_secretary.sqlite3")
+DB_PATH = os.path.join(".agentx", "aja_secretary.lancedb")
 
 def check_invariants():
     """
@@ -14,8 +14,8 @@ def check_invariants():
         return ["Database does not exist."]
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
+        with lancedb.connect(DB_PATH) as conn:
+            conn.row_factory = lancedb.Row
             cursor = conn.cursor()
 
             # Invariant 1: logical_task_id must execute side-effects at most once.

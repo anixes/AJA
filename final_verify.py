@@ -15,8 +15,8 @@ async def verify_system():
     v = agentx_native.version()
     print(f"  - Rust Core Version: {v}")
     
-    # 2. Verify Memory Tree (SQLite)
-    print("\n[2/5] Verifying Memory Tree (SQLite)...")
+    # 2. Verify Memory Tree (LanceDB/Arrow)
+    print("\n[2/5] Verifying Memory Tree (LanceDB/Arrow)...")
     memory = MemoryTree("verify_memory.db")
     memory.add_activity("User requested verification.", {"source": "test"})
     history = memory.get_recent_history(limit=1)

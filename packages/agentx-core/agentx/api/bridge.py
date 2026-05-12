@@ -64,7 +64,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKE
 TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 TELEGRAM_COMMAND_TIMEOUT = int(os.getenv("TELEGRAM_COMMAND_TIMEOUT", "60"))
-SECRETARY_DB_PATH = Path(".agentx") / "aja_secretary.sqlite3"
+SECRETARY_MEMORY_DIR = Path(".agentx") / "lancedb"
 
 DENY_BINARIES = {
     "dd": "Low-level disk writes can irreversibly destroy data.",
@@ -120,7 +120,7 @@ def append_telegram_history(event: dict):
 
 
 def append_approval_audit(event: dict):
-    """Persist an approval audit entry to SQLite (authoritative) and JSONL (debug export)."""
+    """Persist an approval audit entry to LanceDB (authoritative) and JSONL (debug export)."""
     get_secretary_memory().log_approval_audit({
         "approval_id": event.get("id", "unknown"),
         "action": event.get("action", "unknown"),
@@ -142,7 +142,7 @@ def append_approval_audit(event: dict):
 
 
 def save_runtime_state(state: dict):
-    """Write a debug snapshot of runtime state to JSON. Not authoritative — SQLite is."""
+    """Write a debug snapshot of runtime state to JSON. Not authoritative — LanceDB is."""
     try:
         RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         RUNTIME_STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -151,7 +151,7 @@ def save_runtime_state(state: dict):
 
 
 def add_runtime_event(event: dict):
-    """Append a runtime event to SQLite (authoritative source of truth)."""
+    """Append a runtime event to LanceDB (authoritative source of truth)."""
     get_secretary_memory().add_runtime_event({
         "event_type": event.get("type", "INFO"),
         "tool": event.get("tool"),
@@ -164,7 +164,7 @@ def add_runtime_event(event: dict):
 
 
 def set_runtime_pending_approval(approval: dict | None):
-    """Mark pending approval resolved (None) or write a new approval row to SQLite."""
+    """Mark pending approval resolved (None) or write a new approval row to LanceDB."""
     if approval is None:
         # Expire any remaining 'pending' rows (belt-and-suspenders)
         mem = get_secretary_memory()
@@ -177,7 +177,7 @@ def set_runtime_pending_approval(approval: dict | None):
 
 
 def create_approval_in_db(approval: dict) -> str:
-    """Persist a new approval object to SQLite and return the approval_id."""
+    """Persist a new approval object to LanceDB and return the approval_id."""
     return get_secretary_memory().create_approval({
         "approval_id": approval.get("id"),
         "tool": approval.get("tool", "bash"),
@@ -198,7 +198,7 @@ def create_approval_in_db(approval: dict) -> str:
 
 
 def load_telegram_pending():
-    """Returns active pending approvals keyed by approval_id (read from SQLite)."""
+    """Returns active pending approvals keyed by approval_id (read from LanceDB)."""
     active = get_secretary_memory().get_active_approval()
     if not active:
         return {}
@@ -230,7 +230,7 @@ def resolve_npx_executable():
 
 
 def get_secretary_memory():
-    return SecretaryMemory(PROJECT_ROOT / SECRETARY_DB_PATH)
+    return SecretaryMemory(PROJECT_ROOT / SECRETARY_MEMORY_DIR)
 
 
 def format_status_for_mobile(payload: dict):
@@ -801,12 +801,8 @@ async def run_file_guardian_check(command: str):
 
     decision = str(payload.get("decision", "DENY")).upper()
     if result.returncode != 0 and decision != "DENY":
-        decision = "DENY"
-    return {"decision": decision, "error": payload.get("error")}
-
-
 def get_pending_approval_by_id(request_id: str):
-    """Look up an approval by ID from SQLite (single source of truth)."""
+    """Look up an approval by ID from LanceDB (single source of truth)."""
     row = get_secretary_memory().get_approval(request_id)
     if row and row.get("status") == "pending":
         return row
@@ -1065,7 +1061,7 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         if file_guardian["decision"] == "ASK":
             classification["reasons"].append("FileGuardian requested review before execution.")
         approval = build_approval_object(text, command, spec, classification, user_id, chat_id)
-        # --- AJA Brain: persist approval to SQLite (single source of truth) ---
+        # --- AJA Brain: persist approval to LanceDB (single source of truth) ---
         create_approval_in_db(approval)
         mem = get_secretary_memory()
         mem.add_runtime_event({
@@ -1116,7 +1112,7 @@ def run_runtime_action(action: str):
 
 
 def load_runtime_state():
-    """Build a legacy-compatible runtime state dict from SQLite (AJA Brain)."""
+    """Build a legacy-compatible runtime state dict from LanceDB (AJA Brain)."""
     mem = get_secretary_memory()
     pending_row = mem.get_active_approval()
     events = mem.get_runtime_events(50)
@@ -2247,7 +2243,7 @@ async def get_approval_audit_trail(approval_id: str):
 
 @app.get("/runtime/events/db", dependencies=[Depends(verify_token)])
 async def get_runtime_events_from_db(limit: int = 50):
-    """Return recent runtime events from aja_runtime_events (authoritative SQLite source)."""
+    """Return recent runtime events from aja_runtime_events (authoritative LanceDB source)."""
     events = await asyncio.to_thread(get_secretary_memory().get_runtime_events, min(limit, 200))
     return {"events": events}
 

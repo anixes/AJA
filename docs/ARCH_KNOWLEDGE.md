@@ -26,7 +26,7 @@ Based on the latest graph analysis, the system is clustered into the following f
     - `agents/`: Autonomous agent logic and specialized worker definitions.
     - `api/`: The FastAPI bridge (formerly `api_bridge.py`) and network interfaces.
     - `orchestration/`: Swarm engine logic and the Unified AI Gateway.
-    - `memory/`: Secretary memory (SQLite) and long-term context management.
+    - `memory/`: Secretary memory (LanceDB/Arrow) and long-term context management.
     - `security/`: Command stripping, safety auditing, and risk classification.
     - `utils/`: Consolidates supplemental utility scripts (graph watchers, health checks, etc.).
     - `main.py`: The unified Python entry point for the swarm toolkit.
@@ -40,7 +40,7 @@ Based on the latest graph analysis, the system is clustered into the following f
 - **`typescript/`**: Vitest/Jest suite for validating CLI and dashboard components.
 
 ### 4. Persistence (`/.agentx`)
-- All runtime state, SQLite databases, audit logs, and temporary batons are now localized here. This ensures the project root remains clean and the environment is highly portable.
+- All runtime state, LanceDB/Arrow databases, audit logs, and temporary batons are now localized here. This ensures the project root remains clean and the environment is highly portable.
 
 ## Standardized Entry Points
 

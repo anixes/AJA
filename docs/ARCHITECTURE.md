@@ -35,9 +35,9 @@ graph TD
 - **Purpose**: Ultra-low latency handovers (Batons).
 - **Strategy**: Memory-mapped zero-copy transfers between Python and Rust.
 
-### C. JSON/SQLite (The Operating Vitals)
-**Storage Location:** `agentx.json`, `.agentx/aja_secretary.sqlite3`
-- **Purpose**: Human-readable configuration and secretary-level persistence for task states.
+### C. Config & Metrics (The Operating Vitals)
+**Storage Location:** `.agentx/*.json`, `telegram-history.jsonl`
+- **Purpose**: Human-readable configuration and auxiliary telemetry logs.
 
 ---
 

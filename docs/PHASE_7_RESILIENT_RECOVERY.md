@@ -8,7 +8,7 @@ Ensure that no mission is lost to a crash and no side-effect (e.g., payments, em
 ## Key Components
 
 ### 1. Authoritative Task Layer (`tasks.py`)
-AgentX now tracks the full lifecycle of every execution mission in SQLite.
+AgentX now tracks the full lifecycle of every execution mission in LanceDB/Arrow.
 - **Statuses**: `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `FAILED_PERMANENT`, `INTERRUPTED`, `SKIPPED_DUPLICATE`.
 - **Deduplication**: Uses `logical_task_id` to detect and coalesce duplicate missions, even if rephrased or retried.
 - **Run Identity**: Every mission is tagged with a unique `run_id` (UUID) to track execution lineage.
@@ -30,7 +30,7 @@ The most critical hardening layer. `ToolGuard` wraps tool calls to ensure safety
 Prevents parallel execution collisions. Before a `logical_task_id` starts, it must acquire an atomic lock in the `task_locks` table. If another process is already working on it, the second process safely backs off.
 
 ### 5. Automatic TTL Maintenance
-To prevent the SQLite database from growing indefinitely, AgentX runs a silent cleanup on startup:
+To prevent the LanceDB/Arrow database from growing indefinitely, AgentX runs a silent cleanup on startup:
 - Prunes `tasks` older than 30 days.
 - Prunes `tool_executions` older than 30 days.
 

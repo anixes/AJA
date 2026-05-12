@@ -11,7 +11,7 @@ from agentx.config import PROJECT_ROOT
 class MemoryTree:
     """
     High-performance Unified Memory for AgentX powered by Apache Arrow and LanceDB.
-    Replaces legacy SQLite with a columnar data store for maximum hardware efficiency.
+    Replaces legacy LanceDB/Arrow with a columnar data store for maximum hardware efficiency.
     """
     def __init__(self, table_name: str = "agent_activity"):
         self.db_path = PROJECT_ROOT / ".agentx" / "lancedb"

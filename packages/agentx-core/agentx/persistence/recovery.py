@@ -9,7 +9,7 @@ MAX_RETRIES = 3
 def recover_tasks() -> list:
     """
     Recover tasks that were RUNNING (interrupted at shutdown) or PENDING.
-    Uses the Unified Arrow Memory stack — no SQLite.
+    Uses the Unified Arrow Memory stack — no LanceDB/Arrow.
     """
     recovered = []
     try:

@@ -1,6 +1,6 @@
 # Phase 3: Structured Secretary Memory
 
-Phase 3 gives AJA persistent executive-assistant memory. This is not chat-history recall and it is not a vector database. It is a structured SQLite task system for obligations, follow-ups, recurring responsibilities, and accountability commitments.
+Phase 3 gives AJA persistent executive-assistant memory. This is not chat-history recall and it is not a vector database. It is a structured LanceDB/Arrow task system for obligations, follow-ups, recurring responsibilities, and accountability commitments.
 
 ## Goal
 
@@ -16,16 +16,16 @@ Examples:
 
 ## Storage
 
-SQLite database:
+LanceDB/Arrow database:
 
 ```text
-.agentx/aja_secretary.sqlite3
+.agentx/aja_secretary.lancedb
 ```
 
 Runtime files are ignored by git:
 
-- `.agentx/aja_secretary.sqlite3`
-- `.agentx/aja_secretary.sqlite3-*`
+- `.agentx/aja_secretary.lancedb`
+- `.agentx/aja_secretary.lancedb-*`
 
 ## Core Task Object
 
@@ -51,7 +51,7 @@ The `secretary_tasks` table stores:
 - `created_at`
 - `updated_at`
 
-Structured JSON fields are stored as JSON text in SQLite where appropriate.
+Structured JSON fields are stored as JSON text in LanceDB/Arrow where appropriate.
 
 ## Status Values
 
@@ -139,7 +139,7 @@ Telegram summaries are compact and mobile-readable.
 
 - Memory is structured, not guessed from chat logs.
 - AJA tracks obligations, not just conversations.
-- SQLite is the source of truth for Phase 3.
+- LanceDB/Arrow is the source of truth for Phase 3.
 - Vector memory is intentionally deferred.
 - Secretary behavior is more important than chatbot recall.
 

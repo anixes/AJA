@@ -56,40 +56,6 @@ from datetime import datetime, timezone
 
 
 # ---------------------------------------------------------------------------
-# DB path
-# ---------------------------------------------------------------------------
-
-def _db_path() -> str:
-    return os.environ.get(
-        "AGENTX_DB_PATH",
-        os.path.join(".agentx", "aja_secretary.sqlite3"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Schema bootstrap — adds postconditions column if not present
-# ---------------------------------------------------------------------------
-
-def _ensure_postconditions_column() -> None:
-    try:
-        path = _db_path()
-        if not os.path.exists(path):
-            return
-        conn = sqlite3.connect(path)
-        try:
-            conn.execute("ALTER TABLE skills ADD COLUMN postconditions TEXT DEFAULT '[]'")
-            conn.commit()
-        except Exception:
-            pass  # column already exists
-        conn.close()
-    except Exception:
-        pass
-
-
-_ensure_postconditions_column()
-
-
-# ---------------------------------------------------------------------------
 # Validator registry
 # ---------------------------------------------------------------------------
 # Each validator: (postcondition: dict, step_results: dict) -> (ok: bool, detail: str)

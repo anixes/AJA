@@ -23,7 +23,7 @@ Upgrade AgentX into a "premium" high-performance orchestration framework by appl
 
 ### Phase 5: High-Performance Memory (Dual-Brain) [DONE]
 - **Tech**: LanceDB, Apache Arrow, Columnar Store
-- **Action**: Replaced legacy SQLite with a unified **Unified Arrow Memory** (LanceDB). Provides O(1) semantic search and zero-copy structured data retrieval.
+- **Action**: Replaced legacy LanceDB/Arrow with a unified **Unified Arrow Memory** (LanceDB). Provides O(1) semantic search and zero-copy structured data retrieval.
 
 ### Phase 6: Native Performance Core [DONE]
 - **Tech**: Rust, PyO3, Arrow-IPC

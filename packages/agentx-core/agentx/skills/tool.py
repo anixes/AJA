@@ -36,7 +36,7 @@ class SkillManageTool(Capability):
             return CapabilityResult(success=True, output={"procedural_skills": skills})
 
         elif action == "search":
-            # Search existing captured skills in the SkillStore (SQLite)
+            # Search existing captured skills in the SkillStore (LanceDB/Arrow)
             from agentx.skills.skill_store import search_skills
             query = inputs.get("query", "")
             results = search_skills(query)

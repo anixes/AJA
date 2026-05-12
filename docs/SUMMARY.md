@@ -21,14 +21,14 @@ AgentX is a self-correcting execution system with adaptive control, not yet a fu
 - **API Bridge & Dashboard**: Glassmorphic real-time telemetry with secure, CSRF-protected approval routes and a Mission Launcher panel.
 - **Telegram Remote Control**: AJA can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> AgentX Core.
 - **Structured Approval Workflow**: Risky actions become approval objects with command preview, action type, reason, risk level, rollback path, expiry, requester source, and dry-run summary.
-- **Structured Secretary Memory**: AJA persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in SQLite.
+- **Structured Secretary Memory**: AJA persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
 - **Messaging Layer**: AJA drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
 - **Scheduler and Executive Reviews**: AJA generates morning, night, and weekly reviews with urgency scoring, snooze, escalation, and Telegram delivery.
 - **Centralized Gateway**: Unified `UnifiedGateway` utilizing a single `providers.json` source of truth. First-class OpenRouter support.
 - **Priority Engine & Decision Layer**: Multi-factor judgment scoring (urgency, stakeholder weight, consequence of delay) that ranks tasks and challenges false urgency.
 - **Definition of Done (DoD) Framework**: Mandatory success criteria for all delegations, with auto-generation support for common engineering and executive tasks.
 - **Executive Desk Dashboard**: Refactored command center focusing on high-level agenda and delegation oversight.
-- **Resilient Recovery Layer**: SQLite-backed authoritative task tracking, boot-time crash recovery, and atomic tool idempotency guards.
+- **Resilient Recovery Layer**: LanceDB/Arrow-backed authoritative task tracking, boot-time crash recovery, and atomic tool idempotency guards.
 - **Persistent Presence Loop**: Continuous agent loop with triggers, guardrails, health dashboard, and remote human-in-the-loop approvals.
 - **Strategy Selection Module**: Strategic dispatch layer that chooses optimal execution paths (Skill vs Compose vs Swarm) with hard risk gates and confidence fallbacks. (formerly LLM Decision Engine)
 
@@ -99,7 +99,7 @@ Before execution, approvals are checked for expiration and revalidated through `
 
 ## Phase 3: Structured Secretary Memory
 
-AJA now has a persistent SQLite task system at `.agentx/aja_secretary.sqlite3`.
+AJA now has a persistent LanceDB/Arrow task system at `.agentx/aja_secretary.lancedb`.
 
 The task object supports:
 
@@ -116,7 +116,7 @@ Interfaces:
 
 ## Phase 4: Messaging Layer
 
-AJA now stores outbound communication records in the same SQLite secretary database.
+AJA now stores outbound communication records in the same LanceDB/Arrow secretary database.
 
 The communication object supports:
 
@@ -204,7 +204,7 @@ Interfaces:
 
 Shifting from ephemeral task execution to a production-grade library of reusable, verifiable behaviors.
 
-- **Autonomous Skill Capture**: Successful missions are "crystallized" into versioned skill records in SQLite.
+- **Autonomous Skill Capture**: Successful missions are "crystallized" into versioned skill records in LanceDB/Arrow.
 - **Verifiable Correctness**: Post-execution assertions (postconditions) ensure results satisfy semantic requirements (e.g., file existence, specific JSON keys).
 - **Multi-Skill Composition**: Heuristic splitting of complex objectives into chains with context-aware variable injection (`{{key}}`).
 - **Safe Replay Engine**: Step-level recovery via checkpoints, environment prerequisite validation, and unified risk-gating.
@@ -217,7 +217,7 @@ Interfaces:
 ## Documentation Index
 - [ARCHITECTURE_FLOW.md](./ARCHITECTURE_FLOW.md): Visual mapping of the system and CLI reference.
 - [PHASE_1_2_REMOTE_APPROVALS.md](./PHASE_1_2_REMOTE_APPROVALS.md): Telegram control and structured approval workflow.
-- [PHASE_3_SECRETARY_MEMORY.md](./PHASE_3_SECRETARY_MEMORY.md): SQLite-backed secretary memory.
+- [PHASE_3_SECRETARY_MEMORY.md](./PHASE_3_SECRETARY_MEMORY.md): LanceDB/Arrow-backed secretary memory.
 - [PHASE_4_MESSAGING_LAYER.md](./PHASE_4_MESSAGING_LAYER.md): Outbound communication drafts and follow-up tracking.
 - [PHASE_5_SCHEDULER_EXECUTIVE_REVIEW.md](./PHASE_5_SCHEDULER_EXECUTIVE_REVIEW.md): Proactive scheduler and accountability reviews.
 - [PHASE_6_PRIORITY_ENGINE_DOD.md](./PHASE_6_PRIORITY_ENGINE_DOD.md): Judgment engine and mandatory delegation constraints.

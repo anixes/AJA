@@ -25,7 +25,7 @@ graph TD
 
 ## Key Components
 
-1.  **Worker Capability Registry:** Persistent SQLite profiles for specialist agents (Copilot, Gemini, Aider, etc.).
+1.  **Worker Capability Registry:** Persistent LanceDB/Arrow profiles for specialist agents (Copilot, Gemini, Aider, etc.).
 2.  **Recommendation Engine:** An 8-dimension scoring system that selects the best agent for a specific task based on reliability, speed, and cost.
 3.  **Dispatch Adapters (`scripts/dispatch_adapters.py`):** Modular drivers that handle the unique CLI patterns of different agents.
 4.  **Verification Engine (`scripts/verification_engine.py`):** An independent auditor that vetting worker output before human review.

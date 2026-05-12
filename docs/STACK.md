@@ -15,7 +15,6 @@
 |---------|---------|---------|
 | Pydantic | ^2.0.0 | Data validation and settings management |
 | aiohttp | Latest | Asynchronous HTTP requests for API providers |
-| SQLAlchemy | Latest | Persistent task and secretary state management |
 | python-dotenv | Latest | Environment variable configuration |
 | PyArrow | Latest | Python bindings for Arrow data handling |
 | Rich | Latest | Beautiful CLI formatting and progress bars |

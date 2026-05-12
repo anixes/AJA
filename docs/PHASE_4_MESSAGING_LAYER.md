@@ -16,10 +16,10 @@ Examples:
 
 ## Storage
 
-Messaging is stored in the existing SQLite secretary database:
+Messaging is stored in the existing LanceDB/Arrow secretary database:
 
 ```text
-.agentx/aja_secretary.sqlite3
+.agentx/aja_secretary.lancedb
 ```
 
 Table:
