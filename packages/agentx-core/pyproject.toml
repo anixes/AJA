@@ -11,6 +11,15 @@ dependencies = [
     "aiohttp",
     "python-dotenv",
     "lancedb",
+    "rich",
+    "textual",
+    "fastapi",
+    "uvicorn[standard]",
+    "websockets",
+    "wsproto",
+    "python-telegram-bot",
+    "openai",
+    "requests"
 ]
 
 [tool.setuptools.packages.find]
