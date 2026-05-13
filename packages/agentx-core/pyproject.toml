@@ -19,7 +19,8 @@ dependencies = [
     "wsproto",
     "python-telegram-bot",
     "openai",
-    "requests"
+    "requests",
+    "prompt_toolkit"
 ]
 
 [tool.setuptools.packages.find]
