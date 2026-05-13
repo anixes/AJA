@@ -27,17 +27,19 @@ def get_gateway_for_model(model_str):
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
                 cfg = json.load(f)
-                operating_mode = cfg.get("swarm_settings", {}).get("operating_mode")
+                swarm_cfg = cfg.get("swarm_settings", {})
+                operating_mode = swarm_cfg.get("operating_mode")
                 if not operating_mode:
-                    offline_mode = cfg.get("swarm_settings", {}).get("offline_mode", False)
+                    offline_mode = swarm_cfg.get("offline_mode", False)
                     operating_mode = "offline" if offline_mode else "online"
 
-                # Allow overriding the local fallback model
-                local_model_fallback = cfg.get("swarm_settings", {}).get("models", {}).get("worker", local_model_fallback)
+                # Allow overriding the fallback models
+                models_cfg = swarm_cfg.get("models", {})
+                local_model_fallback = models_cfg.get("worker", local_model_fallback)
                 if ":" in local_model_fallback:
                     local_model_fallback = local_model_fallback.split(":")[1]
                     
-                cloud_model_fallback = cfg.get("swarm_settings", {}).get("models", {}).get("planner", cloud_model_fallback)
+                cloud_model_fallback = models_cfg.get("planner", cloud_model_fallback)
                 if ":" in cloud_model_fallback:
                     cloud_model_fallback = cloud_model_fallback.split(":")[1]
     except Exception:
