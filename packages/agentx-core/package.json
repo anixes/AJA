@@ -2,7 +2,7 @@
   "name": "@agentx/core",
   "version": "1.0.0",
   "private": true,
-  "description": "Core Python logic for Agent",
+  "description": "Core Python logic for AgentX",
   "files": [
     "agentx"
   ]

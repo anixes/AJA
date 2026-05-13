@@ -1,5 +1,5 @@
 """
-agent/planning/react_executor.py
+agentx/planning/react_executor.py
 ===================================
 Phase 11 - ReAct-style Executor.
 

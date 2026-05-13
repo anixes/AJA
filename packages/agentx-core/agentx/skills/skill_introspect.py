@@ -1,5 +1,5 @@
 """
-agent/skills/skill_introspect.py
+agentx/skills/skill_introspect.py
 ==================================
 Phase 9 — Gap 4: Skill explainability and management interface.
 

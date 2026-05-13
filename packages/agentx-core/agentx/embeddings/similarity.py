@@ -1,5 +1,5 @@
 """
-agent/embeddings/similarity.py
+agentx/embeddings/similarity.py
 ================================
 Phase 13 - Vector Similarity Operations.
 """

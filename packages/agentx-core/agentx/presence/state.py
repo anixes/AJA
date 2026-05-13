@@ -52,7 +52,7 @@ def get_system_state() -> dict:
 
         # ── Recent events from Arrow event feed ──────────────────────────────
         try:
-            events_table = _manager.get_table("aja_runtime_events")
+            events_table = _manager.get_table("agentx_runtime_events")
             events = events_table.to_arrow().to_pylist()
             events.sort(key=lambda e: e.get("created_at", ""), reverse=True)
             recent = events[:20]

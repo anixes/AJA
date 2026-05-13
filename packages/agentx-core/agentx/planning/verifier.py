@@ -1,5 +1,5 @@
 """
-agent/planning/verifier.py
+agentx/planning/verifier.py
 ============================
 Phase 14 - Independent Verifier Agent & Constraint Layer.
 

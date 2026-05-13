@@ -1,6 +1,6 @@
 import time
 import logging
-from agentx.memory.secretary import get_secretary_memory
+from agentx.memory.secretary import get_aja_memory
 from agentx.config import PROJECT_ROOT
 from agentx.persistence.tasks import cleanup_old_tasks as cleanup_core_tasks
 from agentx.persistence.tools import cleanup_old_entries
@@ -8,20 +8,20 @@ from agentx.decision.feedback import cleanup_old_decisions
 from agentx.decision.failure_analysis import cleanup_old_failures
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("agent.maintenance")
+logger = logging.getLogger("agentx.maintenance")
 
 def run_maintenance():
     """
-    Background maintenance service for Agent.
+    Background maintenance service for AgentX.
     Cleans up old logs, prunes LanceDB, and verifies system integrity.
     """
-    logger.info("Starting Agent Maintenance Service...")
-    mem = get_secretary_memory()
+    logger.info("Starting AgentX Maintenance Service...")
+    mem = get_aja_memory()
     
     while True:
         try:
             logger.info("Executing periodic pruning...")
-            # Assistant Memory Pruning
+            # AJA Memory Pruning
             mem.prune_events(max_rows=1000)
             mem.cleanup_old_tasks(ttl_days=30)
             mem.cleanup_old_approvals(ttl_days=30)
@@ -61,6 +61,17 @@ def run_maintenance():
                 manager.cleanup_expired()
             except Exception as e:
                 logger.error(f"Handover cleanup failed: {e}")
+
+            # --- Phase 14: Deep Territory RAG (Power 4) ---
+            try:
+                from agentx.memory.territory import TerritoryScanner
+                logger.info("AJA Memory: Starting territory re-indexing...")
+                scanner = TerritoryScanner()
+                import asyncio
+                # Use a new event loop or the existing one
+                asyncio.run(scanner.scan_all())
+            except Exception as e:
+                logger.error(f"Territory indexing failed: {e}")
 
             logger.info("Maintenance cycle complete. Sleeping for 1 hour.")
             time.sleep(3600) # Run every hour

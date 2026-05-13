@@ -1,5 +1,5 @@
 """
-agent/planning/scheduler.py
+agentx/planning/scheduler.py
 =============================
 Phase 11 - Dependency-aware Scheduler.
 

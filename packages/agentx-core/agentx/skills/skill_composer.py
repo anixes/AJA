@@ -1,5 +1,5 @@
 """
-agent/skills/skill_composer.py
+agentx/skills/skill_composer.py
 ================================
 Phase 9 — Gap 2: Multi-skill composition.
 

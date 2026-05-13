@@ -1,5 +1,5 @@
 """
-agent/planning/method_scorer.py
+agentx/planning/method_scorer.py
 ==================================
 Phase 12 - Method Scoring & Metrics.
 

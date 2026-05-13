@@ -1,5 +1,5 @@
 """
-agent/decision/evaluator.py
+agentx/decision/evaluator.py
 ===========================
 Phase 10 — Decision Evaluation Layer.
 Phase 22 — Consensus Validation (replaces majority voting).
@@ -94,8 +94,8 @@ def evaluate_semantic(objective: str, result: str, context: Dict[str, Any] = Non
         print("[Evaluator] EVALUATOR_MODEL_OVERLAP: same model used for execution and evaluation.")
 
     try:
-        from agentx.orchestration.gateway import UnifiedGateway
-        gateway = UnifiedGateway()
+        from agentx.orchestration.gateway import LLMGateway
+        gateway = LLMGateway()
         
         prompt = f"Objective:\n{objective}\n\nExecution Result:\n{result}\n\nDoes the execution result successfully fulfill the objective?"
         system = (
@@ -147,8 +147,8 @@ def evaluate_semantic_with_reasoning(
     """
     context = context or {}
     try:
-        from agentx.orchestration.gateway import UnifiedGateway
-        gateway = UnifiedGateway()
+        from agentx.orchestration.gateway import LLMGateway
+        gateway = LLMGateway()
 
         prompt = (
             f"Objective:\n{objective}\n\n"
@@ -272,8 +272,8 @@ def meta_validate(
     "CONFIRMED" | "DOUBTFUL"
     """
     try:
-        from agentx.orchestration.gateway import UnifiedGateway
-        gateway = UnifiedGateway()
+        from agentx.orchestration.gateway import LLMGateway
+        gateway = LLMGateway()
 
         panel_summary = "\n".join(
             f"- {e['evaluator']}: {e['verdict']} "

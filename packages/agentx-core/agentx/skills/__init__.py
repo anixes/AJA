@@ -1,1 +1,1 @@
-# agent/skills package
+# agentx/skills package

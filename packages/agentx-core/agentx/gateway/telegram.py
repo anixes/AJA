@@ -13,23 +13,30 @@ try:
     from telegram.ext import (
         Application,
         CommandHandler,
-        MessageHandler as TelegramMessageHandler,
+        TelegramMessageHandler as TelegramMessageHandler,
         ContextTypes,
         filters,
     )
     from telegram.constants import ParseMode
+
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
-    Update = Bot = Application = CommandHandler = TelegramMessageHandler = ContextTypes = filters = ParseMode = Any
+    Update = Bot = Application = CommandHandler = TelegramMessageHandler = (
+        ContextTypes
+    ) = filters = ParseMode = Any
+
 
 class TelegramAdapter(BasePlatformAdapter):
     """
-    AJA Telegram Adapter.
-    Inspired by hermes-agent for maximum resilience and mobile-first UX.
+    AJA Telegram Adapter (Assistant of Joint Agents).
+    Provides a resilient, mobile-optimized interface for mission management.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any] or str):
+        # Handle case where only token is passed
+        if isinstance(config, str):
+            config = {"token": config}
         super().__init__(config)
         self.token = config.get("token")
         self._app: Optional[Application] = None
@@ -50,10 +57,11 @@ class TelegramAdapter(BasePlatformAdapter):
         self._bot = self._app.bot
 
         # Register Handlers
-        self._app.add_handler(TelegramMessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            self._handle_text_message
-        ))
+        self._app.add_handler(
+            TelegramMessageHandler(
+                filters.TEXT & ~filters.COMMAND, self._handle_text_message
+            )
+        )
         self._app.add_handler(CommandHandler("start", self._handle_start))
 
         # Resilient Start
@@ -67,8 +75,10 @@ class TelegramAdapter(BasePlatformAdapter):
                 logger.info("AJA Telegram Gateway started successfully.")
                 break
             except Exception as e:
-                wait = min(2 ** attempt, 30)
-                logger.warning(f"Telegram connect attempt {attempt+1} failed: {e}. Retrying in {wait}s...")
+                wait = min(2**attempt, 30)
+                logger.warning(
+                    f"Telegram connect attempt {attempt + 1} failed: {e}. Retrying in {wait}s..."
+                )
                 await asyncio.sleep(wait)
 
     async def stop(self):
@@ -79,7 +89,9 @@ class TelegramAdapter(BasePlatformAdapter):
         self.is_running = False
         logger.info("AJA Telegram Gateway stopped.")
 
-    async def _handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_text_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         if not update.message or not update.message.text:
             return
 
@@ -90,37 +102,38 @@ class TelegramAdapter(BasePlatformAdapter):
             message_type=MessageType.TEXT,
             text=update.message.text,
             message_id=str(update.message.message_id),
-            raw_event=update
+            raw_event=update,
         )
-        # Here we would route to the AgentX core
         logger.info(f"Received message from {event.user_id}: {event.text}")
-        await self.send_message(event.chat_id, f"AJA: Received '{event.text}'")
+        # Routing to AJA reasoning happens in the orchestrator
+        return event
 
     async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.send_message(
             str(update.message.chat_id),
-            "Hello! I am AJA (Assistant of Joint Agents), your personal secretary."
+            "Hello! I am AJA (Assistant of Joint Agents), your personal natural-language secretary.",
         )
 
     async def send_message(self, chat_id: str, text: str, **kwargs) -> Any:
         if not self._bot:
             return None
-        
-        # Mobile Optimization (to be implemented in Task 4)
+
         processed_text = self._prepare_text_for_mobile(text)
-        
+
         try:
             return await self._bot.send_message(
                 chat_id=chat_id,
                 text=processed_text,
-                parse_mode=ParseMode.MARKDOWN_V2 if "\\" in processed_text else None,
-                **kwargs
+                parse_mode=None, # MarkdownV2 is too strict for raw LLM output usually
+                **kwargs,
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram message: {e}")
             return None
 
-    async def send_notification(self, chat_id: str, text: str, importance: str = "normal"):
+    async def send_notification(
+        self, chat_id: str, text: str, importance: str = "normal"
+    ):
         """
         Handles importance-based delivery.
         - 'low': Progress updates, silent.
@@ -128,12 +141,9 @@ class TelegramAdapter(BasePlatformAdapter):
         - 'high': Critical errors or approval requests, always with ping.
         """
         disable_notification = importance == "low"
-        
-        # If the user has globally silenced 'normal' notifications, handle that here
-        if self.config.get("silence_normal", False) and importance == "normal":
-            disable_notification = True
-            
-        await self.send_message(chat_id, text, disable_notification=disable_notification)
+        await self.send_message(
+            chat_id, text, disable_notification=disable_notification
+        )
 
     def _prepare_text_for_mobile(self, text: str) -> str:
         """Applies mobile-friendly formatting (e.g. table-to-bullet)."""

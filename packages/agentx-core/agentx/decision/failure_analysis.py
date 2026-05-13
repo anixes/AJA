@@ -1,4 +1,4 @@
-"""agent/decision/failure_analysis.py
+"""agentx/decision/failure_analysis.py
 =======================================
 Phase 16 — Failure Attribution Layer. Now powered by LanceDB/Arrow.
 

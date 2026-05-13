@@ -5,6 +5,11 @@
 
 AgentX is a high-performance orchestration core designed for autonomous swarm intelligence. While AgentX handles the heavy lifting—native Rust execution and Arrow memory stacks—**AJA** (Assistant of Joint Agents) acts as your personal natural-language secretary, planning missions and managing your workflow via CLI or Telegram.
 
+### 🧠 The Logic Flow:
+- **LLM**: The Brain (Reasoning & Logic).
+- **AJA**: The Voice (Interface, Planning, & Manners).
+- **AgentX**: The Muscle (Native Execution & Swarm Performance).
+
 ---
 
 ## 🎯 Our Mission: Performance Without Compromise
@@ -34,9 +39,24 @@ Distributed mission coordination uses **Apache Arrow Tables**. When a task is de
 ## 🤖 Meet AJA (Assistant to the Joint Agents)
 While **AgentX** is the high-performance engine, **AJA** is your interface. She is the conversational operator who:
 - **Plans & Delegates**: Translates your natural language intent into structured missions for the AgentX swarm.
+- **Zero-Latency Handshake**: Communicates with the AgentX core via **Zero-Copy Apache Arrow** memory, ensuring your secretary stays snappy even when the engine is under heavy load.
 - **Guards Your System**: Uses the **AJA Guard** to audit every command for safety before execution.
 - **Simplifies Complexity**: Manages your schedule, obligations, and local-first memory seamlessly via the **AJA Telegram Gateway**.
 - **Real-time Sync**: Keeps your mobile device in sync with your local missions using high-performance WebSockets.
+
+---
+
+## ⚡ Autonomous Overdrive (Max Powers)
+AgentX has been upgraded with **AJA Overdrive** capabilities, moving beyond simple task management into true autonomous engineering:
+
+### 📂 Deep Territory RAG (Codebase Awareness)
+The engine now features a recursive **TerritoryScanner** that indexes your entire codebase into a LanceDB vector store. Agents perform semantic RAG lookups before planning, ensuring they "know" your architecture before they write a single line of code.
+
+### 🔧 Autonomous Tool Loop
+The swarm no longer just plans—it **acts**. Using the `ToolExecutor`, AgentX can autonomously execute shell commands during its planning phase to verify environment state, list directories, or check logs, providing a "self-correcting" execution loop.
+
+### 🧠 Synthetic Skill Library (Reflective Learning)
+The **ReflectionEngine** audits every completed mission. If it identifies a successful pattern, it extracts it as a **Synthetic Skill**. These skills are stored in the `SkillStore` and are automatically hot-swapped into future missions if a similar objective is detected.
 
 ---
 

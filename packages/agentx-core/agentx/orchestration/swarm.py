@@ -9,11 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from agentx.config import PROJECT_ROOT
 
-# Local imports - ensuring we use the optimized local gateway
-try:
-    from agentx.gateway import UnifiedGateway
-except ImportError:
-    from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 
 PYTHON = sys.executable
 
@@ -37,11 +33,11 @@ from agentx.utils.health_check import get_resource_telemetry
 
 class SwarmEngine:
     """
-    Unified Swarm Engine for Agent.
+    Unified Swarm Engine for AgentX.
     Orchestrates workers, manages batons, and enforces Phase 6 verification logic.
     """
     def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3"):
-        self.gateway = UnifiedGateway(model_id=model)
+        self.gateway = LLMGateway(model_id=model)
         self.model = model
         self.provider = provider
         self.workers = {}
@@ -52,7 +48,7 @@ class SwarmEngine:
         
     # --- MODE 1: BACKGROUND TERRITORY MONITORING (Swarm Controller) ---
     def load_config(self):
-        config_path = PROJECT_ROOT / "agent.json"
+        config_path = PROJECT_ROOT / "agentx.json"
         if not config_path.exists():
             return {"territories": []}
         with open(config_path, "r") as f:
@@ -90,7 +86,7 @@ class SwarmEngine:
     def _run_agent_sync(self, agent_id: int, task: str, target_provider: str):
         print(f"🐝 [Agent {agent_id}] Starting task on {target_provider.upper()}...")
         cmd = [
-            PYTHON, "-m", "agent.orchestration.gateway",
+            PYTHON, "-m", "agentx.orchestration.gateway",
             "--provider", target_provider,
             "--key", self.gateway.api_key,
             "--model", self.model,
@@ -102,6 +98,7 @@ class SwarmEngine:
         except subprocess.CalledProcessError as e:
             return {"agent_id": agent_id, "provider": target_provider, "status": "failed", "error": e.stderr}
 
+    def launch_parallel_swarm(self, objective: str, sub_tasks: list, providers: list):
         print(f"🚀 Launching Parallel Swarm with {len(sub_tasks)} agents...")
         results = []
         # Cap workers at CPU count to prevent resource exhaustion (PERF-04)
@@ -116,25 +113,65 @@ class SwarmEngine:
                 results.append(future.result())
         return results
 
-    # --- MODE 3: BATON ORCHESTRATOR ---
+    # --- MODE 3: BATON ORCHESTRATOR (Autonomous Tool Loop - Power 2 & 4) ---
     async def plan_and_execute_batons(self, objective: str, run_id: str = None, worker_id: str = "swarm-maintenance"):
-        print(f"Orchestrating Objective: {objective}")
-        if objective.startswith("test:"):
-            plan = [
-                {"id": 1, "task": objective, "delegated_worker": "test-worker"}
-            ]
-        else:
-            planning_prompt = (
-                f"Break down this objective into 2-3 independent sub-tasks: '{objective}'. "
-                "Return ONLY a JSON list of objects with 'id', 'task', and 'file_context'."
-            )
-            plan_str = await self.gateway.chat(planning_prompt)
-            try:
-                plan_str = plan_str.strip().replace("```json", "").replace("```", "")
-                plan = json.loads(plan_str)
-            except Exception:
-                print("Planning failed. AI did not return valid JSON.")
-                return
+        print(f"🐝 Orchestrating Autonomous Objective: {objective}")
+        
+        # ── Power 4: Deep Territory RAG ──
+        try:
+            from agentx.memory.secretary import get_aja_memory
+            mem = get_aja_memory()
+            # Generate dummy query vector (should be real if we had a local embedder)
+            query_vec = [0.0] * 1536 
+            # In a real run, we'd use self.gateway.embed(objective)
+            knowledge = mem.query_territory(query_vec, limit=5)
+            rag_context = "\n".join([f"File: {k['path']}\nContent: {k['content']}" for k in knowledge])
+        except Exception as e:
+            logger.error(f"RAG Lookup failed: {e}")
+            rag_context = "No additional codebase context available."
+
+        # ── Power 5: Hot-Swapping Skills (Synthetic Library) ──
+        try:
+            from agentx.skills.skill_store import SkillStore
+            sk_store = SkillStore()
+            relevant_skills = sk_store.search_skills(objective, limit=3)
+            skills_context = "\n".join([f"Skill: {s['name']}\nDescription: {s['description']}\nTools: {s['tool_sequence_json']}" for s in relevant_skills])
+        except Exception as e:
+            logger.error(f"Skill search failed: {e}")
+            skills_context = "No relevant synthetic skills found."
+
+        planning_prompt = (
+            f"Objective: '{objective}'\n\n"
+            f"CODEBASE CONTEXT (RAG):\n{rag_context}\n\n"
+            f"AVAILABLE SKILLS:\n{skills_context}\n\n"
+            "Plan the steps to achieve this. You can suggest shell commands in ```bash blocks. "
+            "Break it into 2-3 independent sub-tasks if needed. "
+            "Return a JSON list with 'id', 'task', and 'suggested_commands'."
+        )
+        
+        plan_str = await self.gateway.chat(planning_prompt)
+        
+        # ── Power 2: Autonomous Tool Loop ──
+        from agentx.orchestration.tools.executor import ToolExecutor
+        executor = ToolExecutor()
+        
+        # Parse suggested commands from the planning stage
+        tool_results = executor.parse_and_run(plan_str)
+        if tool_results:
+            print(f"🔧 Executed {len(tool_results)} autonomous prep-tools.")
+
+        try:
+            plan_str = plan_str.strip().replace("```json", "").replace("```", "")
+            # Find the JSON part if there was extra text
+            start = plan_str.find("[")
+            end = plan_str.rfind("]") + 1
+            if start != -1 and end != -1:
+                plan = json.loads(plan_str[start:end])
+            else:
+                plan = []
+        except Exception:
+            print("Planning failed. Defaulting to single-step execution.")
+            plan = [{"id": 1, "task": objective}]
 
         results = []
         for task in plan:
@@ -164,7 +201,7 @@ class SwarmEngine:
 
         start_time = time.time()
         process = subprocess.run(
-            [PYTHON, "-m", "agent.agents.worker", str(baton_path)],
+            [PYTHON, "-m", "agentx.agents.worker", str(baton_path)],
             capture_output=True, text=True
         )
         latency = time.time() - start_time

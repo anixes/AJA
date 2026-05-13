@@ -10,7 +10,7 @@ The dashboard is the Visual Command Center for AgentX Core. AJA uses it as an op
 - **Territories**: Health cards for monitored project areas
 - **Runtime Diff**: Current git diff snapshot from the bridge
 - **Git History**: Recent commit history
-- **Secretary Memory API**: LanceDB/Arrow-backed task memory is exposed through the bridge for future dashboard panels
+- **AJA Memory API**: LanceDB/Arrow-backed task memory is exposed through the bridge for future dashboard panels
 - **Communication API**: Outbound drafts, approval state, delivery status, and follow-up tracking are exposed through the bridge
 - **Scheduler API**: Morning, night, and weekly executive reviews are exposed for future dashboard review panels
 
@@ -25,7 +25,7 @@ and still uses these action endpoints when the user clicks buttons:
 - `POST /runtime/approve`
 - `POST /runtime/deny`
 
-Secretary memory endpoints are available for Agent task panels:
+AJA memory endpoints are available for Agent task panels:
 
 - `GET /memory/tasks`
 - `POST /memory/tasks`
@@ -90,7 +90,7 @@ This is the same object AJA sends through Telegram for remote control.
 - Pending approvals are single-item for now: one risky action can be awaiting review at a time.
 - The bridge is state-driven: it reads `.agentx/runtime-state.json` rather than keeping its own in-memory approval queue.
 - Approval decisions are written to `.agentx/approval-audit.jsonl` as append-only JSONL records.
-- Secretary memory is stored in `.agentx/secretary.lancedb` and survives bridge restarts.
+- AJA memory is stored in `.agentx/aja_memory.lancedb` and survives bridge restarts.
 - Communication records are stored in the same LanceDB/Arrow database and require approval before delivery.
 - Scheduler delivery events are stored in LanceDB/Arrow to avoid repeated review spam.
 

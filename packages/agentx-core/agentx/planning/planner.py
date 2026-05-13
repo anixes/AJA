@@ -1,5 +1,5 @@
 """
-agent/planning/planner.py
+agentx/planning/planner.py
 ===========================
 Phase 12 - Planner: Goal -> PlanGraph with method-first routing.
 
@@ -7,7 +7,7 @@ Phase 11 design is preserved unchanged.  Phase 12 adds a pre-LLM routing
 stage: if the method library contains a high-confidence cached plan for
 the incoming goal, it is instantiated directly without an LLM call.
 
-Sends a deterministic prompt to the UnifiedGateway LLM and parses the
+Sends a deterministic prompt to the LLMGateway LLM and parses the
 JSON response into a validated PlanGraph.  Falls back gracefully if the
 LLM is unavailable (returns a single-node passthrough graph).
 
@@ -297,7 +297,7 @@ class Planner:
 
     Parameters
     ----------
-    gateway : optional UnifiedGateway instance.
+    gateway : optional LLMGateway instance.
               If None, the planner loads it lazily from agentx.gateway.
     max_nodes : hard cap on the number of nodes in the decomposed graph.
     """
@@ -345,8 +345,8 @@ class Planner:
         if self._gateway is not None:
             return self._gateway
         try:
-            from agentx.gateway import UnifiedGateway
-            self._gateway = UnifiedGateway()
+            from agentx.orchestration.gateway import LLMGateway
+            self._gateway = LLMGateway()
         except Exception:
             self._gateway = None
         return self._gateway
@@ -388,7 +388,7 @@ class Planner:
             
         prompt = _PLANNER_USER_TEMPLATE.format(goal=goal) + f"\n\nMode: {mode_prompt}{history_text}{config_text}{kb_text}{strat_text}"
         try:
-            # UnifiedGateway.complete(system, user) - str
+            # LLMGateway.complete(system, user) - str
             response = gw.complete(system=system_prompt, user=prompt)
             return response
         except Exception as exc:

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 
 logger = logging.getLogger("agent.decision")
 
@@ -41,7 +41,7 @@ class DecisionEngine:
 
     def __init__(self):
         try:
-            self.gateway = UnifiedGateway()
+            self.gateway = LLMGateway()
         except Exception:
             self.gateway = None
 

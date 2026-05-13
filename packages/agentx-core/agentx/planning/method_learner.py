@@ -1,5 +1,5 @@
 """
-agent/planning/method_learner.py
+agentx/planning/method_learner.py
 ====================================
 Phase 12 - Controlled Method Learning.
 

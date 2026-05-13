@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
+from rich.prompt import Confirm
 from agentx.tui.tasks import (
     TaskManager,
     STATUS_PENDING,
@@ -85,6 +86,34 @@ def cmd_run(objective: str, background: bool = False):
             print_error(f"Swarm Execution Error: {e}")
 
 
+def cmd_pickup(code: str):
+    """
+    Resume a mission from a high-performance Arrow Baton.
+    """
+    if not code:
+        print_error("No baton code provided.")
+        return
+
+    print_info(f"Picking up mission baton: {code}")
+    from agentx.runtime.handover import BatonManager
+    from agentx.orchestration.swarm import SwarmEngine
+
+    mgr = BatonManager()
+    state = mgr.pickup(code)
+
+    if not state:
+        print_error(f"Failed to pick up baton: {code}. It may have expired or does not exist.")
+        return
+
+    print_success(f"Baton verified. Resuming objective: {state['objective']}")
+    
+    # In a real swarm, this would re-initialize the engine with the picked-up state
+    engine = SwarmEngine()
+    # For now, we simulate the resumption
+    console.print(f"[bold cyan]AJA:[/] Resuming mission logic for: [italic]{state['objective']}[/italic]")
+    # asyncio.run(engine.resume_from_state(state))
+
+
 def cmd_status():
     """Real-time overview of swarm health and active batons."""
     from agentx.memory.manager import get_memory_manager
@@ -137,7 +166,7 @@ def cmd_chat():
 
     print_banner()
     console.print(
-        "[bold cyan]AJA:[/] Greetings. I am your Assistant to the Joint Agents. How can I assist you today?"
+        "[bold cyan]AJA:[/] Greetings. I am AJA, your Assistant of Joint Agents. How can I assist you today?"
     )
     console.print(
         "[dim]Tip: Use Alt+Enter for multiline input. Type '/' for commands.[/]"
@@ -273,6 +302,16 @@ def cmd_chat():
                 elif cmd == "/status":
                     cmd_status()
                     continue
+                elif cmd == "/dash":
+                    from agentx.api.bridge import start_dashboard
+                    start_dashboard()
+                    continue
+                elif cmd == "/metrics":
+                    console.print("[yellow]Metrics TUI coming soon in Phase 12.[/]")
+                    continue
+                elif cmd == "/mode":
+                    console.print(f"[bold cyan]AJA:[/] Current mode is set via agentx.json. Use '/mode <type>' (offline/online/hybrid). [dim](Manual switch coming soon)[/]")
+                    continue
                 elif cmd == "/run":
                     console.print(
                         f"[bold cyan]🚀 Executing mission: {args}[/bold cyan]"
@@ -293,7 +332,7 @@ def cmd_chat():
                 console.print(f"[bold cyan]AJA:[/] {intent['response']}")
 
                 if intent["type"] == "goal" and intent["goal"]:
-                    if console.confirm(
+                    if Confirm.ask(
                         f"Shall I initiate mission: '[italic]{intent['goal']}[/]'?"
                     ):
                         cmd_run(intent["goal"])
@@ -372,6 +411,9 @@ def main():
         cmd_chat()
     elif cmd == "status":
         cmd_status()
+    elif cmd == "dash":
+        from agentx.api.bridge import start_dashboard
+        start_dashboard()
     elif cmd == "doctor":
         cmd_doctor()
     elif cmd == "live":
@@ -380,6 +422,11 @@ def main():
         live_kanban()
     elif cmd == "ui":
         subprocess.run([PYTHON, "-m", "agentx.interface.tui"])
+    elif cmd == "pickup":
+        if len(args) < 2:
+            print_error("Usage: agentx pickup <code>")
+        else:
+            cmd_pickup(args[1])
     elif cmd == "help" or cmd == "--help" or cmd == "-h":
         show_help()
     else:

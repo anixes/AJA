@@ -8,7 +8,7 @@ _manager = get_memory_manager()
 def log_event(event_type: str, payload: dict):
     """Log a runtime event into the Arrow-backed event feed."""
     try:
-        table = _manager.get_table("aja_runtime_events")
+        table = _manager.get_table("agentx_runtime_events")
         import uuid
 
         row = [
@@ -28,7 +28,7 @@ def log_event(event_type: str, payload: dict):
 def get_events_by_task_id(task_id: str) -> list:
     """Retrieve all events related to a specific task ID."""
     try:
-        table = _manager.get_table("aja_runtime_events")
+        table = _manager.get_table("agentx_runtime_events")
         # Full scan filtered in Arrow
         all_rows = table.to_arrow().to_pylist()
         results = []

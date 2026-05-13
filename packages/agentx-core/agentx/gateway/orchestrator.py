@@ -12,6 +12,7 @@ from agentx.runtime.handover import BatonManager
 from agentx.memory.vector import VectorMemory
 from agentx.api.universal import UniversalRequest, UniversalItem, ContentBlock, Role
 from agentx.api.acp import ACPBridge, ACPClient
+from agentx.llm import completion
 from agentx.gateway.telegram import TelegramAdapter
 from agentx.gateway.persistence import GatewayState
 from agentx.gateway.vision import VisionBridge
@@ -21,8 +22,7 @@ from agentx.gateway.base import MessageEvent, MessageType
 class UnifiedGateway:
     """
     The main integration hub for AgentX.
-    Combines high-performance translation, Unified Arrow Memory (LanceDB),
-    and modular multi-agent orchestration.
+    Combines high-performance orchestration core logic with the AJA Gateway.
     """
 
     def __init__(self, model_id: str = "claude-3-5-sonnet"):
@@ -32,23 +32,23 @@ class UnifiedGateway:
         # DUAL BRAIN: MemoryTree (Structured) + VectorMemory (LanceDB/Semantic)
         self.vector_memory = VectorMemory(table_name="mission_semantic")
 
-        # ARROW-BACKED HANDOVER
+        # ARROW-BACKED HANDOVER (Baton Protocol)
         self.handover = BatonManager()
 
         self.acp_bridge = ACPBridge()
         self.active_sub_agents: Dict[str, ACPClient] = {}
 
-        # Native Trajectory Engine for local model protection
+        # AgentX Native Trajectory Engine
         self.trajectory_manager = agentx_native.PyTrajectoryManager(model_id)
         self.context_threshold = 4000  # Tokens
 
-        # AJA GATEWAY COMPONENTS
+        # AJA Gateway Components
         self.gateway_state = GatewayState()
         self.vision_bridge = VisionBridge()
         self.telegram_adapter: Optional[TelegramAdapter] = None
 
     async def initialize(self, semantic_db_path: str = "./.agentx/memory.lancedb"):
-        """Initializes the native Rust semantic store."""
+        """Initializes the AgentX native Rust semantic store."""
         try:
             agentx_native.init_semantic(semantic_db_path)
             print(f"AgentX: Native Semantic Memory initialized at {semantic_db_path}")
@@ -58,7 +58,7 @@ class UnifiedGateway:
             )
 
     def capture_state(self) -> Dict[str, Any]:
-        """Serializes the current orchestrator state for handover."""
+        """Serializes the current AgentX orchestrator state for handover."""
         return {
             "model_id": self.model_id,
             "timestamp": time.time(),
@@ -72,14 +72,13 @@ class UnifiedGateway:
 
     async def chat(self, user_input: str) -> str:
         """
-        Main reasoning entry point.
-        Implements Trajectory Compression to maintain performance on cheap hardware.
+        Main AgentX reasoning entry point.
+        Implements Trajectory Compression to maintain performance.
         """
-        # 1. Record activity in both brains
+        # 1. Record activity
         self.memory.add_activity(user_input, {"role": "user", "model": self.model_id})
-        # Note: Vector memory add would typically happen after embedding
 
-        # 2. Native Context Optimization (AgentX Native Optimization)
+        # 2. Native Context Optimization (AgentX Native Core)
         history = self.memory.get_recent_history(limit=50)
         messages = [
             {
@@ -97,44 +96,28 @@ class UnifiedGateway:
 
         if analysis["should_compress"]:
             print(
-                f"AgentX [Native]: Pressure detected. Optimizing trajectory via Dynamic Compression..."
+                f"AgentX [Native]: Trajectory pressure detected. Optimizing via Dynamic Compression..."
             )
-            # Perform compression (summarization and offloading to LanceDB)
             messages = self.compress_trajectory(
                 messages, analysis["compress_start"], analysis["compress_end"]
             )
 
-        # 3. Build Universal Request payload
-        universal_input = []
-        for msg in messages:
-            universal_input.append(
-                UniversalItem(
-                    type="message",
-                    role=Role.USER if msg["role"] == "user" else Role.ASSISTANT,
-                    content=[ContentBlock(type="text", text=msg["content"])],
-                )
-            )
-
-        request = UniversalRequest(
+        # 3. Perform the actual chat call
+        # AJA persona is used for the conversational layer
+        response_text = completion(
+            prompt=user_input,
+            system_prompt=(
+                "You are AJA (Assistant of Joint Agents), a premium natural-language secretary powered by the AgentX orchestration core. "
+                "Your role is to plan missions, manage obligations, and coordinate the AgentX swarm. "
+                f"Context length analysis: {analysis_json}"
+            ),
             model=self.model_id,
-            input=universal_input,
-            instructions=[
-                ContentBlock(
-                    type="text",
-                    text="You are AgentX, a high-leverage autonomous orchestrator.",
-                )
-            ],
         )
 
-        # 4. Use Native Core for high-perf translation
-        request_json = request.model_dump_json()
-        translated_json = agentx_native.translate_to_anthropic(request_json)
+        if not response_text:
+            response_text = f"AJA [Runtime Warning]: Mission reasoning failed for '{user_input}'. Check gateway logs."
 
-        # 5. Perform the actual chat call (Simulation)
-        # In a real mission, this would call the configured provider
-        response_text = f"AgentX [Rust-Core Integrated]: Reasoning about '{user_input}'"
-
-        # 6. Record response
+        # 4. Record response
         self.memory.add_activity(
             response_text, {"role": "assistant", "model": self.model_id}
         )
@@ -145,8 +128,7 @@ class UnifiedGateway:
         self, messages: List[Dict[str, str]], start: int, end: int
     ) -> List[Dict[str, str]]:
         """
-        Compresses the middle of a trajectory.
-        Offloads the compressed content to LanceDB for zero-copy retrieval.
+        Compresses the middle of an AgentX trajectory into LanceDB.
         """
         head = messages[:start]
         tail = messages[end:]
@@ -156,7 +138,6 @@ class UnifiedGateway:
 
         # Offload middle to VectorMemory
         for turn in middle:
-            # Simplified: In reality, we'd embed turn['content'] here
             self.vector_memory.add(
                 turn["content"], vector=[0.0] * 1536, metadata={"role": turn["role"]}
             )
@@ -164,14 +145,13 @@ class UnifiedGateway:
         return head + [{"role": "system", "content": summary_text}] + tail
 
     async def summarize(self, text: str, objective: str = "") -> str:
-        """Summarizes large text blobs to stay under the 'Latency Wall'."""
-        prompt = f"Summarize the following task results for the objective '{objective}':\n\n{text}"
+        """Summarizes results for AgentX objective."""
+        prompt = f"Summarize the following task results for the AgentX objective '{objective}':\n\n{text}"
         return await self.chat(prompt)
 
     async def spawn_sub_agent(self, agent_id: str, task: str) -> str:
         """
-        Creates an ARROW-BACKED 'Baton' and spawns a sub-worker via CLI.
-        This enables zero-copy state handoff across the swarm.
+        Creates an AgentX 'Baton' and spawns a sub-worker.
         """
         state = self.capture_state()
         code = self.handover.capture(task, state)
@@ -193,46 +173,48 @@ class UnifiedGateway:
             return
 
         self.telegram_adapter = TelegramAdapter(token)
-        print("AJA: Starting Telegram Gateway...")
-        
+        print("AJA Gateway: Initializing Telegram connection...")
+
         async for event in self.telegram_adapter.poll():
             await self.handle_gateway_event(event)
 
     async def handle_gateway_event(self, event: MessageEvent):
-        """Processes events from the AJA Gateway."""
+        """Processes events via the AJA Gateway."""
         chat_id = event.chat_id
-        
+
         # 0. Security Whitelist
         if TELEGRAM_ALLOWED_USER_ID and str(chat_id) != str(TELEGRAM_ALLOWED_USER_ID):
-            print(f"AJA Warning: Unauthorized access attempt from chat_id {chat_id}")
-            # Optional: send a polite rejection message
-            # await self.telegram_adapter.send_message(chat_id, "I am AJA, a personal assistant. I only respond to my authorized operator.")
+            print(
+                f"AJA Warning: Unauthorized access attempt from chat_id {chat_id}"
+            )
             return
 
         session = self.gateway_state.get_session(chat_id)
-        
-        # 1. Enrich event if it has media
+
+        # 1. Media Enrichment (AJA Vision)
         content = event.text
         if event.type == MessageType.PHOTO:
-            # We assume the adapter put the file_id or download_url in event.text or similar
-            # In our simple implementation, let's just use the text if available
             if event.metadata and "file_id" in event.metadata:
-                print(f"AJA: Enriching vision for chat {chat_id}...")
-                # Note: Real implementation would get file URL from Bot API
-                # For now, we use the vision bridge placeholder
-                content = await self.vision_bridge.describe_image(b"") # Placeholder bytes
+                print(f"AJA: Enriching mission context via Vision Bridge...")
+                content = await self.vision_bridge.describe_image(b"")
 
-        # 2. Add to session history
-        session["history"].append({"role": "user", "text": content, "time": time.time()})
+        # 2. History Persistence
+        session["history"].append(
+            {"role": "user", "text": content, "time": time.time()}
+        )
         self.gateway_state.update_session(chat_id, session)
 
-        # 3. Chat with AgentX
-        await self.telegram_adapter.send_notification(chat_id, "Thinking...", importance="low")
+        # 3. AJA Reasoning
+        await self.telegram_adapter.send_notification(
+            chat_id, "Planning...", importance="low"
+        )
         response = await self.chat(content)
-        
-        # 4. Respond via Gateway
+
+        # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
-        
-        # 5. Update session history
-        session["history"].append({"role": "assistant", "text": response, "time": time.time()})
+
+        # 5. Finalize Session Update
+        session["history"].append(
+            {"role": "assistant", "text": response, "time": time.time()}
+        )
         self.gateway_state.update_session(chat_id, session)

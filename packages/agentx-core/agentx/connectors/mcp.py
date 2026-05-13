@@ -6,12 +6,14 @@ from .base import BaseConnector, Document, ConnectorRegistry
 
 logger = logging.getLogger(__name__)
 
+
 @ConnectorRegistry.register("mcp")
 class MCPConnector(BaseConnector):
     """
-    The MCP Bridge for Agent. 
+    The MCP Bridge for Agent.
     This allows Agent to connect to any MCP-compliant server for tool and resource discovery.
     """
+
     connector_id = "mcp"
     display_name = "Model Context Protocol Bridge"
     auth_type = "config"
@@ -34,9 +36,9 @@ class MCPConnector(BaseConnector):
             # Note: A real MCP client would use JSON-RPC over stdio/SSE.
             # This is a simplified 'discovery' implementation for Agent.
             cmd = [self.config["command"]] + self.config.get("args", [])
-            # We assume the server supports a '--list-tools' or similar discovery flag 
+            # We assume the server supports a '--list-tools' or similar discovery flag
             # or we simulate the MCP 'tools/list' call.
-            
+
             # For now, we'll simulate the tool discovery logic
             logger.info(f"Initializing MCP server: {self.config['command']}")
             self._initialized = True
@@ -56,6 +58,6 @@ class MCPConnector(BaseConnector):
         """Calls a tool on the MCP server via JSON-RPC."""
         if not self.config:
             return {"error": "MCP server not configured"}
-        
+
         # Real MCP JSON-RPC implementation would go here
         return {"result": f"Simulated result from MCP tool {tool_name}"}
