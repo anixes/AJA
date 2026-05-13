@@ -27,8 +27,20 @@ PROJECT_ROOT = find_project_root()
 AGENTX_DIVERSITY_BETA = True
 
 # Model Selection
-AGENTX_PLANNER_MODEL = os.getenv("AGENTX_PLANNER_MODEL", "google:gemini-2.0-flash")
-AGENTX_WORKER_MODEL = os.getenv("AGENTX_WORKER_MODEL", "google:gemini-2.0-flash")
+def _get_default_model(key, default):
+    try:
+        config_path = PROJECT_ROOT / "agentx.json"
+        if config_path.exists():
+            import json
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+                return cfg.get("swarm_settings", {}).get("models", {}).get(key, default)
+    except Exception:
+        pass
+    return default
+
+AGENTX_PLANNER_MODEL = os.getenv("AGENTX_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash"))
+AGENTX_WORKER_MODEL = os.getenv("AGENTX_WORKER_MODEL", _get_default_model("worker", "google:gemini-2.0-flash"))
 
 # Telegram Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")

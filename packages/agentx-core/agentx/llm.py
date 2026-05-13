@@ -1,6 +1,7 @@
 
 import json
 import os
+import agentx.config
 from agentx.orchestration.gateway import UnifiedGateway
 
 # Singleton gateway instance
@@ -22,8 +23,9 @@ def get_gateway_for_model(model_str):
     local_model_fallback = "gemma-4-e2b"
     cloud_model_fallback = "gemini-2.5-flash"
     try:
-        if os.path.exists("agentx.json"):
-            with open("agentx.json", "r") as f:
+        config_path = os.path.join(agentx.config.PROJECT_ROOT, "agentx.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
                 cfg = json.load(f)
                 operating_mode = cfg.get("swarm_settings", {}).get("operating_mode")
                 if not operating_mode:
@@ -82,7 +84,8 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None)
     """
     if model is None:
         try:
-            with open("agentx.json", "r") as f:
+            config_path = os.path.join(agentx.config.PROJECT_ROOT, "agentx.json")
+            with open(config_path, "r") as f:
                 config = json.load(f)
                 model = config.get("swarm_settings", {}).get("models", {}).get("planner", "google:gemini-2.5-flash")
         except Exception:

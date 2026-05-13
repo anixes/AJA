@@ -42,6 +42,9 @@ If the request is ambiguous (e.g. 'deploy it'), ask a follow-up question via the
     
     try:
         raw = gw.chat(model=mapped_model, prompt=prompt, system=system_prompt)
+        if not raw:
+            raise ValueError("No response from LLM gateway")
+            
         # Strip markdown fences if present
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
