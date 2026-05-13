@@ -25,7 +25,7 @@ export const semanticSearchTool: ToolDefinition<typeof searchSchema> = {
   call: async ({ query }, context) => {
     try {
       // 1. Run the extractor
-      execSync('python packages/agentx-core/agentx/utils/local_extractor.py', { cwd: context.cwd });
+      execSync('python packages/agent-core/agent/utils/local_extractor.py', { cwd: context.cwd });
       
       // 2. Read the result
       const graphPath = path.join(context.cwd, 'graphify-out', 'graph_local.json');

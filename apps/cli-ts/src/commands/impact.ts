@@ -1,12 +1,12 @@
 /**
- * agentx impact <file|symbol>
+ * agent impact <file|symbol>
  * 
  * Analyze the blast radius of changing a file or symbol.
  * Shows direct dependents, transitive dependents, and a risk score.
  * 
  * Examples:
- *   agentx impact user.ts
- *   agentx impact GatewayClient
+ *   agent impact user.ts
+ *   agent impact GatewayClient
  */
 
 import { Indexer, GraphQuery } from '../graph/index.js';
@@ -28,7 +28,7 @@ export async function impactCommand(target: string, opts: ImpactOptions): Promis
 
   if (!result) {
     console.log('❌ No matching symbol found in the graph.');
-    console.log('Run `agentx map .` first to index the repository.');
+    console.log('Run `agent map .` first to index the repository.');
     return;
   }
 

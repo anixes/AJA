@@ -1,5 +1,5 @@
 """
-agentx/planning/method_pruner.py
+agent/planning/method_pruner.py
 ==================================
 Phase 13 - Method Library Pruning (Embeddings).
 

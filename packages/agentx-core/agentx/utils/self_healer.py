@@ -28,7 +28,7 @@ def heal_system(territory="src/prod"):
         code = file_path.read_text()
         
         prompt = f"""
-        You are the AgentX Self-Healing Agent. 
+        You are the Agent Self-Healing Agent. 
         A production file is crashing.
         
         FILE: {file_path}
@@ -64,7 +64,7 @@ def heal_system(territory="src/prod"):
         if healthy_after:
             print("\n[+] HEALING SUCCESSFUL! System is back online.")
         else:
-            print("\n[!] Healing failed. Escalating to human developer.")
+            print("\n[!] Healing failed. Escalating to operator.")
             
         # Stop after fixing one file
         return

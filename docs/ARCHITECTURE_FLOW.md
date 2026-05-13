@@ -1,11 +1,11 @@
 # Architecture Flow: High-Performance Local Autonomy
-**AgentX & AJA: Built to run on the cheapest of hardware with maximum performance.**
+**AgentX Core & AJA: Built to run on standard hardware with maximum performance.**
 
 ```mermaid
 graph TD
-    User((User)) -->|Natural Language| AJA[AJA Operator]
+    User((User)) -->|Natural Language| AJA[AJA Secretary Persona]
     Phone((Phone)) -->|Telegram Bot API| Telegram[Telegram Webhook]
-    AJA -->|Natural Language| TUI[AgentX Guard TUI]
+    AJA -->|Natural Language| TUI[AJA Guard TUI]
     User -->|Web Browser| Dashboard[React Dashboard]
     TUI -->|Intent Translation| Gateway[AI Gateway]
     Dashboard -->|/swarm/run| API[API Bridge]
@@ -40,7 +40,7 @@ graph TD
     API -->|/communications/*| Comms
     API -->|/scheduler/*| Scheduler[Executive Scheduler]
     Scheduler -->|Read + Escalate| Secretary
-    Scheduler -->|Read Follow-ups| Comms
+    Scheduler -->|Read Followups| Comms
     Scheduler -->|Telegram Delivery| Phone
     Approval -->|Pending Approval| State
     Approval -->|Immutable JSONL| ApprovalAudit[.agentx/approval-audit.jsonl]
@@ -66,7 +66,7 @@ graph TD
 ## Unified CLI
 
 ```
-agentx              → Start the interactive AgentX Guard TUI (default)
+agentx              → Start the interactive AJA Guard TUI (default)
 agentx dash         → Launch Dashboard + API Bridge in one command
 agentx run [--bg]   → Delegate a mission to SwarmEngine (optionally in background)
 agentx status       → Show swarm health & active batons
@@ -92,30 +92,30 @@ Both read from and write to the same config file. Gateway clients (TypeScript an
 read config.json first, falling back to environment variables if the config is missing.
 
 ### Flow Breakdown:
-1.  **Intent Layer**: User provides natural language via AJA, AgentX Guard TUI, Telegram, or the Dashboard's "Run Mission" input.
+1.  **Intent Layer**: User provides natural language via Assistant, Agent Guard TUI, Telegram, or the Dashboard's "Run Mission" input.
 2.  **Priority Layer**: Intent is passed through the **Priority Engine**, which ranks tasks by urgency and stake, challenging false urgency before the user commits.
-3.  **Safety Layer**: The command is stripped to its root binary by `CommandStripper`, checked for dangerous patterns by the **AJA Guard**, and classified as **Allow / Ask / Deny**.
-4.  **Approval Layer**: Risky commands pause as structured approval objects. The user sees the request ID, command preview, action type, human-readable reason, risk level, rollback path, expiration timestamp, requester source, and dry-run summary before approving or rejecting.
+3.  **Safety Layer**: The command is stripped to its root binary by `CommandStripper`, checked for dangerous patterns by the **Assistant Guard**, and classified as **Allow / Ask / Deny**.
+4.  **Approval Layer**: Risky commands pause as structured approval objects. The user sees the request ID, command preview, action type, readable reason, risk level, rollback path, expiration timestamp, requester source, and dry-run summary before approving or rejecting.
 5.  **Execution Layer**: The unified `SwarmEngine` handles task execution, supporting background healing, parallel processing, and objective-based baton handoffs. Every delegation mission is constrained by a mandatory **Definition of Done (DoD)** checklist.
 6.  **Feedback Layer**: Runtime events, pending approvals, approval audit records, Telegram command history, and baton task state are persisted into shared state files, then surfaced through the `API Bridge` as live SSE snapshots for the Dashboard and concise Telegram replies.
 
 ## Phase 1: Telegram Remote Control
 
-The Telegram Bot API connects to `POST /telegram/webhook` on the FastAPI bridge. The bridge whitelists `TELEGRAM_ALLOWED_USER_ID`, accepts text commands only, maps supported intents to known actions, and logs command history to `.agentx/telegram-history.jsonl`.
+The Telegram Bot API connects to `POST /telegram/webhook` on the FastAPI bridge. The bridge whitelists `TELEGRAM_ALLOWED_USER_ID`, accepts text commands only, maps supported intents to known actions, and logs command history to `.agent/telegram-history.jsonl`.
 
 ## Phase 2: Production Approval Workflow
 
-Risky Telegram commands are written into `.agentx/runtime-state.json` so the dashboard queue sees the same approval object as the phone.
+Risky Telegram commands are written into `.agent/runtime-state.json` so the dashboard queue sees the same approval object as the phone.
 
 All approvals expire and are re-checked through `FileGuardian` and `CommandStripper` before execution.
 
 ## Phase 3: Structured Secretary Memory
 
-AJA stores obligations in LanceDB at `.agentx/`, separate from transient runtime state. This memory tracks obligations, follow-ups, recurring responsibilities, reminders, escalation level, communication history, and source.
+Assistant stores obligations in LanceDB at `.agent/`, separate from transient runtime state. This memory tracks obligations, follow-ups, recurring responsibilities, reminders, escalation level, communication history, and source.
 
 ## Phase 4: Messaging Layer
 
-AJA stores outbound communication in `secretary_communications` inside LanceDB.
+Assistant stores outbound communication in `secretary_communications` inside LanceDB.
 
 Every outbound message starts as an approval-required draft. The direct send path is only implemented for Telegram, and it still refuses to send until approval is recorded.
 
@@ -158,7 +158,7 @@ Added a strategic layer to autonomously determine the optimal execution path for
 - **Strategy Selection Module**: Choices between `SKILL` (Action Abstractions), `Hierarchical Execution` (Composition), `NEW`, `ASK`, or `REJECT`.
 - **Gated Interaction**: Strict JSON schema validation and hard risk gates.
 - **Fail-Safe Fallbacks**: Low-confidence outputs fall back to deterministic pipelines.
-- **Decision Traceability**: Real-time logging of `evidence` for every decision (see `agentx explain`).
+- **Decision Traceability**: Real-time logging of `evidence` for every decision (see `agent explain`).
 
 ## Phase 11: Vectorized Memory & Effectiveness
 
@@ -166,7 +166,7 @@ Enhanced the Strategy Selection Module with semantic retrieval and performance o
 
 - **Vectorized Decision Memory**: Replaced keyword lookup with dense vector embeddings for semantic similarity.
 - **Strategy Effectiveness Reporting**: Real-time outcome distribution metrics on the dashboard.
-- **Interactive Human-in-the-Loop**: Responsive CLI prompts for `ASK` strategies.
+- **Interactive Operator-in-the-Loop**: Responsive CLI prompts for `ASK` strategies.
 
 ## Phase 12-14: Causal Rules, Metrics & Stability
 
@@ -183,7 +183,7 @@ Enhanced the Strategy Selection Module with semantic retrieval and performance o
 
 ## Phase 18-19: Risk-Aware Correctness & Reliability
 
-- **Probabilistic Risk Scoring**: Evaluation results include a `risk_score` (0.0-1.0) and `veto_triggered` flag. High-risk convergence triggers mandatory human escalation.
+- **Probabilistic Risk Scoring**: Evaluation results include a `risk_score` (0.0-1.0) and `veto_triggered` flag. High-risk convergence triggers mandatory operator escalation.
 - **Reliability-Weighted Multi-Eval**: Evaluator signals are weighted by historical accuracy. Weak judges (< 0.3 reliability) are suppressed; high-reliability judges can issue **HARD VETO** signals.
 - **Meta-Evaluation Layer**: Autonomous calibration against "Golden Tasks" detects biased or inconsistent judges and alerts on performance drift.
 - **Diversity Guardrails**: Enforces consensus across diverse model families (e.g., GPT, Claude, Gemini) to prevent correlated "yes-man" failures.

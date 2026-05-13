@@ -1,7 +1,7 @@
 # Phase 25: Self-Initiated Goals (Controlled Autonomy)
 
 ## Overview
-Phase 25 introduces **Governed Autonomy**, allowing AgentX to initiate its own actions based on system state, user patterns, and scheduled maintenance requirements.
+Phase 25 introduces **Governed Autonomy**, allowing Agent to initiate its own actions based on system state, user patterns, and scheduled maintenance requirements.
 
 ## Core Features
 
@@ -18,11 +18,11 @@ Autonomous goals must pass a strict "Benefit vs Risk" filter.
 - **Constraints**: Maximum autonomous actions per hour and mandatory cooldown periods.
 - **Forbidden Actions**: Destructive actions (e.g., `delete_files`) are hard-blocked from self-initiation.
 
-### 3. Human-in-the-Loop (HITL) Safety
+### 3. Operator-in-the-Loop (OITL) Safety
 High-risk autonomous goals (Score > 0.7) trigger a Telegram approval request before execution. "Stable" mode acts as a fallback if autonomy shows high drift.
 
 ---
 
 ## Technical Details
-- **Engine**: `agentx/autonomy/intent_engine.py`.
+- **Engine**: `agent/autonomy/intent_engine.py`.
 - **Budgeting**: Enforced via `MAX_AUTONOMOUS_ACTIONS` and `COOLDOWN_PERIOD` in `config.py`.

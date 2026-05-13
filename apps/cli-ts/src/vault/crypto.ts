@@ -10,7 +10,7 @@ export class VaultCrypto {
 
   constructor(masterPassword: string) {
     // Generate a secure key from the master password
-    this.key = scryptSync(masterPassword, 'agentx-salt', KEY_LENGTH);
+    this.key = scryptSync(masterPassword, 'agent-salt', KEY_LENGTH);
   }
 
   encrypt(text: string): { iv: string; content: string; tag: string } {

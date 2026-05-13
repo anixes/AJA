@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-core"
+version = "0.1.0"
+description = "Core logic for Agent Orchestrator"
+dependencies = [
+    "pydantic>=2.0.0",
+    "aiohttp",
+    "python-dotenv",
+    "lancedb",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*"]

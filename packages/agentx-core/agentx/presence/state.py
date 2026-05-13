@@ -19,7 +19,7 @@ def get_system_state() -> dict:
         "load_level": "LOW",
         "stalled_tasks_exist": False,
         "circuit_breaker_triggered": False,
-        "recent_failures": 0
+        "recent_failures": 0,
     }
 
     try:
@@ -32,16 +32,20 @@ def get_system_state() -> dict:
         arrow = tasks_table.to_arrow()
         if len(arrow) > 0:
             status_col = arrow["status"]
-            state["active_tasks"]  = pc.sum(pc.equal(status_col, "RUNNING")).as_py() or 0
-            state["pending_tasks"] = pc.sum(pc.equal(status_col, "PENDING")).as_py() or 0
-            state["failed_tasks"]  = pc.sum(pc.equal(status_col, "FAILED")).as_py() or 0
+            state["active_tasks"] = pc.sum(pc.equal(status_col, "RUNNING")).as_py() or 0
+            state["pending_tasks"] = (
+                pc.sum(pc.equal(status_col, "PENDING")).as_py() or 0
+            )
+            state["failed_tasks"] = pc.sum(pc.equal(status_col, "FAILED")).as_py() or 0
             stalled = pc.sum(pc.equal(status_col, "FAILED_PERMANENT")).as_py() or 0
             state["stalled_tasks_exist"] = stalled > 0
 
         # ── Trigger count ────────────────────────────────────────────────────
         try:
             triggers_table = _manager.get_table("core_triggers")
-            active_triggers = triggers_table.search().where("status = 'ACTIVE'").to_list()
+            active_triggers = (
+                triggers_table.search().where("status = 'ACTIVE'").to_list()
+            )
             state["trigger_count"] = len(active_triggers)
         except Exception:
             pass
@@ -73,7 +77,11 @@ def get_system_state() -> dict:
                 state["loop_status"] = "stopped (timeout)"
 
         # ── Health & Load ─────────────────────────────────────────────────────
-        if state["circuit_breaker_triggered"] or state["recent_failures"] >= 5 or state["stalled_tasks_exist"]:
+        if (
+            state["circuit_breaker_triggered"]
+            or state["recent_failures"] >= 5
+            or state["stalled_tasks_exist"]
+        ):
             state["is_healthy"] = False
 
         pt = state["pending_tasks"]

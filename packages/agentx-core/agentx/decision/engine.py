@@ -4,7 +4,7 @@ import os
 from typing import Dict, Any, List
 from agentx.orchestration.gateway import UnifiedGateway
 
-logger = logging.getLogger("agentx.decision")
+logger = logging.getLogger("agent.decision")
 
 # Phase 15 — if confidence drops below this after all biasing, force ASK
 UNCERTAINTY_THRESHOLD = 0.45
@@ -15,7 +15,7 @@ _REQUIRED_CONTEXT_KEYS = ["objective"]
 
 class DecisionEngine:
     """
-    LLM-assisted decision engine for AgentX.
+    LLM-assisted decision engine for Agent.
     Determines the best execution path for a given objective.
     """
     

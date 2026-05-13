@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "AgentX Mobile",
+    "productName": "Agent Mobile",
     "version": "0.1.0"
   },
   "tauri": {
@@ -25,7 +25,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.agentx.mobile",
+      "identifier": "com.agent.mobile",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -54,7 +54,7 @@
         "fullscreen": false,
         "height": 800,
         "resizable": true,
-        "title": "AgentX Cognitive OS",
+        "title": "Agent Cognitive OS",
         "width": 450
       }
     ]

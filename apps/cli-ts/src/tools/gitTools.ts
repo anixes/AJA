@@ -1,5 +1,5 @@
 /**
- * AgentX Git Tools
+ * Agent Git Tools
  * 
  * Provides git operations as LLM-callable tools.
  * Write operations (commit, branch create, push) respect execution modes.

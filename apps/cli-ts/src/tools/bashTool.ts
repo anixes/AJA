@@ -94,7 +94,7 @@ function summarizeReasons(reasons: string[]): string {
 }
 
 async function analyzeCommand(command: string): Promise<StripperAnalysis> {
-  const stripperPath = path.join(process.cwd(), 'packages', 'agentx-core', 'agentx', 'security', 'stripper.py');
+  const stripperPath = path.join(process.cwd(), 'packages', 'agent-core', 'agent', 'security', 'stripper.py');
   const { stdout } = await execFileAsync(resolvePythonExecutable(), [stripperPath, command], {
     windowsHide: true,
   });
@@ -219,7 +219,7 @@ function denyResponse(command: string, analysis: StripperAnalysis, classificatio
       'Reasons:',
       summarizeReasons(classification.reasons),
       '',
-      'Execution blocked by AgentX Safety Gate.',
+      'Execution blocked by Agent Safety Gate.',
     ].join('\n'),
     summary: `Blocked ${analysis['Root Binary'] || 'command'}`,
     isError: true,
@@ -233,7 +233,7 @@ function denyResponse(command: string, analysis: StripperAnalysis, classificatio
 
 export const bashTool: ToolDefinition<any> = {
   name: 'bash',
-  description: 'Execute a shell command through AgentX safety classification and approval checks.',
+  description: 'Execute a shell command through Agent safety classification and approval checks.',
   inputSchema: z.object({
     command: z.string().describe('The command to execute in the terminal.'),
   }),

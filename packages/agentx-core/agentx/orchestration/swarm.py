@@ -31,22 +31,28 @@ def append_baton_history(baton_data, stage, message):
 def write_baton(path: Path, baton_data):
     path.write_text(json.dumps(baton_data, indent=2))
 
+from agentx.orchestration.registry import WorkerRegistry
+from agentx.orchestration.verification_engine import run_verification
+from agentx.utils.health_check import get_resource_telemetry
+
 class SwarmEngine:
     """
-    Unified Swarm Engine replacing BatonOrchestrator, SwarmController, and SwarmLauncher.
+    Unified Swarm Engine for Agent.
+    Orchestrates workers, manages batons, and enforces Phase 6 verification logic.
     """
     def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3"):
         self.gateway = UnifiedGateway(model_id=model)
         self.model = model
         self.provider = provider
         self.workers = {}
+        self.registry = WorkerRegistry()
         # Using the unified BatonManager location
         self.baton_dir = PROJECT_ROOT / ".agentx" / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
     # --- MODE 1: BACKGROUND TERRITORY MONITORING (Swarm Controller) ---
     def load_config(self):
-        config_path = PROJECT_ROOT / "agentx.json"
+        config_path = PROJECT_ROOT / "agent.json"
         if not config_path.exists():
             return {"territories": []}
         with open(config_path, "r") as f:
@@ -84,7 +90,7 @@ class SwarmEngine:
     def _run_agent_sync(self, agent_id: int, task: str, target_provider: str):
         print(f"🐝 [Agent {agent_id}] Starting task on {target_provider.upper()}...")
         cmd = [
-            PYTHON, "-m", "agentx.orchestration.gateway",
+            PYTHON, "-m", "agent.orchestration.gateway",
             "--provider", target_provider,
             "--key", self.gateway.api_key,
             "--model", self.model,
@@ -153,13 +159,15 @@ class SwarmEngine:
         baton_data = json.loads(baton_path.read_text())
         baton_data["status"] = "executing"
         baton_data["stage"] = "dispatching"
-        append_baton_history(baton_data, "dispatching", "Worker process launched.")
+        append_baton_history(baton_data, "dispatching", f"Agent worker dispatched to {baton_path.name}")
         write_baton(baton_path, baton_data)
 
+        start_time = time.time()
         process = subprocess.run(
-            [PYTHON, "-m", "agentx.agents.worker", str(baton_path)],
+            [PYTHON, "-m", "agent.agents.worker", str(baton_path)],
             capture_output=True, text=True
         )
+        latency = time.time() - start_time
 
         baton_data = json.loads(baton_path.read_text())
         baton_data["worker_stdout"] = process.stdout.strip()
@@ -169,18 +177,29 @@ class SwarmEngine:
             baton_data["status"] = "failed"
             baton_data["stage"] = "dispatch_failed"
             baton_data["error"] = process.stderr.strip() or "Worker process non-zero exit code."
-            append_baton_history(baton_data, "dispatch_failed", "Worker process exited with an error.")
+            append_baton_history(baton_data, "dispatch_failed", "Agent worker encountered a process error.")
+            telemetry = get_resource_telemetry()
+            self.registry.update_metrics(baton_data.get("delegated_worker", "unknown"), False, latency, telemetry)
             write_baton(baton_path, baton_data)
             return {"status": "failed", "error": process.stderr}
 
+        # --- Phase 6: Verification Hook ---
         baton_data["stage"] = "verifying"
-        if baton_data.get("status") == "completed":
-            baton_data["stage"] = "done"
-            append_baton_history(baton_data, "done", "Orchestrator accepted the worker result.")
-        elif baton_data.get("status") != "failed":
+        verification = run_verification(baton_data, str(PROJECT_ROOT))
+        baton_data["verification"] = verification
+
+        telemetry = get_resource_telemetry()
+        if not verification["passed"]:
+            baton_data["status"] = "failed"
+            baton_data["stage"] = "verification_failed"
+            msg = f"Verification failed: {[c['message'] for c in verification['checks'] if not c['passed']]}"
+            append_baton_history(baton_data, "verification_failed", msg)
+            self.registry.update_metrics(baton_data.get("delegated_worker", "unknown"), False, latency, telemetry)
+        else:
             baton_data["status"] = "completed"
             baton_data["stage"] = "done"
-            append_baton_history(baton_data, "done", "Orchestrator marked completed.")
+            append_baton_history(baton_data, "done", "Assistant accepted the worker result after verification.")
+            self.registry.update_metrics(baton_data.get("delegated_worker", "unknown"), True, latency, telemetry)
 
         write_baton(baton_path, baton_data)
         return baton_data

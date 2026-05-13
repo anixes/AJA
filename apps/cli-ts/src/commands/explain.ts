@@ -1,5 +1,5 @@
 /**
- * agentx explain <target>
+ * agent explain <target>
  * 
  * Semantic analysis: uses grep/search to find the target module or function,
  * reads relevant source code, and generates an architectural explanation.
@@ -95,7 +95,7 @@ export async function explainCommand(target: string, opts: CommandOptions): Prom
   }).join('\n\n');
 
   const messages = [
-    { role: 'system' as const, content: `You are AgentX, a senior software architect.
+    { role: 'system' as const, content: `You are Agent, a senior software architect.
 
 Explain the given code module/function/concept clearly:
 1. **What it does** — purpose and responsibility

@@ -4,7 +4,7 @@ import random
 
 import agentx.config
 
-POLICY_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agentx_policy.json"
+POLICY_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agent_policy.json"
 
 class PolicyStore:
     def __init__(self):

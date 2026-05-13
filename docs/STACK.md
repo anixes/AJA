@@ -10,7 +10,7 @@
 | Apache Arrow | v53 | Zero-copy data interchange format |
 | LanceDB | v0.15 | Embedded vector database for long-term memory |
 
-## Python Dependencies (packages/agentx-core)
+## Python Dependencies (packages/agent-core)
 | Package | Version | Purpose |
 |---------|---------|---------|
 | Pydantic | ^2.0.0 | Data validation and settings management |
@@ -19,7 +19,7 @@
 | PyArrow | Latest | Python bindings for Arrow data handling |
 | Rich | Latest | Beautiful CLI formatting and progress bars |
 
-## Native Dependencies (packages/agentx-native)
+## Native Dependencies (packages/agent-native)
 | Crate | Version | Purpose |
 |-------|---------|---------|
 | PyO3 | 0.21 | Python bindings for Rust |
@@ -42,7 +42,7 @@
 ## Infrastructure & Configuration
 | Variable | Purpose | Required |
 |----------|---------|----------|
-| `PYTHONPATH` | Directs Python to local `agentx-core` | Yes (Dev) |
+| `PYTHONPATH` | Directs Python to local `agent-core` | Yes (Dev) |
 | `ANTHROPIC_API_KEY` | Primary LLM provider | Yes |
-| `LANCEDB_PATH` | Storage location for persistent brain | No (Defaults to `.agentx/`) |
+| `LANCEDB_PATH` | Storage location for persistent brain | No (Defaults to `.agent/`) |
 | `WS_PORT` | Dashboard telemetry port (8001) | No |

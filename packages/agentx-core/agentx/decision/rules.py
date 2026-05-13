@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from agentx.memory.manager import MemoryManager, get_memory_manager
 
-logger = logging.getLogger("agentx.decision.rules")
+logger = logging.getLogger("agent.decision.rules")
 
 CAUSAL_ACTION_MAP = {
     "AUTH_ERROR":     "ASK",
@@ -30,7 +30,10 @@ _RULES_SCHEMA = pa.schema([
 ])
 
 def _init_rules_table():
-    if "decision_rules" not in _manager.db.table_names():
+    existing = _manager.db.list_tables()
+    if hasattr(existing, "tables"):
+        existing = existing.tables
+    if "decision_rules" not in existing:
         _manager.db.create_table("decision_rules", schema=_RULES_SCHEMA)
 
 _init_rules_table()

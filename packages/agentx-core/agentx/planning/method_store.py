@@ -1,5 +1,5 @@
 """
-agentx/planning/method_store.py
+agent/planning/method_store.py
 ================================
 Phase 12 - Persistent Method Store.
 

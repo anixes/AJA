@@ -1,5 +1,5 @@
 """
-agentx/planning/failure_memory.py
+agent/planning/failure_memory.py
 ==================================
 Phase 14 - Failure Memory & Adaptation.
 

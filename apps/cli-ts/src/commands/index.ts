@@ -28,7 +28,7 @@ export class CommandManager {
       usage: '/help',
       execute: async () => ({
         output: [
-          'AgentX commands:',
+          'Agent commands:',
           '/help - show this help',
           '/tools - list registered tools',
           '/history - show the current conversation history',

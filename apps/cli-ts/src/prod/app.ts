@@ -1,5 +1,5 @@
 // Production Calculator App
-// AgentX Live Engineering Hook
+// Agent Live Engineering Hook
 export function calculateTax(price: number, taxRate: number): number {
   if (price < 0) {
     throw new Error("CRITICAL_FAILURE: Price cannot be negative");

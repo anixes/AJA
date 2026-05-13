@@ -1,5 +1,5 @@
 /**
- * AgentX Autonomous Branch Mode
+ * Agent Autonomous Branch Mode
  * 
  * Creates a feature branch, auto-commits after each tool loop,
  * and never touches main/master/develop.
@@ -18,7 +18,7 @@ export class AutonomousBranch {
   constructor(taskSlug: string, cwd: string) {
     this.cwd = cwd;
     this.originalBranch = this.getCurrentBranch();
-    this.branchName = `agentx/${this.sanitizeSlug(taskSlug)}`;
+    this.branchName = `agent/${this.sanitizeSlug(taskSlug)}`;
   }
 
   /**
@@ -68,7 +68,7 @@ export class AutonomousBranch {
 
     // Commit
     this.commitCount++;
-    const msg = `agentx[${this.commitCount}]: ${description}`;
+    const msg = `agent[${this.commitCount}]: ${description}`;
     const safeMsg = msg.replace(/"/g, '\\"');
 
     execSync(`git commit -m "${safeMsg}"`, {

@@ -1,5 +1,5 @@
 """
-agentx/observability/trace.py
+agent/observability/trace.py
 ==============================
 Records full execution history for auditability and replay.
 

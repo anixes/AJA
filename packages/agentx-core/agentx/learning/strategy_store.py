@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import agentx.config
 from agentx.llm import get_gateway_for_model
 
-STRATEGY_FILE = "d:/AgenticAI/Project1(no-name)/agentx_strategies.json"
+STRATEGY_FILE = "d:/AgenticAI/Project1(no-name)/agent_strategies.json"
 
 import time
 
@@ -161,7 +161,7 @@ def extract_strategy(goal: str, plan: Any, result: Dict[str, Any]) -> Dict[str, 
     else:
         plan_desc = str(plan)
         
-    system = """You are AgentX Strategy Extractor.
+    system = """You are Agent Strategy Extractor.
 Extract the strategy from the successful execution.
 Focus on 'when and why' to do this, not just 'how'.
 

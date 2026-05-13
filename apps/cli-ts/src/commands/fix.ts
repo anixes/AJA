@@ -1,5 +1,5 @@
 /**
- * agentx fix <file>
+ * agent fix <file>
  * 
  * Reads a file, diagnoses issues (type errors, bugs, lint violations),
  * and proposes/applies fixes respecting the execution mode.
@@ -81,7 +81,7 @@ export async function fixCommand(file: string, opts: CommandOptions): Promise<vo
     : 'Show the fix as a diff and also output the corrected code in a fenced code block.';
 
   const messages = [
-    { role: 'system' as const, content: `You are AgentX, an expert debugger and code fixer.
+    { role: 'system' as const, content: `You are Agent, an expert debugger and code fixer.
 
 Given a file and its error diagnostics, you must:
 1. Identify the root cause of each error

@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from typing import Dict, Any, List
 from agentx.observability.trace import trace_store, TRACE_DIR
 
-app = FastAPI(title="AgentX Observability Dashboard")
+app = FastAPI(title="Agent Observability Dashboard")
 
 @app.get("/plans")
 async def get_plans():

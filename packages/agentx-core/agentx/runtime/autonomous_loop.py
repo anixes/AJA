@@ -11,7 +11,7 @@ from agentx.goals.goal_engine import goal_engine
 from agentx.autonomy.intent_engine import intent_engine
 
 async def main_loop():
-    print("[*] Starting AgentX Autonomous Loop (Phase 26)...")
+    print("[*] Starting Agent Autonomous Loop (Phase 26)...")
     
     # 1. Start the Intent Engine (runs in a background thread)
     intent_engine.start()

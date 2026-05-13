@@ -1,13 +1,13 @@
-# AgentX Core Surgical Audit: Historical Refactor Summary
+# Agent Core Surgical Audit: Historical Refactor Summary
 
-This document is a historical record of the architectural refactoring performed before the AJA Telegram remote-control work.
+This document is a historical record of the architectural refactoring performed before the Assistant Telegram remote-control work.
 
 For the current product phases, see [PHASE_1_2_REMOTE_APPROVALS.md](./PHASE_1_2_REMOTE_APPROVALS.md):
 
 - Phase 1: Telegram Remote Control
 - Phase 2: Production Approval Workflow
 
-The sections below use **Audit Stage** labels to avoid confusion with the current AJA Phase 1 and Phase 2 track.
+The sections below use **Audit Stage** labels to avoid confusion with the current Assistant Phase 1 and Phase 2 track.
 
 ## Audit Stage 1: Critical Bug Fixes & Token Efficiency
 

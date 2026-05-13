@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 from agentx.memory.manager import MemoryManager, get_memory_manager
 
@@ -63,7 +63,13 @@ class ToolGuard:
         print(f"[ToolGuard][{self.idempotency_key}] Failed ({error_type}): {error}")
 
 def cleanup_old_entries(ttl_days: int = 30):
-    pass
+    """
+    Prune tool execution logs older than ttl_days to manage database size.
+    """
+    table = _manager.get_table("core_tool_executions")
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat()
+    table.delete(f"created_at < '{cutoff}'")
+    print(f"[Maintenance] Pruned tool executions older than {cutoff}")
 
 class PermanentError(Exception): pass
 class RetryableError(Exception): pass

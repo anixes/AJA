@@ -1,6 +1,6 @@
 # 🚀 Agent Orchestration (Baton Pattern)
 
-The **Baton Pattern** is the core of AgentX's reliability. It treats tasks as physical "batons" passed between processes.
+The **Baton Pattern** is the core of Agent's reliability. It treats tasks as physical "batons" passed between processes.
 
 ### Workflow:
 1.  **Task Creation**: The Orchestrator creates a `.baton` file in `temp_batons/` containing the task spec.

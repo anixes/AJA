@@ -1,5 +1,5 @@
 /**
- * AgentX Gateway Client (v2)
+ * Agent Gateway Client (v2)
  * 
  * Upgraded to delegate to the ProviderRegistry.
  * Backward-compatible: GatewayMessage/GatewayResponse interfaces unchanged

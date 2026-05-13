@@ -1,10 +1,10 @@
 # Bash Command Parser and Validation
 
-The Bash parser is the primary command security gate for AJA on AgentX Core. It ensures terminal operations are normalized, classified, explainable, and compliant with user approval rules.
+The Bash parser is the primary command security gate for Assistant on Agent Core. It ensures terminal operations are normalized, classified, explainable, and compliant with user approval rules.
 
 ## 🔍 Parsing Strategy
 
-AgentX Core is moving toward AST-aware validation, but the current shipped runtime uses a structured normalization pass in `scripts/core/stripper.py` plus TypeScript classification logic in `src/tools/bashTool.ts`.
+Agent Core is moving toward AST-aware validation, but the current shipped runtime uses a structured normalization pass in `scripts/core/stripper.py` plus TypeScript classification logic in `src/tools/bashTool.ts`.
 
 ### 1. Current Normalization Layer
 The current runtime:
@@ -42,10 +42,10 @@ Commands are classified into three behaviors:
 
 ### Attack Mitigations
 - **Command Explosion Guard**: Extremely long compound commands are denied once they exceed the segment limit enforced by the classifier.
-- **Pending Approval Object**: The runtime stores one risky pending approval at a time in `.agentx/runtime-state.json`.
+- **Pending Approval Object**: The runtime stores one risky pending approval at a time in `.agent/runtime-state.json`.
 - **Explanation Requirement**: Risky actions include request ID, command preview, action type, reason, risk level, rollback path, expiry, requester source, and dry-run summary.
 - **Execution Re-check**: Telegram approvals are revalidated through `FileGuardian` and `CommandStripper` immediately before execution.
-- **Immutable Audit**: Approval lifecycle events are appended to `.agentx/approval-audit.jsonl`.
+- **Immutable Audit**: Approval lifecycle events are appended to `.agent/approval-audit.jsonl`.
 
 ### Approval Surfaces
 

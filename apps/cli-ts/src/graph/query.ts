@@ -1,5 +1,5 @@
 /**
- * AgentX Graph Query Engine
+ * Agent Graph Query Engine
  * 
  * Answers structural questions about the codebase:
  *   - trace: find paths between symbols

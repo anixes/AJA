@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class AppConnectorCapability(Capability):
     """
-    Capability to interact with external applications via AgentX-style connectors.
+    Capability to interact with external applications via Agent-style connectors.
     """
     name = "app.connector"
     input_schema = {

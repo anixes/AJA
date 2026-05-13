@@ -1,10 +1,10 @@
 # Browser Integration & Internet Access (May 2026)
 
-This document describes the technical architecture of the AgentX browsing system, designed for high performance on local hardware with non-vision models.
+This document describes the technical architecture of the Agent browsing system, designed for high performance on local hardware with non-vision models.
 
 ## 🏗️ Architecture: The Hybrid Tiered Approach
 
-To balance RAM usage and reliability, AgentX uses a **Primary-Standby** browser model.
+To balance RAM usage and reliability, Agent uses a **Primary-Standby** browser model.
 
 ### 1. Primary Engine: Obscura (Rust)
 *   **Path**: `E:\obscura\obscura.exe`

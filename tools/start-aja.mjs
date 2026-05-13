@@ -48,7 +48,7 @@ function commandExists(command, args = ['--version']) {
 }
 
 function resolvePython() {
-  const explicit = process.env.AJA_PYTHON || process.env.PYTHON || '';
+  const explicit = process.env.Assistant_PYTHON || process.env.PYTHON || '';
   if (explicit) {
     const resolved = path.isAbsolute(explicit) ? explicit : path.join(root, explicit);
     if (existsSync(resolved)) {
@@ -60,8 +60,10 @@ function resolvePython() {
   if (isWindows) {
     const home = process.env.USERPROFILE || '';
     const candidates = [
+      'C:\\Python313\\python.exe',
       'C:\\Python312\\python.exe',
       'C:\\Python311\\python.exe',
+      home ? path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python313', 'python.exe') : '',
       home ? path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'python.exe') : '',
       home ? path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python311', 'python.exe') : '',
     ].filter(Boolean);
@@ -73,10 +75,13 @@ function resolvePython() {
 
   const candidates = isWindows
     ? [
+        { command: 'py', args: ['-3.13'] },
+        { command: 'py', args: ['-3.12'] },
         { command: 'py', args: ['-3'] },
         { command: 'python', args: [] },
       ]
     : [
+        { command: 'python3.13', args: [] },
         { command: 'python3', args: [] },
         { command: 'python', args: [] },
       ];
@@ -99,7 +104,7 @@ function spawnService(name, command, args, options = {}) {
 
   child.on('exit', (code, signal) => {
     if (!shuttingDown && code !== 0) {
-      console.error(`\n[AJA] ${name} stopped unexpectedly (${signal || code}).`);
+      console.error(`\n[Assistant] ${name} stopped unexpectedly (${signal || code}).`);
     }
   });
 
@@ -111,7 +116,7 @@ function hasAnyEnvFrom(env, names) {
 }
 
 function printHeader() {
-  console.log('\nAJA + AgentX');
+  console.log('\nAssistant + Agent');
   console.log('Starting API bridge, dashboard, and Telegram-ready assistant surface.\n');
 }
 
@@ -125,13 +130,13 @@ function printReadiness() {
   ]);
   const telegramReady = Boolean((process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN) && process.env.TELEGRAM_ALLOWED_USER_ID);
 
-  console.log('[AJA] Dashboard: http://localhost:5173');
-  console.log('[AJA] API bridge: http://localhost:8000');
+  console.log('[Assistant] Dashboard: http://localhost:5173');
+  console.log('[Assistant] API bridge: http://localhost:8000');
   console.log(
-    `[AJA] Model key: ${modelReady ? 'configured' : 'missing (set GEMINI_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY or run local llama.cpp)'}`
+    `[Assistant] Model key: ${modelReady ? 'configured' : 'missing (set GEMINI_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY or run local llama.cpp)'}`
   );
   console.log(
-    `[AJA] Telegram: ${telegramReady ? 'configured' : 'missing (set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_USER_ID)'}`
+    `[Assistant] Telegram: ${telegramReady ? 'configured' : 'missing (set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_USER_ID)'}`
   );
   console.log('\nPress Ctrl+C to stop everything.\n');
 }
@@ -142,7 +147,7 @@ const children = [];
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log('\n[AJA] Stopping services...');
+  console.log('\n[Assistant] Stopping services...');
   for (const child of children) {
     if (!child.killed) child.kill();
   }
@@ -155,7 +160,7 @@ process.on('SIGTERM', shutdown);
 printHeader();
 
 if (!existsSync(dashboardDir)) {
-  console.error(`[AJA] Dashboard directory not found: ${dashboardDir}`);
+  console.error(`[Assistant] Dashboard directory not found: ${dashboardDir}`);
   process.exit(1);
 }
 
@@ -163,8 +168,8 @@ const dotenvVars = loadDotEnv();
 
 const python = resolvePython();
 if (!python) {
-  console.error('[AJA] Python was not found. Install Python 3.12+ or fix the Windows Python launcher, then run this again.');
-  console.error('[AJA] The dashboard can run with npm, but AJA/Telegram need the Python API bridge.');
+  console.error('[Assistant] Python was not found. Install Python 3.13+ or fix the Windows Python launcher, then run this again.');
+  console.error('[Assistant] The dashboard can run with npm, but Assistant/Telegram need the Python API bridge.');
   process.exit(1);
 }
 
@@ -181,7 +186,7 @@ children.push(
   spawnService('API bridge', python.command, [...python.args, '-m', 'agentx.api.bridge'], { env }),
 );
 children.push(
-  spawnService('Dashboard', 'npm', ['run', 'dev', '-w', '@agentx/dashboard'], { env }),
+  spawnService('Dashboard', 'npm', ['run', 'dev', '-w', '@agent/dashboard'], { env }),
 );
 
 printReadiness();

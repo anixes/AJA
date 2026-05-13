@@ -12,7 +12,7 @@ export interface RuntimeApproval {
   level?: string;
   riskLevel?: 'low' | 'medium' | 'high';
   reasons: string[];
-  humanReason?: string;
+  operatorReason?: string;
   rollbackPath?: string;
   expiresAt?: string;
   requesterSource?: 'CLI' | 'dashboard' | 'Telegram' | 'swarm';
@@ -41,7 +41,7 @@ export interface RuntimeStateShape {
   };
 }
 
-const STATE_DIR = path.join(process.cwd(), '.agentx');
+const STATE_DIR = path.join(process.cwd(), '.agent');
 const STATE_FILE = path.join(STATE_DIR, 'runtime-state.json');
 
 function ensureStateDir(): void {

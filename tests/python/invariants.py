@@ -1,7 +1,7 @@
 import lancedb
 import os
 
-DB_PATH = os.path.join(".agentx", "aja_secretary.lancedb")
+DB_PATH = os.path.join(".agent", "assistant_secretary.lancedb")
 
 def check_invariants():
     """

@@ -1,6 +1,6 @@
-# AgentX Core Dashboard
+# AgentX Dashboard
 
-The dashboard is the Visual Command Center for AgentX Core. AgentX uses it as a human-in-the-loop control surface for runtime state, approval requests, task telemetry, and security events exposed by `scripts/api_bridge.py`.
+The dashboard is the Visual Command Center for AgentX Core. AJA uses it as an operator-in-the-loop control surface for runtime state, approval requests, task telemetry, and security events.
 
 ## Current Views
 
@@ -25,7 +25,7 @@ and still uses these action endpoints when the user clicks buttons:
 - `POST /runtime/approve`
 - `POST /runtime/deny`
 
-Secretary memory endpoints are available for AgentX task panels:
+Secretary memory endpoints are available for Agent task panels:
 
 - `GET /memory/tasks`
 - `POST /memory/tasks`
@@ -63,8 +63,8 @@ The SSE stream emits a runtime snapshot containing:
 - `diff`
 - `history`
 
-The bridge reads from the shared runtime state file at `.agentx/runtime-state.json`, which is written by the TypeScript runtime, and combines it with git/diff status into each stream payload.
-Approve and deny actions are executed through `src/runtime_actions.ts` for CLI/runtime approvals. Telegram-originated approvals are executed by the FastAPI bridge so the dashboard and phone stay synchronized around the same `.agentx/runtime-state.json` object.
+The bridge reads from the shared runtime state file at `.agentx/runtime-state.json`, which is written by the AgentX runtime, and combines it with git/diff status into each stream payload.
+Approve and deny actions are executed through the core runtime for CLI/runtime approvals. Telegram-originated approvals are executed by the FastAPI bridge so the dashboard and phone stay synchronized around the same `.agentx/runtime-state.json` object.
 
 ## Approval Object
 
@@ -73,7 +73,7 @@ Risky actions are shown as structured approval requests, not opaque command prom
 - `id`
 - `commandPreview`
 - `actionType`
-- `humanReason`
+- `operatorReason`
 - `riskLevel`
 - `rollbackPath`
 - `expiresAt`
@@ -81,12 +81,12 @@ Risky actions are shown as structured approval requests, not opaque command prom
 - `dryRunSummary`
 - `reasons`
 
-This is the same object AgentX sends through Telegram for Phase 2 remote control.
+This is the same object AJA sends through Telegram for remote control.
 
 ## Runtime Notes
 
 - The dashboard now uses **Server-Sent Events (SSE)** for live runtime updates.
-- SSE snapshots are emitted from `scripts/api_bridge.py`.
+- SSE snapshots are emitted from the API bridge.
 - Pending approvals are single-item for now: one risky action can be awaiting review at a time.
 - The bridge is state-driven: it reads `.agentx/runtime-state.json` rather than keeping its own in-memory approval queue.
 - Approval decisions are written to `.agentx/approval-audit.jsonl` as append-only JSONL records.

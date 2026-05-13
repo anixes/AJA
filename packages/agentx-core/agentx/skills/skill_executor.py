@@ -1,5 +1,5 @@
 """
-agentx/skills/skill_executor.py
+agent/skills/skill_executor.py
 ================================
 Phase 8B + 8B.1 (Final gaps 1–3) — Safe skill execution within orchestration guarantees.
 
@@ -21,7 +21,7 @@ Gap 2 — Environment validation:
 
 Gap 3 — Validity decay:
   `last_used_at` is updated on every attempt.  `mark_stale_skills()` is called
-  on startup (via agentx.py main()) to retire skills older than STALE_AFTER_DAYS.
+  on startup (via agent.py main()) to retire skills older than STALE_AFTER_DAYS.
   Stale skills are excluded from recommend_skill().
 
 Public API
@@ -35,7 +35,7 @@ import json
 import os
 import pyarrow as pa
 from datetime import datetime, timezone, timedelta
-from agentx.memory.manager import MemoryManager, get_memory_manager
+from agentx.memory.manager import MemoryManager, get_memory_manager, list_tables_defensive
 
 _manager = get_memory_manager()
 
@@ -51,7 +51,8 @@ _CHECKPOINT_SCHEMA = pa.schema([
 ])
 
 def _ensure_checkpoint_table():
-    if "skill_step_checkpoints" not in _manager.db.table_names():
+    existing = list_tables_defensive(_manager.db)
+    if "skill_step_checkpoints" not in existing:
         _manager.db.create_table("skill_step_checkpoints", schema=_CHECKPOINT_SCHEMA)
 
 _ensure_checkpoint_table()
@@ -113,7 +114,7 @@ def _check_network() -> tuple:
 
 
 def _check_db_available() -> tuple:
-    """Consider DB available if the AgentX DB file exists and is readable."""
+    """Consider DB available if the Agent DB file exists and is readable."""
     path = _db_path()
     if os.path.exists(path):
         return True, ""
@@ -315,7 +316,7 @@ def _invoke_tool(tool_name: str, args: dict) -> tuple:
     """
     Look up and call a real tool implementation.
 
-    Tool implementations live in agentx/tools/<tool_name>.py and expose
+    Tool implementations live in agent/tools/<tool_name>.py and expose
     a run(args: dict) -> str function.  If no implementation exists,
     the step is simulated (logged but not executed for real).
 

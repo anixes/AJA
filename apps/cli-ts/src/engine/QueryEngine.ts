@@ -29,7 +29,7 @@ interface PendingApproval {
   message: string;
 }
 
-const SYSTEM_PROMPT = `You are AgentX, a security-first coding assistant.
+const SYSTEM_PROMPT = `You are Agent, a security-first coding assistant.
 You can either reply directly or request exactly one tool call at a time.
 Return only valid JSON in this shape:
 {"assistant_message":"text for the user","tool_call":{"name":"tool-name","input":{"key":"value"}}}
@@ -101,7 +101,7 @@ export class QueryEngine {
     try {
       return await this.runToolLoop();
     } catch (error) {
-      const message = `AgentX runtime error: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Agent runtime error: ${error instanceof Error ? error.message : String(error)}`;
       this.history.push({ role: 'assistant', content: message });
       return message;
     }
@@ -313,7 +313,7 @@ export class QueryEngine {
     const context: ToolContext = {
       cwd: process.cwd(),
       abortSignal: AbortSignal.timeout(30_000),
-      sessionId: `agentx-${Date.now()}`,
+      sessionId: `agent-${Date.now()}`,
       approvalGranted,
     };
 
@@ -440,7 +440,7 @@ export class QueryEngine {
       level: typeof classification.level === 'string' ? classification.level : undefined,
       riskLevel: this.normalizeRiskLevel(classification.level),
       reasons,
-      humanReason: reasons[0] || 'This action changes system or workspace state and needs review.',
+      operatorReason: reasons[0] || 'This action changes system or workspace state and needs review.',
       rollbackPath: this.buildRollbackPath(name, input),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       requesterSource: 'CLI',

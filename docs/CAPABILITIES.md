@@ -1,10 +1,10 @@
-# AgentX: Adaptive Execution & Control Playbook
+# Agent: Adaptive Execution & Control Playbook
 
-This document outlines the advanced capabilities of AgentX Core, a research-aligned agentic system built for reliable, autonomous terminal operations.
+This document outlines the advanced capabilities of Agent Core, a research-aligned agentic system built for reliable, autonomous terminal operations.
 
 ## 🔬 4-Layer Agent Architecture
 
-AgentX follows a modern 4-layer agentic architecture to ensure stability and explainability:
+Agent follows a modern 4-layer agentic architecture to ensure stability and explainability:
 
 1.  **Execution Layer**: Handles raw actions via a curated **Skill Library** (Action Abstractions) and **Hierarchical Execution** (Composition).
 2.  **Control Layer**: Enforces reliability through a **Multi-Agent Evaluation Layer** and a **Strategy Selection Module**.
@@ -21,7 +21,7 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 
 ### 2. Multi-Agent Evaluation & Judge Layer
 **Problem**: Single-model evaluation is prone to hallucinations and "Yes-man" bias.
-**Solution**: AgentX uses a layered consensus pipeline:
+**Solution**: Agent uses a layered consensus pipeline:
 *   **Deterministic Guards**: Code-level verification of postconditions.
 *   **Weighted Consensus**: Votes from diverse models (GPT-4o, Gemini 1.5, Claude 3.5) weighted by historical accuracy.
 *   **Minority Veto**: High-reliability models can override a success verdict if they detect a failure.
@@ -32,7 +32,7 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 **Solution**: Uncertainty is a first-class control signal.
 *   **Uncertainty Propagation**: Every step carries an `uncertainty_score`.
 *   **Compound Risk Tracking**: The system tracks drift across the entire task trajectory.
-*   **Hard Stop Gates**: Execution halts immediately and escalates to a human if cumulative uncertainty exceeds safe bounds (0.8).
+*   **Hard Stop Gates**: Execution halts immediately and escalates to a operator if cumulative uncertainty exceeds safe bounds (0.8).
 
 ### 4. Predictive Routing Layer
 **Problem**: Complex multi-evaluator cascades are expensive and slow for simple tasks.
@@ -43,13 +43,13 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 
 ### 6. Experience-Driven Learning (RL-lite)
 **Problem**: Agents often repeat the same sub-optimal patterns across different missions.
-**Solution**: AgentX implements a lightweight behavioral learning layer.
+**Solution**: Agent implements a lightweight behavioral learning layer.
 *   **Policy Store**: Persists success scores for plan patterns, tools, and reasoning modes.
 *   **Reward Optimization**: Future planning is biased toward high-reward trajectories (`Success - Latency - Risk`).
 *   **Failure Memory**: Plans similar to historical failures are automatically penalized, preventing recurring loops.
 
 ### 7. Governed Autonomy & Intent Generation
-**Problem**: Reactive agents require constant human prompting.
+**Problem**: Reactive agents require constant operator prompting.
 **Solution**: The **Intent Engine** generates self-initiated goals based on system health, scheduled tasks, and user patterns.
 *   **Risk-Gated Autonomy**: Autonomous actions are limited by a strict safety budget and cooldown periods.
 *   **Benefit Scoring**: Only tasks with high predicted user value are initiated without approval.

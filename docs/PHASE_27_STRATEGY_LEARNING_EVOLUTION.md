@@ -1,19 +1,19 @@
 # Phase 27: Autonomous Strategy Learning & Self-Evolution
 
 ## Objective
-Transform AgentX from a task-solver into a strategic learner capable of simulating outcomes, refining its own execution patterns, and autonomously generating its own curriculum for self-improvement.
+Transform Agent from a task-solver into a strategic learner capable of simulating outcomes, refining its own execution patterns, and autonomously generating its own curriculum for self-improvement.
 
 ## Core Components
 
 ### 1. Multi-Plan Simulation Layer
-AgentX now evaluates multiple potential execution paths before committing to one.
+Agent now evaluates multiple potential execution paths before committing to one.
 - **Simulation Engine**: Predicts success probability, risk, and latency for each candidate plan.
 - **Simulation-Aware Selection**: Uses a weighted scoring model ($Score = 0.5 \times Success - 0.3 \times Risk - 0.2 \times Latency$) to pick the optimal path.
 - **Diversity Enforcement**: Forcing strategic variety in candidates to prevent repetitive planning traps.
 
 ### 2. Strategy Store & Reflection
 - **Post-Execution Reflection**: After every mission, the agent analyzes what worked and what failed.
-- **Strategy Extraction**: Successful workflows are distilled into reusable strategic patterns stored in `agentx_strategies.json`.
+- **Strategy Extraction**: Successful workflows are distilled into reusable strategic patterns stored in `agent_strategies.json`.
 - **Weighting & Decay**: Strategies are weighted by their historical performance, with old successes gradually decaying to allow for fresh innovations.
 
 ### 3. Adaptive Exploration (Epsilon-Greedy)
@@ -26,4 +26,4 @@ AgentX now evaluates multiple potential execution paths before committing to one
 - **Adaptive Difficulty**: The curriculum difficulty scales as the agent improves, ensuring continuous growth.
 
 ## Strategic Impact
-This phase enables AgentX to handle "out-of-distribution" problems by simulating alternatives and learning from every encounter, eventually building a comprehensive tactical library that outperforms static planning algorithms.
+This phase enables Agent to handle "out-of-distribution" problems by simulating alternatives and learning from every encounter, eventually building a comprehensive tactical library that outperforms static planning algorithms.

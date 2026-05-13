@@ -1,4 +1,4 @@
-"""agentx/decision/failure_analysis.py
+"""agent/decision/failure_analysis.py
 =======================================
 Phase 16 — Failure Attribution Layer. Now powered by LanceDB/Arrow.
 
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from agentx.memory.manager import MemoryManager, get_memory_manager
 
-logger = logging.getLogger("agentx.decision.failure_analysis")
+logger = logging.getLogger("agent.decision.failure_analysis")
 _manager = get_memory_manager()
 
 _FAILURE_SCHEMA = pa.schema([
@@ -34,7 +34,10 @@ _FAILURE_SCHEMA = pa.schema([
 
 
 def _init_failure_table():
-    if "task_failures" not in _manager.db.table_names():
+    existing = _manager.db.list_tables()
+    if hasattr(existing, "tables"):
+        existing = existing.tables
+    if "task_failures" not in existing:
         _manager.db.create_table("task_failures", schema=_FAILURE_SCHEMA)
 
 _init_failure_table()
@@ -95,3 +98,17 @@ def get_failure_summary() -> Dict[str, Any]:
     except Exception as e:
         logger.error("[FailureAnalysis] Failed to read summary: %s", e)
         return {}
+
+
+def cleanup_old_failures(ttl_days: int = 30):
+    """
+    Prune task failure records older than ttl_days.
+    """
+    from datetime import timedelta
+    try:
+        table = _manager.db.open_table("task_failures")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat()
+        table.delete(f"created_at < '{cutoff}'")
+        print(f"[Maintenance] Pruned task failures older than {cutoff}")
+    except Exception as e:
+        logger.error("[FailureAnalysis] Failed to prune failures: %s", e)

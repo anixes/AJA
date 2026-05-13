@@ -1,16 +1,16 @@
 """
-agentx/planning/execution_bridge.py
+agent/planning/execution_bridge.py
 =====================================
 Phase 11 - Execution Bridge.
 
-Translates a PlanNode into an agentx `cmd_run` call without modifying the
+Translates a PlanNode into an agent `cmd_run` call without modifying the
 existing engine or evaluator logic.  The bridge is a thin adapter:
 
   PlanNode  -  objective string + context dict  -  cmd_run()  -  update node status
 
 Architecture notes
 ------------------
-* We import `cmd_run` from `agentx` (the existing public entry-point).
+* We import `cmd_run` from `agent` (the existing public entry-point).
 * Context from completed predecessor nodes is injected via the `context`
   key in the input payload so the engine can see upstream outputs.
 * TAO (Thought-Action-Observation) trace entries are emitted using the
@@ -18,7 +18,7 @@ Architecture notes
 * On success the node is marked COMPLETED; on exception it is marked FAILED
   with the error stored in `node.error` for the replanner.
 
-No code in `agentx/decision/` or `agentx/persistence/` is modified.
+No code in `agent/decision/` or `agent/persistence/` is modified.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from agentx.planning.models import PlanGraph, PlanNode
 # ---------------------------------------------------------------------------
 
 def _cmd_run(objective: str, context: Optional[Dict[str, Any]] = None):
-    """Thin wrapper that calls the existing agentx.cmd_run entry-point."""
+    """Thin wrapper that calls the existing agent.cmd_run entry-point."""
     from agentx import cmd_run  # type: ignore[import]
     # cmd_run signature: cmd_run(objective, background=False, task=None)
     # We pass context inside the objective payload for now; a future refactor
@@ -61,7 +61,7 @@ def _log_event(event: str, payload: Dict[str, Any]):
 
 class ExecutionBridge:
     """
-    Executes a single PlanNode through the existing AgentX engine.
+    Executes a single PlanNode through the existing Agent engine.
 
     Parameters
     ----------

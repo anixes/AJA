@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 from agentx.learning.strategy_store import strategy_store
 
-EXPLORATION_STATE_FILE = "d:/AgenticAI/Project1(no-name)/agentx_exploration_state.json"
+EXPLORATION_STATE_FILE = "d:/AgenticAI/Project1(no-name)/agent_exploration_state.json"
 
 class ExplorationController:
     def __init__(self):

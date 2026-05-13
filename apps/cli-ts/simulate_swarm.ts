@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 async function simulateSwarm() {
-  console.log("🚀 Initializing AgentX Swarm Pressure Test...");
+  console.log("🚀 Initializing Agent Swarm Pressure Test...");
   
   const batonDir = path.join(process.cwd(), 'temp_batons');
   if (!fs.existsSync(batonDir)) fs.mkdirSync(batonDir, { recursive: true });

@@ -3,7 +3,7 @@ import pyarrow as pa
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from agentx.config import PROJECT_ROOT
+from agentx.memory.manager import list_tables_defensive, get_memory_manager
 
 class VectorMemory:
     """
@@ -11,16 +11,16 @@ class VectorMemory:
     Provides O(1) retrieval and zero-copy data handling to keep hardware costs low.
     """
     def __init__(self, table_name: str = "agent_memory"):
-        self.db_path = PROJECT_ROOT / ".agentx" / "lancedb"
-        self.db_path.mkdir(parents=True, exist_ok=True)
-        self.uri = str(self.db_path)
-        self.db = lancedb.connect(self.uri)
+        mgr = get_memory_manager()
+        self.db = mgr.db
         self.table_name = table_name
-        self._ensure_table()
+        self.init_table()
 
-    def _ensure_table(self):
+    def init_table(self):
         """Ensures the memory table exists with the correct schema."""
-        if self.table_name not in self.db.table_names():
+        existing = list_tables_defensive(self.db)
+            
+        if self.table_name not in existing:
             # Define schema using Arrow
             schema = pa.schema([
                 pa.field("vector", pa.list_(pa.float32(), 1536)), # Default for many models
@@ -62,6 +62,8 @@ class VectorMemory:
 
     def clear(self):
         """Wipes the memory table."""
-        if self.table_name in self.db.table_names():
+        existing = list_tables_defensive(self.db)
+            
+        if self.table_name in existing:
             self.db.drop_table(self.table_name)
-            self._ensure_table()
+            self.init_table()

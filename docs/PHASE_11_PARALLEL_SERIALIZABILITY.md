@@ -1,6 +1,6 @@
 # Phase 11: Parallel Plan Serializability & Verification
 
-Phase 11 transitions AgentX from reactive hierarchical execution to **conflict-aware parallel planning**. This phase implements the core infrastructure for executing independent task nodes concurrently while guaranteeing that the result is identical to a safe sequential execution (Conflict-Serializability).
+Phase 11 transitions Agent from reactive hierarchical execution to **conflict-aware parallel planning**. This phase implements the core infrastructure for executing independent task nodes concurrently while guaranteeing that the result is identical to a safe sequential execution (Conflict-Serializability).
 
 ## Core Objective
 Implement a ReAct-style parallel executor that respects state dependencies, detects write/read conflicts, and provides a formal verification layer to prove execution consistency under stress.
@@ -15,7 +15,7 @@ The scheduler now decomposes a Hierarchical Task Network (HTN) into "waves" of p
 ### 2. Parallel ReAct Executor (`react_executor.py`)
 A robust execution engine that processes waves of tasks using concurrency.
 - **Wave-Based Concurrency**: Executes batches of ready primitive nodes using `ThreadPoolExecutor`.
-- **Escalation Safety**: Critical bug fix implemented to prevent infinite loops during failure escalation. If any node in a wave requires `ESCALATE`, the executor stops safely to allow human intervention.
+- **Escalation Safety**: Critical bug fix implemented to prevent infinite loops during failure escalation. If any node in a wave requires `ESCALATE`, the executor stops safely to allow operator intervention.
 - **Cross-Platform Compatibility**: Sanitized all terminal outputs (removed non-ASCII emojis) to ensure reliability on Windows environments.
 
 ### 3. Serializability Verification Layer (`verification.py`)

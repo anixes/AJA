@@ -3,10 +3,10 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "agentx-native"
+name = "agent-native"
 version = "0.1.0"
-description = "AgentX Native Core"
-authors = [{ name = "AgentX Team" }]
+description = "Agent Native Core"
+authors = [{ name = "Agent Team" }]
 requires-python = ">=3.11"
 dependencies = []
 

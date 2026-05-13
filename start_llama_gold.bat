@@ -3,15 +3,43 @@
 :: Based on the peak performance recorded in speed_demon.log.
 :: REQUIRED: Run as ADMINISTRATOR for GPU clock locking.
 
-SET "SERVER_BIN=llama-server.exe"
-SET "MODEL_PATH=path\to\your\model.gguf"
+:: Try to load from .env if it exists
+if exist ".env" (
+    for /f "tokens=*" %%a in ('findstr /v "^#" .env') do set %%a
+)
+
+:: Set defaults if not provided in .env
+if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=llama-server.exe"
+if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=models\gold-standard-model.gguf"
 
 echo [GOLD] Optimizing GPU clocks (if available)...
 :: Optional optimization commands
 
-echo [GOLD] Launching Model - Gold Standard Configuration...
-"%SERVER_BIN%" ^
-  -m "%MODEL_PATH%" ^
+echo [GOLD] Launching Model: "%LLAMA_MODEL_PATH%"
+echo [GOLD] Server Binary: "%LLAMA_SERVER_BIN%"
+
+:: Check if binary exists
+if not exist "%LLAMA_SERVER_BIN%" (
+    where "%LLAMA_SERVER_BIN%" >nul 2>nul
+    if %errorlevel% neq 0 (
+        echo [ERROR] "%LLAMA_SERVER_BIN%" not found in PATH or current directory.
+        echo Please fix LLAMA_SERVER_BIN in your .env file.
+        pause
+        exit /b 1
+    )
+)
+
+:: Check if model exists
+if not exist "%LLAMA_MODEL_PATH%" (
+    echo [ERROR] Model file not found: "%LLAMA_MODEL_PATH%"
+    echo Please fix LLAMA_MODEL_PATH in your .env file.
+    pause
+    exit /b 1
+)
+
+:: Launch with optimized parameters
+"%LLAMA_SERVER_BIN%" ^
+  -m "%LLAMA_MODEL_PATH%" ^
   -ngl 100 ^
   -t 8 ^
   -np 1 ^

@@ -7,13 +7,13 @@ from typing import Optional
 from agentx.memory.manager import get_memory_manager
 
 # AgentX Canonical Statuses
-STATUS_PENDING   = "PENDING"
-STATUS_RUNNING   = "RUNNING"
-STATUS_FAILED    = "FAILED"
+STATUS_PENDING = "PENDING"
+STATUS_RUNNING = "RUNNING"
+STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 
 # Regex to validate task IDs (12 hex chars)
-_TASK_ID_RE = re.compile(r'^[0-9a-f]{12}$')
+_TASK_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 def _validate_task_id(task_id: str) -> str:
@@ -31,19 +31,23 @@ class TaskManager:
     def add_task(self, title: str, node_id: str = "") -> str:
         """Adds a new mission objective to the core_tasks table."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        task_id = str(uuid.uuid4()).replace("-", "")[:12]  # 12 chars — lower collision risk
+        task_id = str(uuid.uuid4()).replace("-", "")[
+            :12
+        ]  # 12 chars — lower collision risk
 
-        data = [{
-            "task_id":       task_id,
-            "run_id":        "",
-            "node_id":       node_id,
-            "objective":     title,
-            "status":        STATUS_PENDING,
-            "retry_count":   0,
-            "created_at":    now,
-            "updated_at":    now,
-            "metadata_json": "{}"
-        }]
+        data = [
+            {
+                "task_id": task_id,
+                "run_id": "",
+                "node_id": node_id,
+                "objective": title,
+                "status": STATUS_PENDING,
+                "retry_count": 0,
+                "created_at": now,
+                "updated_at": now,
+                "metadata_json": "{}",
+            }
+        ]
 
         table = self.manager.get_table(self.table_name)
         table.add(data)
@@ -60,8 +64,7 @@ class TaskManager:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         table = self.manager.get_table(self.table_name)
         table.update(
-            where=f"task_id = '{task_id}'",
-            values={"status": status, "updated_at": now}
+            where=f"task_id = '{task_id}'", values={"status": status, "updated_at": now}
         )
 
     def delete_task(self, task_id: str):

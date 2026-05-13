@@ -1,16 +1,17 @@
 # AgentX Architecture: Tri-Memory Stack
+### *Featuring AJA: Assistant of Joint Agents*
 
-AgentX is a high-performance, local-first agentic system engineered to run on every machine—from high-end servers to the **cheapest of consumer hardware**. By utilizing a cutting-edge **Tri-Memory Stack**, AgentX delivers elite autonomy with maximum efficiency. The entire system is built on **Apache Arrow**, ensuring zero-copy performance across all layers.
+AgentX is a high-performance, local-first orchestration core engineered to run on every machine—from high-end servers to standard consumer hardware. By utilizing a cutting-edge **Tri-Memory Stack**, AgentX delivers elite autonomy with maximum efficiency. The entire system is built on **Apache Arrow**, ensuring zero-copy performance across all layers.
 
 ---
 
 ## 1. System Overview
 
-AgentX follows a **Sovereign Agent** architecture where a central Assistant (**AJA**) orchestrates a swarm of specialized workers.
+Agent follows a **Sovereign Agent** architecture where a central Assistant (**Assistant**) orchestrates a swarm of specialized workers.
 
 ```mermaid
 graph TD
-    User([User]) <--> AJA[AJA Assistant Persona]
+    User([User]) <--> AJA[AJA Secretary Persona]
     AJA <--> Bridge[API Bridge / WebSocket]
     Bridge <--> Core[AgentX Core - Python]
     Core <--> Native[AgentX Native - Rust]
@@ -37,7 +38,7 @@ graph TD
 
 ### C. Config & Metrics (The Operating Vitals)
 **Storage Location:** `.agentx/*.json`, `telegram-history.jsonl`
-- **Purpose**: Human-readable configuration and auxiliary telemetry logs.
+- **Purpose**: Readable configuration and auxiliary telemetry logs.
 
 ---
 
@@ -67,7 +68,7 @@ graph TD
 ## 4. Conventions
 
 - **Data Exchange**: All complex data structures MUST be passed as Arrow-compatible buffers or JSON.
-- **Safety First**: No terminal command executes without passing through the **AJA Guard** (CommandStripper logic).
+- **Safety First**: No terminal command executes without passing through the **Assistant Guard** (CommandStripper logic).
 - **Local-First**: External APIs are used only for LLM inference; all memory and state are stored on the local filesystem.
 
 ---

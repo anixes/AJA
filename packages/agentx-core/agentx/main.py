@@ -87,9 +87,9 @@ def cmd_run(objective: str, background: bool = False):
 
 def cmd_status():
     """Real-time overview of swarm health and active batons."""
-    from agentx.memory.manager import MemoryManager
+    from agentx.memory.manager import get_memory_manager
 
-    mgr = MemoryManager()
+    mgr = get_memory_manager()
 
     # Mode Check
     try:
@@ -168,7 +168,7 @@ def cmd_chat():
     # Custom Key Bindings for Multiline
     kb = KeyBindings()
 
-    @kb.add("alt", "enter")
+    @kb.add("escape", "enter")
     def _(event):
         event.current_buffer.insert_text("\n")
 

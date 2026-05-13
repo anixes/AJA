@@ -1,5 +1,5 @@
 {
-  "name": "@agentx/cli-ts",
+  "name": "@agent/cli-ts",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@agentx/core": "*",
+    "@agent/core": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^14.0.3",
     "ink": "^7.0.1",

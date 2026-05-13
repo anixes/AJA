@@ -4,7 +4,7 @@ import asyncio
 import json
 from agentx.presence.state import get_system_state
 
-app = FastAPI(title="AgentX Mobile Bridge")
+app = FastAPI(title="Agent Mobile Bridge")
 
 class ConnectionManager:
     def __init__(self):
@@ -61,7 +61,7 @@ async def mobile_run(objective: str):
 
 @app.get("/mobile/health")
 async def health_check():
-    return {"status": "alive", "engine": "AgentX"}
+    return {"status": "alive", "engine": "Agent"}
 
 def start_mobile_bridge(host="0.0.0.0", port=8001):
     import uvicorn

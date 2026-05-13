@@ -4,21 +4,21 @@ import sys
 import os
 
 # Add the packages directory to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agentx-core")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-import agentx_native
+import agent_native
 
 async def main():
-    print("--- AgentX: Native Adaptive Context Verification ---")
+    print("--- Agent: Native Adaptive Context Verification ---")
     
     # 1. Initialize the Native Trajectory Manager
     # We specify the model so it can use the correct BPE (tiktoken)
-    tm = agentx_native.PyTrajectoryManager("gpt-4o")
+    tm = agent_native.PyTrajectoryManager("gpt-4o")
     
     # 2. Create a "Heavy" History
     # We'll simulate a conversation with a large middle block
     messages = [
-        {"role": "system", "content": "You are AgentX, a master orchestrator."},
+        {"role": "system", "content": "You are Agent, a master orchestrator."},
         {"role": "human", "content": "Analyze the codebase and provide a summary."},
         {"role": "gpt", "content": "I am starting the analysis..."},
         {"role": "tool", "content": "Executing 'ls -R'..." + "A" * 5000}, # Large tool output
@@ -49,9 +49,9 @@ async def main():
         compressible_turns = messages[start:end]
         print(f"Compressing {len(compressible_turns)} middle turns...")
         
-        # In a real run, AgentX would now call its Summarizer capability
+        # In a real run, Agent would now call its Summarizer capability
         # for these specific turns.
-        print("\nSUCCESS: Native engine correctly identified the 'AgentX Strategic Middle' for summarization.")
+        print("\nSUCCESS: Native engine correctly identified the 'Agent Strategic Middle' for summarization.")
     else:
         print("\nFAILED: Trajectory was not flagged for compression.")
 

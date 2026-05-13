@@ -1,7 +1,7 @@
 /**
- * AgentX Graph Store
+ * Agent Graph Store
  * 
- * Persists the repo graph to .agentx/graph.json
+ * Persists the repo graph to .agent/graph.json
  * Supports atomic reads/writes with corruption recovery.
  */
 
@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from '
 import path from 'path';
 import type { RepoGraph, GraphNode, GraphEdge, GraphStats } from './types.js';
 
-const GRAPH_DIR = '.agentx';
+const GRAPH_DIR = '.agent';
 const GRAPH_FILE = 'graph.json';
 
 export class GraphStore {

@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from fastapi import FastAPI, HTTPException, Request, Header, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +24,7 @@ from agentx.security.stripper import CommandStripper
 from agentx.config import PROJECT_ROOT
 from agentx.memory.secretary import (
     SecretaryMemory,
+    get_secretary_memory,
     format_communication_for_mobile,
     format_tasks_for_mobile,
     parse_communication_intent,
@@ -53,6 +54,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/tools")
+def list_available_tools():
+    """Returns a list of tools available to the AJA swarm via this bridge."""
+    return {
+        "tools": [
+            {
+                "id": "gpu_check",
+                "name": "Check GPU",
+                "description": "Returns current NVIDIA GPU status and memory usage.",
+                "action": "execute",
+                "command": "nvidia-smi"
+            },
+            {
+                "id": "mission_launcher",
+                "name": "Run Mission",
+                "description": "Launches a background mission with a specific objective.",
+                "action": "mission",
+                "params": ["objective", "worker_id"]
+            },
+            {
+                "id": "task_create",
+                "name": "Create Task",
+                "description": "Saves a new task to the local secretary memory.",
+                "action": "secretary",
+                "params": ["title", "priority", "due_date"]
+            },
+            {
+                "id": "comm_broadcast",
+                "name": "Broadcast Message",
+                "description": "Sends a message to all connected mobile clients.",
+                "action": "broadcast"
+            }
+        ]
+    }
+
 
 RUNTIME_STATE_PATH = Path(".agentx") / "runtime-state.json"  # debug export only
 BATON_DIR = PROJECT_ROOT / "temp_batons"
@@ -106,6 +143,46 @@ ASK_PATTERNS = {
 def verify_token(authorization: str = Header(None)):
     if not authorization or authorization.replace("Bearer ", "") != API_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+from agentx.presence.state import get_system_state
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        dead_connections = []
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                dead_connections.append(connection)
+        for dead in dead_connections:
+            self.disconnect(dead)
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws/mobile")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            state = get_system_state()
+            await websocket.send_json({"type": "state_update", "data": state})
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
 
 
 def now_iso():
@@ -188,7 +265,7 @@ def create_approval_in_db(approval: dict) -> str:
         "risk_level": approval.get("riskLevel", "medium"),
         "level": approval.get("level"),
         "reasons": approval.get("reasons", []),
-        "human_reason": approval.get("humanReason"),
+        "operator_reason": approval.get("operatorReason"),
         "rollback_path": approval.get("rollbackPath"),
         "dry_run_summary": approval.get("dryRunSummary"),
         "requester_source": approval.get("requesterSource", "CLI"),
@@ -229,8 +306,7 @@ def resolve_npx_executable():
     return shutil.which("npx") or shutil.which("npx.cmd") or "npx"
 
 
-def get_secretary_memory():
-    return SecretaryMemory(PROJECT_ROOT / SECRETARY_MEMORY_DIR)
+# get_secretary_memory is now imported from agentx.memory.secretary
 
 
 def format_status_for_mobile(payload: dict):
@@ -562,8 +638,9 @@ def build_supported_command(text: str):
             "kind": "help",
             "message": "\n".join(
                 [
-                    "AJA Telegram control is online.",
-                    "Commands:",
+                    "AJA Telegram Gateway active.",
+                    "Mission status: Operational.",
+                    "Available commands:",
                     "- status",
                     "- check gpu",
                     "- run training job",
@@ -587,7 +664,7 @@ def build_supported_command(text: str):
     if normalized == "run training job":
         return {
             "kind": "execute",
-            "command": f'"{sys.executable}" agentx.py run --bg "run training job"',
+            "command": f'"{sys.executable}" -m agentx run --bg "run training job"',
             "requires_confirmation": True,
             "reason": "Starts a background AJA mission powered by AgentX Core.",
             "action_type": "training_job",
@@ -718,7 +795,7 @@ def build_approval_object(text: str, command: str, spec: dict, classification: d
         "level": classification.get("level", "MEDIUM"),
         "riskLevel": risk_level,
         "reasons": [reason for reason in reasons if reason],
-        "humanReason": spec.get("reason") or (reasons[0] if reasons else "This action needs human review before execution."),
+        "operatorReason": spec.get("reason") or (reasons[0] if reasons else "This action needs operator review before execution."),
         "rollbackPath": build_rollback_path(action_type, command),
         "expiresAt": expires_at,
         "requesterSource": "Telegram",
@@ -744,7 +821,7 @@ def format_approval_for_mobile(approval: dict):
             approval.get("commandPreview") or approval.get("command") or "(unknown)",
             "",
             "Reason:",
-            approval.get("humanReason") or "Review required.",
+            approval.get("operatorReason") or "Review required.",
             "",
             "Expected effect:",
             approval.get("dryRunSummary") or "No dry-run summary available.",
@@ -801,6 +878,11 @@ async def run_file_guardian_check(command: str):
 
     decision = str(payload.get("decision", "DENY")).upper()
     if result.returncode != 0 and decision != "DENY":
+        payload["decision"] = "DENY"
+
+    return payload
+
+
 def get_pending_approval_by_id(request_id: str):
     """Look up an approval by ID from LanceDB (single source of truth)."""
     row = get_secretary_memory().get_approval(request_id)
@@ -958,12 +1040,11 @@ def build_aja_chat_context(limit: int = 5):
 
 def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
     system_prompt = (
-        "You are AJA, the natural-language assistant/operator for AgentX Core. "
-        "Be warm, concise, and practical, like a capable collaborator in Telegram. "
-        "Do not claim you executed commands unless the safety-gated command path did so. "
-        "When the user asks for risky system action, explain that they should use an explicit supported command "
-        "or the dashboard so AgentX can create an approval request. "
-        "For reminders, follow-ups, tasks, and communication drafts, mention that you can save them when phrased as a task or draft request."
+        "You are AJA, the highly capable and proactive natural-language assistant for AgentX Core. "
+        "You are a collaborator, not just a chatbot. Your tone is professional yet warm, insightful, and slightly informal—like a brilliant peer. "
+        "Use your access to 'AJA context' to give specific, helpful advice. "
+        "If the user asks for risky system action, explain that they should use an explicit supported command or the dashboard. "
+        "You help manage missions, tasks, and communications. Be proactive: if you see a task is due or blocked, mention it if relevant."
     )
     user_prompt = (
         f"Telegram user id: {user_id}\n"
@@ -996,6 +1077,23 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
     pending = load_telegram_pending()
     normalized = " ".join((text or "").strip().split())
     lower = normalized.lower()
+
+    if lower.startswith("/handover "):
+        otc = normalized.split(maxsplit=1)[1].strip()
+        try:
+            from agentx.orchestration.handover import HandoverManager
+            manager = HandoverManager()
+            session_data = manager.resolve_otc(otc)
+            if session_data:
+                # Update whitelist if this was an anonymous handover
+                global TELEGRAM_ALLOWED_USER_ID
+                TELEGRAM_ALLOWED_USER_ID = str(user_id)
+                append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "handover_success", "session_id": session_data.get("session_id")})
+                return f"🚀 Handover Successful!\nAJA is now linked to terminal session: {session_data.get('session_id')}\nYou are now authorized to command this instance."
+            else:
+                return "❌ Invalid or expired OTC. Please generate a new one from your terminal using 'agentx-handover'."
+        except Exception as e:
+            return f"❌ Handover failed: {e}"
 
     if lower.startswith("approve message ") or lower.startswith("reject message "):
         secretary_reply = await asyncio.to_thread(execute_secretary_command_sync, text, "Telegram", f"telegram:{user_id}")
@@ -1067,7 +1165,7 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         mem.add_runtime_event({
             "event_type": "ASK",
             "tool": "bash",
-            "message": approval["humanReason"],
+            "message": approval["operatorReason"],
             "command": command,
             "root_binary": approval.get("rootBinary"),
             "level": approval.get("level"),
@@ -1129,7 +1227,7 @@ def load_runtime_state():
             "riskLevel": pending_row.get("risk_level"),
             "level": pending_row.get("level"),
             "reasons": pending_row.get("reasons", []),
-            "humanReason": pending_row.get("human_reason"),
+            "operatorReason": pending_row.get("operator_reason"),
             "rollbackPath": pending_row.get("rollback_path"),
             "dryRunSummary": pending_row.get("dry_run_summary"),
             "requesterSource": pending_row.get("requester_source"),
@@ -1363,7 +1461,7 @@ def run_priority_engine(memory: "SecretaryMemory") -> dict:
       2. Stakeholder Weight — recruiter > client > friend > system
       3. Consequence      — financial, trust, opportunity, deadline risk
       4. Executive Intent — explicitly high-priority, repeated commitments
-      5. Delegatability   — AJA / AgentX Worker / human
+      5. Delegatability   — AJA / AgentX Worker / operator
 
     Returns:
         top3        — top 3 tasks with full scoring metadata
@@ -1568,7 +1666,7 @@ def recommend_workers_for_task(
     Returns:
         recommended  — ranked list of worker recommendations with scores + reasons
         analysis     — task analysis summary
-        cautions     — any warnings for the human decision-maker
+        cautions     — any warnings for the operator
     """
     workers = memory.list_workers(status="available", limit=50)
     if not workers:
@@ -1748,6 +1846,25 @@ def recommend_workers_for_task(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Capabilities / Tools API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/tools", dependencies=[Depends(verify_token)])
+async def list_tools_api():
+    """List all registered capabilities in the swarm."""
+    from agentx.capabilities import registry
+    tools = []
+    for name, cap in registry.capabilities.items():
+        tools.append({
+            "name": name,
+            "description": cap.__doc__ or "No description provided.",
+            "parameters": getattr(cap, "schema", {}),
+            "type": cap.__class__.__name__
+        })
+    return {"tools": tools, "total": len(tools)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Worker Registry API Endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1809,7 +1926,7 @@ async def seed_workers_api():
 async def recommend_workers_api(request: Request):
     """
     Get worker recommendations for a given task objective.
-    AJA recommends — human confirms.
+    AJA recommends — operator confirms.
     """
     body = await request.json()
     objective = body.get("objective", "").strip()

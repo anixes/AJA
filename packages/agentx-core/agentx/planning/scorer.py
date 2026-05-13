@@ -1,5 +1,5 @@
 """
-agentx/planning/scorer.py
+agent/planning/scorer.py
 ==========================
 Phase 14 - Cost-Aware Scoring & Complexity Estimation.
 

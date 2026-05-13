@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 
 # Add the packages directory to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agentx-core")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-from agentx.capabilities.obsidian import ObsidianCapability
+from agent.capabilities.obsidian import ObsidianCapability
 
 async def main():
-    print("--- AgentX Phase 5 Verification: Obsidian Vault Sync ---")
+    print("--- Agent Phase 5 Verification: Obsidian Vault Sync ---")
     
     # 1. Setup Mock Vault
     vault_dir = Path("./tests/mock_vault")
@@ -32,7 +32,7 @@ async def main():
     if note_path.exists():
         with open(note_path, "r") as f:
             content = f.read()
-            if "---" in content and "tags: [agentx, long-term-memory, mission, test-run]" in content:
+            if "---" in content and "tags: [agent, long-term-memory, mission, test-run]" in content:
                 print("SUCCESS: YAML frontmatter and tags correctly applied.")
             else:
                 print("FAILED: YAML frontmatter missing or incorrect.")

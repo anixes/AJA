@@ -1,12 +1,12 @@
 # Phase 23: Memory + Failure Intelligence + Autonomous Scheduling
 
 ## Overview
-Phase 23 transforms AgentX from a reactive executor into a learning system that remembers past executions to improve future planning and automates recurring tasks.
+Phase 23 transforms Agent from a reactive executor into a learning system that remembers past executions to improve future planning and automates recurring tasks.
 
 ## Core Features
 
 ### 1. Experience Memory System (`experience_store.py`)
-AgentX now records every execution in an `ExperienceStore`.
+Agent now records every execution in an `ExperienceStore`.
 - **Data Points**: Goal, Plan structure, Result (Success/Failure), Metrics (Latency, Cost), and Error reasons.
 - **Persistent Learning**: Experiences are stored with embeddings for semantic retrieval.
 
@@ -23,5 +23,5 @@ The system can now schedule tasks based on priority and deadlines.
 ---
 
 ## Technical Details
-- **Experience Model**: Located in `agentx/memory/experience_store.py`.
+- **Experience Model**: Located in `agent/memory/experience_store.py`.
 - **Integration**: Plumbed into `planner.py` for plan biasing and `metrics.py` for performance tracking.

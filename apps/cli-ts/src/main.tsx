@@ -35,7 +35,7 @@ const App = () => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box borderStyle="round" borderColor="cyan" paddingX={2}>
-        <Text bold color="blue">Agentic AI Workflow Engine (AgentX)</Text>
+        <Text bold color="blue">Agentic AI Workflow Engine (Agent)</Text>
       </Box>
       
       <Box flexDirection="column" marginY={1}>

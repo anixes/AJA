@@ -1,5 +1,5 @@
 """
-agentx/planning/verification.py
+agent/planning/verification.py
 ==================================
 Phase 11 - Serializability Verification Layer.
 
@@ -53,10 +53,10 @@ class SerializabilityVerifier:
             return RecoveryAction.ESCALATE
 
         return [
-            patch('agentx.planning.execution_bridge._cmd_run', side_effect=mocked_cmd_run),
-            patch('agentx.planning.plan_store.PlanStore.save'),
-            patch('agentx.planning.plan_store.PlanStore.record_repair'),
-            patch('agentx.planning.replanner.Replanner.handle_failure', side_effect=mocked_handle_failure),
+            patch('agent.planning.execution_bridge._cmd_run', side_effect=mocked_cmd_run),
+            patch('agent.planning.plan_store.PlanStore.save'),
+            patch('agent.planning.plan_store.PlanStore.record_repair'),
+            patch('agent.planning.replanner.Replanner.handle_failure', side_effect=mocked_handle_failure),
         ]
 
     def run_sequential(self) -> Dict[str, Any]:

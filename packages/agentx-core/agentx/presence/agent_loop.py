@@ -13,7 +13,7 @@ from agentx import cmd_run
 
 # ---------------------------------------------------------------------------
 # Phase 11 — Planning Layer feature flag
-# Set AGENTX_PLANNING_ENABLED=1 in the environment or agentx.json to enable.
+# Set AGENTX_PLANNING_ENABLED=1 in the environment or agent.json to enable.
 # ---------------------------------------------------------------------------
 PLANNING_ENABLED: bool = os.environ.get("AGENTX_PLANNING_ENABLED", "0").strip() == "1"
 
@@ -66,7 +66,7 @@ def _run_with_planning(objective: str, task_id: int) -> bool:
         return success
         
     except PlanTooComplexError as exc:
-        print(f"[Planning] Plan too complex for goal '{objective[:50]}'. Requesting human refinement.")
+        print(f"[Planning] Plan too complex for goal '{objective[:50]}'. Requesting operator refinement.")
         log_event("PLAN_TOO_COMPLEX", {"plan_id": plan_id, "task_id": task_id, "error": str(exc)})
         send_notification("PLAN_TOO_COMPLEX", {"task_id": task_id, "objective": objective, "error": str(exc)})
         update_task_error(task_id, str(exc), error_type="PERMANENT")

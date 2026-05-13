@@ -1,5 +1,5 @@
 /**
- * AgentX Universal Provider Types
+ * Agent Universal Provider Types
  * 
  * Every LLM provider (OpenAI, Anthropic, Gemini, Ollama, etc.)
  * implements the IProvider interface for unified access.

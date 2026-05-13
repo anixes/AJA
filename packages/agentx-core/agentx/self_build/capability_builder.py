@@ -9,8 +9,8 @@ import agentx.config
 from agentx.llm import get_gateway_for_model
 from agentx.runtime.event_bus import bus, EVENTS
 
-REGISTRY_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agentx_capabilities.json"
-EXPERIENCE_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agentx_experiences.json"
+REGISTRY_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agent_capabilities.json"
+EXPERIENCE_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agent_experiences.json"
 
 @dataclass
 class Capability:
@@ -109,7 +109,7 @@ def propose_capability(problem: str) -> Capability:
     model_name = agentx.config.AGENTX_PLANNER_MODEL
     gw, mapped_model = get_gateway_for_model(model_name)
     
-    system = """You are AgentX Capability Builder.
+    system = """You are Agent Capability Builder.
 Your task is to generate a Python tool/function to solve a specific problem.
 CRITICAL RULE: DO NOT modify the core system files or internal structures.
 Allowed: new tools, helper scripts, workflow functions.
@@ -169,7 +169,7 @@ def test_capability(cap: Capability) -> float:
     return run_in_sandbox(cap)
 
 def require_approval(cap: Capability) -> bool:
-    print(f"[SelfBuild] ⚠️ HIGH RISK ({cap.risk}). Requires human approval: {cap.name}")
+    print(f"[SelfBuild] ⚠️ HIGH RISK ({cap.risk}). Requires operator approval: {cap.name}")
     # Simulate user approval logic; for headless agent, we reject or pause
     # Returning False means rejected in autonomous mode
     return False
@@ -205,7 +205,7 @@ def self_build_cycle(problem: str):
     if not cap:
         return
 
-    # Part G - Human Approval
+    # Part G - Operator Approval
     if cap.risk > 0.6:
         if not require_approval(cap):
             print(f"[SelfBuild] Capability {cap.name} rejected by approval guard.")

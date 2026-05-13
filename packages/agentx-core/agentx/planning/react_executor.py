@@ -1,5 +1,5 @@
 """
-agentx/planning/react_executor.py
+agent/planning/react_executor.py
 ===================================
 Phase 11 - ReAct-style Executor.
 
@@ -209,7 +209,7 @@ class ReActExecutor:
                         has_escalated = True
                         break
 
-                    # HITL Control: Risk Gate
+                    # OITL Control: Risk Gate
                     if getattr(node, 'risk', 0.0) >= RISK_THRESHOLD and self.session:
                         print(f"[ReActExecutor] Risk threshold exceeded for node '{node.id}'. Requesting user approval...")
                         node.status = "AWAITING_APPROVAL"
@@ -372,7 +372,7 @@ class ReActExecutor:
                 break
 
     def summary(self) -> dict:
-        """Return a human-readable execution summary."""
+        """Return a readable execution summary."""
         counts = {"COMPLETED": 0, "FAILED": 0, "PENDING": 0, "RUNNING": 0}
         for n in self.graph.nodes:
             counts[n.status] = counts.get(n.status, 0) + 1

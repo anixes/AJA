@@ -1,7 +1,7 @@
-# AgentX: Transactional Cognitive Operating System
+# Agent: Transactional Cognitive Operating System
 ## Phases 16-18 Implementation Overview
 
-AgentX has evolved into a research-grade **Transactional Cognitive Operating System**. It moves beyond simple "planning and execution" into a robust runtime environment capable of secure orchestration, state recovery, and human-in-the-loop control.
+Agent has evolved into a research-grade **Transactional Cognitive Operating System**. It moves beyond simple "planning and execution" into a robust runtime environment capable of secure orchestration, state recovery, and operator-in-the-loop control.
 
 ---
 
@@ -19,8 +19,8 @@ All terminal-based operations are isolated via **Hard Container Sandboxing**.
     - `memory=256m`, `cpus=0.5`: Prevents resource exhaustion.
 - **Permission Engine**: A centralized permission system validates every command against blocked keywords (e.g., `rm -rf`, `mkfs`) before it ever reaches the sandbox.
 
-### 🚦 3. Human-in-the-Loop (HITL) Control
-The runtime is no longer a "black box." It is fully controllable via the AgentX API Server.
+### 🚦 3. Operator-in-the-Loop (OITL) Control
+The runtime is no longer a "black box." It is fully controllable via the Agent API Server.
 - **Risk Gates**: Nodes with a `risk >= 0.8` trigger an automatic execution interrupt.
 - **Async Interrupts**: The `ReActExecutor` supports pausing, resuming, and modifying the plan mid-flight.
 - **Control API**:
@@ -40,4 +40,4 @@ A global **EventBus** provides real-time system-wide visibility.
 - **`ReActExecutor`**: The heart of the transactional engine.
 - **`ExecutionBridge`**: Manages state checkpoints and rollbacks.
 - **`Replanner`**: Handles autonomous graph repair.
-- **`AgentX API`**: FastAPI-based remote control interface.
+- **`Agent API`**: FastAPI-based remote control interface.

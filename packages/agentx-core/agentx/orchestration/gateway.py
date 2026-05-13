@@ -11,7 +11,7 @@ def find_project_root() -> Path:
     """Find the repo root from CWD or this module location."""
     candidates = [Path.cwd(), *Path(__file__).resolve().parents]
     for current in candidates:
-        if (current / "agentx.json").exists() or (current / ".git").exists():
+        if (current / "agent.json").exists() or (current / ".git").exists():
             return current
     return Path.cwd()
 
@@ -96,8 +96,8 @@ class UnifiedGateway:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 default_headers={
-                    "HTTP-Referer": "https://github.com/agentx",
-                    "X-Title": "AgentX Swarm Toolkit"
+                    "HTTP-Referer": "https://github.com/agent",
+                    "X-Title": "Agent Swarm Toolkit"
                 }
             )
 

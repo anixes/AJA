@@ -51,23 +51,27 @@ fn write_baton(path: String, objective: String, run_id: String, history_json: St
 }
 
 #[pyfunction]
-fn read_baton(path: String) -> PyResult<PyObject> {
+fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[pyfunction]
+fn read_baton(py: Python<'_>, path: String) -> PyResult<PyObject> {
     let state = baton::read_baton_table(&path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
-    Python::with_py( |py| {
-        let dict = pyo3::types::PyDict::new_bound(py);
-        dict.set_item("objective", state.objective)?;
-        dict.set_item("run_id", state.run_id)?;
-        dict.set_item("history_json", state.history_json)?;
-        dict.set_item("metadata_json", state.metadata_json)?;
-        Ok(dict.to_object(py))
-    })
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("objective", state.objective)?;
+    dict.set_item("run_id", state.run_id)?;
+    dict.set_item("history_json", state.history_json)?;
+    dict.set_item("metadata_json", state.metadata_json)?;
+    Ok(dict.to_object(py))
 }
 
 #[pymodule]
 fn agentx_native(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello, m)?)?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(translate_to_anthropic, m)?)?;
     m.add_function(wrap_pyfunction!(init_semantic, m)?)?;
     m.add_function(wrap_pyfunction!(add_activity, m)?)?;

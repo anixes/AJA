@@ -1,5 +1,5 @@
 /**
- * AgentX Context Retriever
+ * Agent Context Retriever
  * 
  * The brain's intelligence for LLM context injection.
  * Instead of loading the whole repo, it:
@@ -8,7 +8,7 @@
  *   3. Reads only the top files
  *   4. Returns minimal context with estimated token count
  * 
- * This is what makes AgentX the cheapest agent — minimal token usage.
+ * This is what makes Agent the cheapest agent — minimal token usage.
  */
 
 import { readFileSync, existsSync } from 'fs';

@@ -1,5 +1,5 @@
 /**
- * AgentX Linter Tool
+ * Agent Linter Tool
  * 
  * Auto-detects linting setup and runs appropriate linter.
  * Supports: eslint, tsc --noEmit, ruff, pylint, biome

@@ -1,5 +1,5 @@
 /**
- * AgentX Provider Registry
+ * Agent Provider Registry
  * 
  * Auto-detects and resolves providers from:
  *   1. Environment variables (AI_KEY, AI_PROVIDER, OPENAI_API_KEY, etc.)
@@ -42,7 +42,7 @@ export class ProviderRegistry {
     if (this.defaultName && this.providers.has(this.defaultName)) {
       return this.providers.get(this.defaultName)!;
     }
-    throw new Error(`No provider found${name ? ` for "${name}"` : ''}. Run: agentx config --provider`);
+    throw new Error(`No provider found${name ? ` for "${name}"` : ''}. Run: agent config --provider`);
   }
 
   /**
@@ -159,7 +159,7 @@ export class ProviderRegistry {
         baseUrl: 'https://openrouter.ai/api/v1',
         apiKey: orKey,
         defaultModel: aiModel || 'anthropic/claude-3.5-sonnet',
-        headers: { 'HTTP-Referer': 'https://agentx.dev', 'X-Title': 'AgentX' },
+        headers: { 'HTTP-Referer': 'https://agent.dev', 'X-Title': 'Agent' },
       }, this.costTracker));
     }
 

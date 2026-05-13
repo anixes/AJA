@@ -1,5 +1,5 @@
 /**
- * AgentX Smart Model Router
+ * Agent Smart Model Router
  * 
  * Routes tasks to the optimal model based on complexity analysis.
  * Integrates with CostMode to respect the user's cost preference.
@@ -27,7 +27,7 @@ export interface RouteResult {
   model: string;
   /** The detected task complexity tier */
   complexity: TaskComplexity;
-  /** Human-readable reason for the routing decision */
+  /** Readable reason for the routing decision */
   reason: string;
   /** Estimated cost tier label */
   costTier: 'free' | 'cheap' | 'moderate' | 'premium';

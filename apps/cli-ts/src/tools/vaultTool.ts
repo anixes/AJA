@@ -7,7 +7,7 @@ const storage = new VaultStorage();
 
 export const vaultTool: ToolDefinition<any> = {
   name: 'vault',
-  description: 'Manage secure secrets in the AgentX vault. Actions: add, get, list.',
+  description: 'Manage secure secrets in the Agent vault. Actions: add, get, list.',
   inputSchema: z.object({
     action: z.enum(['add', 'get', 'list']).describe('Action to perform'),
     key: z.string().optional().describe('Secret name'),

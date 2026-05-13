@@ -4,12 +4,12 @@ import os
 import json
 
 # Add packages to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agentx-core")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-from agentx.api.mcp_client import MCPClientManager
+from agent.api.mcp_client import MCPClientManager
 
 async def test_mcp():
-    print("--- AgentX: Native MCP Tool Discovery Verification ---")
+    print("--- Agent: Native MCP Tool Discovery Verification ---")
     manager = MCPClientManager()
     
     # Path to the dummy server
@@ -33,7 +33,7 @@ async def test_mcp():
     print(f"Result: {result[0].text}")
     
     await manager.disconnect_all()
-    print("\nSUCCESS: AgentX successfully discovered and controlled a sub-agent tool.")
+    print("\nSUCCESS: Agent successfully discovered and controlled a sub-agent tool.")
 
 if __name__ == "__main__":
     asyncio.run(test_mcp())

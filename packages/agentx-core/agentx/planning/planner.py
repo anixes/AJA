@@ -1,5 +1,5 @@
 """
-agentx/planning/planner.py
+agent/planning/planner.py
 ===========================
 Phase 12 - Planner: Goal -> PlanGraph with method-first routing.
 
@@ -127,7 +127,7 @@ def structural_variance(plans: List[PlanGraph]) -> float:
 # ---------------------------------------------------------------------------
 
 _PLANNER_SYSTEM_PROMPT = """\
-You are a deterministic HTN planning compiler for AgentX.
+You are a deterministic HTN planning compiler for Agent.
 
 Your task is to convert a goal into a VALID hierarchical plan that satisfies ALL structural, execution, and state constraints.
 
@@ -288,7 +288,7 @@ def _fallback_graph(goal: str) -> PlanGraph:
 # ---------------------------------------------------------------------------
 
 class PlanTooComplexError(Exception):
-    """Raised when a goal decomposes into too many nodes, requiring human refinement."""
+    """Raised when a goal decomposes into too many nodes, requiring operator refinement."""
     pass
 
 class Planner:

@@ -17,12 +17,12 @@ sys.path.append(str(PROJECT_ROOT))
 # Ensure we use the correct python
 PYTHON = sys.executable
 
-from agentx.persistence.tasks import init_db, DB_PATH
+from agent.persistence.tasks import init_db, DB_PATH
 import importlib.util
-spec = importlib.util.spec_from_file_location("agentx_file", str(PROJECT_ROOT / "agentx.py"))
-agentx_file = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agentx_file)
-cmd_run = agentx_file.cmd_run
+spec = importlib.util.spec_from_file_location("agent_file", str(PROJECT_ROOT / "agent.py"))
+agent_file = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(agent_file)
+cmd_run = agent_file.cmd_run
 
 def setup_clean_db():
     init_db()
@@ -37,8 +37,8 @@ def get_db_connection():
     return conn
 
 def run_cmd(args):
-    """Run agentx command via subprocess to ensure clean process separation."""
-    return subprocess.run([PYTHON, "agentx.py"] + args, capture_output=True, text=True)
+    """Run agent command via subprocess to ensure clean process separation."""
+    return subprocess.run([PYTHON, "agent.py"] + args, capture_output=True, text=True)
 
 def test_invariant_1_and_7():
     """Invariant 1 & 7: Same logical_task_id execute at most once and return cached/skipped."""
@@ -105,9 +105,9 @@ def test_invariant_6_recovery():
     conn.commit()
     conn.close()
     
-    # 2. Run recovery (via 'doctor' or just starting agentx run)
+    # 2. Run recovery (via 'doctor' or just starting agent run)
     print("  -> Running Recovery...")
-    # 'agentx run' automatically runs recovery on start
+    # 'agent run' automatically runs recovery on start
     res = run_cmd(["run", "test: dummy"]) # This will trigger recovery
     
     assert "Recovered 1 tasks" in res.stdout
@@ -134,7 +134,7 @@ def test_invariant_2_tool_idempotency():
     
     def run_mission():
         # Manually invoke swarm_engine to control run_id
-        cmd = [PYTHON, "-m", "agentx.orchestration.swarm", "--mode", "baton", "--objective", objective, "--run-id", run_id]
+        cmd = [PYTHON, "-m", "agent.orchestration.swarm", "--mode", "baton", "--objective", objective, "--run-id", run_id]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -183,7 +183,7 @@ def test_invariant_5_retry_limit():
     print("[PASS] Invariant 5")
 
 if __name__ == "__main__":
-    print("=== AgentX Resilient Recovery System Validation ===")
+    print("=== Agent Resilient Recovery System Validation ===")
     try:
         test_invariant_1_and_7()
         test_invariant_4_concurrency_lock()

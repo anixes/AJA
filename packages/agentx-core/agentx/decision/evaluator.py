@@ -1,5 +1,5 @@
 """
-agentx/decision/evaluator.py
+agent/decision/evaluator.py
 ===========================
 Phase 10 — Decision Evaluation Layer.
 Phase 22 — Consensus Validation (replaces majority voting).
@@ -20,7 +20,7 @@ import math
 from typing import Dict, Any, List, Tuple
 import os
 
-logger = logging.getLogger("agentx.decision.evaluator")
+logger = logging.getLogger("agent.decision.evaluator")
 
 # Phase 16 — Multi-model evaluation separation
 EVALUATION_MODEL = os.environ.get("AGENTX_EVALUATION_MODEL", "secondary_model")
@@ -771,7 +771,7 @@ def log_critic_run(disagreement_score: float, critic_issues_count: int, final_su
     # PART 5: Failure analysis loop
     if not final_success:
         import logging
-        logger = logging.getLogger("agentx.decision.evaluator")
+        logger = logging.getLogger("agent.decision.evaluator")
         logger.info(f"[Failure Analysis] Disagreement: {disagreement_score:.2f}, Critic Issues: {critic_issues_count}, Failure Type: {failure_type}")
         
         # Learning rule

@@ -1,5 +1,5 @@
 """
-agentx/decision/disagreement.py
+agent/decision/disagreement.py
 ===============================
 Phase 21: Disagreement-Aware Consensus + Minority Veto Layer.
 """

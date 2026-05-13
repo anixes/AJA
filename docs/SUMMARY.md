@@ -1,36 +1,37 @@
-# AJA + AgentX Core: The Local-First Agentic OS
+# AgentX & AJA: The Local-First Agentic OS
 **High-Performance Autonomy for Every Machine.**
 
 ## Project Mission
-AgentX is engineered to run on the **cheapest of consumer hardware** while delivering maximum performance. By utilizing the **Apache Arrow** memory stack and **Rust-native** acceleration, it brings elite autonomous orchestration to standard machines with a strict local-first philosophy.
+AgentX is engineered to run on standard hardware while delivering maximum performance. By utilizing the **Apache Arrow** memory stack and **Rust-native** acceleration, it brings elite autonomous orchestration to standard machines with a strict local-first philosophy.
 
 ## Project Milestone: "Adaptive Execution & Control"
-AgentX is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
+Agent is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
 
 ## Naming
 
 - **AgentX Core**: the engine, runtime, tools, bridge, dashboard, vault, and swarm.
-- **AJA**: the assistant/operator that turns intent into explainable action.
+- **AJA**: the natural-language secretary that turns intent into explainable action.
 - **AgentX Core powers AJA**.
 
 ### Components Delivered:
-- **Unified CLI**: Single `agentx` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
+- **Unified CLI**: Single `agent` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
 - **Safety Gate**: Semantic command auditing via `CommandStripper`.
 - **Secret Vault**: Encrypted credential storage.
 - **Unified Swarm Engine**: Replaces disjointed scripts with a single engine supporting Background, Parallel, and Baton modes.
 - **API Bridge & Dashboard**: Glassmorphic real-time telemetry with secure, CSRF-protected approval routes and a Mission Launcher panel.
-- **Telegram Remote Control**: AJA can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> AgentX Core.
+- **Telegram Remote Control**: Assistant can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> Agent Core.
 - **Structured Approval Workflow**: Risky actions become approval objects with command preview, action type, reason, risk level, rollback path, expiry, requester source, and dry-run summary.
-- **Structured Secretary Memory**: AJA persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
-- **Messaging Layer**: AJA drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
-- **Scheduler and Executive Reviews**: AJA generates morning, night, and weekly reviews with urgency scoring, snooze, escalation, and Telegram delivery.
+- **Structured Secretary Memory**: Assistant persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
+- **Messaging Layer**: Assistant drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
+- **Scheduler and Executive Reviews**: Assistant generates morning, night, and weekly reviews with urgency scoring, snooze, escalation, and Telegram delivery.
 - **Centralized Gateway**: Unified `UnifiedGateway` utilizing a single `providers.json` source of truth. First-class OpenRouter support.
 - **Priority Engine & Decision Layer**: Multi-factor judgment scoring (urgency, stakeholder weight, consequence of delay) that ranks tasks and challenges false urgency.
 - **Definition of Done (DoD) Framework**: Mandatory success criteria for all delegations, with auto-generation support for common engineering and executive tasks.
 - **Executive Desk Dashboard**: Refactored command center focusing on high-level agenda and delegation oversight.
 - **Resilient Recovery Layer**: LanceDB/Arrow-backed authoritative task tracking, boot-time crash recovery, and atomic tool idempotency guards.
-- **Persistent Presence Loop**: Continuous agent loop with triggers, guardrails, health dashboard, and remote human-in-the-loop approvals.
+- **Persistent Presence Loop**: Continuous agent loop with triggers, guardrails, health dashboard, and remote operator-in-the-loop approvals.
 - **Strategy Selection Module**: Strategic dispatch layer that chooses optimal execution paths (Skill vs Compose vs Swarm) with hard risk gates and confidence fallbacks. (formerly LLM Decision Engine)
+- **AJA Telegram Gateway**: Resilient, mobile-optimized communication layer with adaptive polling, table-to-bullet rendering, and vision-to-text enrichment.
 
 ### User Experience:
 | What you want | What you type |
@@ -43,6 +44,7 @@ AgentX is a self-correcting execution system with adaptive control, not yet a fu
 | Manage memory | `agentx memory list` |
 | Check swarm status | `agentx status` |
 | Control from phone | Telegram command to AJA |
+| Vision enrichment | Send photo to Telegram |
 | Add an obligation | `agentx memory add "follow up with recruiter next Tuesday"` |
 | Draft communication | `agentx message draft "draft recruiter follow-up"` |
 | Run executive review | `agentx review morning` |
@@ -52,8 +54,8 @@ AgentX is a self-correcting execution system with adaptive control, not yet a fu
 - **Zero-Trust Input**: All intents are translated and audited before execution.
 - **Memory Isolation**: Each agent runs in its own OS process via the Baton pattern.
 - **Endpoint Lockdown**: Critical endpoints require Bearer Token authorization to mitigate CSRF attacks.
-- **Telegram Whitelist**: Only `TELEGRAM_ALLOWED_USER_ID` can issue phone commands.
-- **Structured Human Review**: Risky actions default to ASK and must be explainable before approval.
+- **Telegram Whitelist**: Only `TELEGRAM_ALLOWED_USER_ID` can issue phone commands to AJA. Unauthorized attempts are logged and ignored.
+- **Structured Operator Review**: Risky actions default to ASK and must be explainable before approval.
 - **Immutable Approval Audit**: Approval lifecycle events are appended to `.agentx/approval-audit.jsonl`.
 - **Encrypted Persistence**: All secrets are stored using AES-256-GCM.
 - **Execution Constraints**: Mandatory Definition of Done checklists prevent "agent drift" during autonomous missions.
@@ -82,7 +84,7 @@ Approval objects include:
 - request ID
 - exact command preview
 - action type
-- human-readable reason
+- readable reason
 - risk level
 - rollback path
 - expiration timestamp
@@ -99,7 +101,7 @@ Before execution, approvals are checked for expiration and revalidated through `
 
 ## Phase 3: Structured Secretary Memory
 
-AJA now has a persistent LanceDB/Arrow task system at `.agentx/aja_secretary.lancedb`.
+Assistant now has a persistent LanceDB/Arrow task system at `.agent/assistant_secretary.lancedb`.
 
 The task object supports:
 
@@ -110,13 +112,13 @@ The task object supports:
 
 Interfaces:
 
-- CLI: `python agentx.py memory add|list|review|complete|archive`
+- CLI: `python agent.py memory add|list|review|complete|archive`
 - FastAPI: `/memory/tasks`, `/memory/review`, `/memory/summary`
 - Telegram: `tasks`, `task review`, `complete <task_id>`, `archive <task_id>`, and natural obligation messages
 
 ## Phase 4: Messaging Layer
 
-AJA now stores outbound communication records in the same LanceDB/Arrow secretary database.
+Assistant now stores outbound communication records in the same LanceDB/Arrow secretary database.
 
 The communication object supports:
 
@@ -134,20 +136,20 @@ Draft -> Edit -> Approval -> Send -> Follow-up tracking
 
 Safety rules:
 
-- AJA never auto-sends the first version.
+- Assistant never auto-sends the first version.
 - All outbound messages require approval.
 - Telegram is the only direct outbound adapter for now.
 - Email and recruiter messages are drafted and tracked, not silently sent.
 
 Interfaces:
 
-- CLI: `python agentx.py message draft|list|approve|reject`
+- CLI: `python agent.py message draft|list|approve|reject`
 - FastAPI: `/communications`, `/communications/{message_id}/approve`, `/communications/{message_id}/send`
 - Telegram: `draft recruiter follow-up`, `approve message <id>`, `send message <id>`, `check pending unanswered messages`
 
 ## Phase 5: Scheduler and Daily Executive Review
 
-AJA now generates proactive executive reviews from structured tasks and communications.
+Assistant now generates proactive executive reviews from structured tasks and communications.
 
 Supported reviews:
 
@@ -168,17 +170,17 @@ Scheduler capabilities:
 
 Interfaces:
 
-- CLI: `python agentx.py review morning|night|weekly`
+- CLI: `python agent.py review morning|night|weekly`
 - FastAPI: `/scheduler/config`, `/scheduler/review/{kind}`, `/scheduler/run`, `/scheduler/snooze/{task_id}`
 - Telegram: `morning review`, `night review`, `weekly review`, `what am I avoiding today`, `what slipped this week`
 
 ## Phase 6: Priority Engine & Definition of Done (DoD)
 
-AJA uses a multi-factor judgment scoring engine to rank tasks and enforces a mandatory Definition of Done (DoD) for all missions.
+Assistant uses a multi-factor judgment scoring engine to rank tasks and enforces a mandatory Definition of Done (DoD) for all missions.
 
 Capabilities:
 - **Priority Scoring**: Ranks tasks (0-100) based on urgency, stakeholder weight, and consequence.
-- **Urgency Challenge**: AJA questions false urgency to prevent burnout.
+- **Urgency Challenge**: Assistant questions false urgency to prevent burnout.
 - **DoD Auto-Generation**: Backend keyword matching creates success criteria for delegations.
 - **Executive Desk**: Dashboard refactored to prioritize high-level agenda and oversight.
 
@@ -193,12 +195,39 @@ Transforming execution from ephemeral scripts into a state-aware platform.
 - **Authoritative Task Tracking**: Every mission is persisted with a `logical_task_id` and `run_id`.
 - **Atomic Tool Guard**: `INSERT OR IGNORE` reservation system for production-grade idempotency.
 - **Execution Coalescing**: Duplicate or retried tool calls return cached results instead of re-executing.
-- **Boot-time Recovery**: `agentx` automatically scans for crashed tasks on startup and resumes them.
+- **Boot-time Recovery**: `agent` automatically scans for crashed tasks on startup and resumes them.
 - **Concurrent Safety**: Task-level locking prevents parallel execution collisions on the same objective.
 
 Interfaces:
-- CLI: `agentx status` (authoritative), `agentx run` (tracked)
-- Persistence: `agentx/persistence/tasks.py`, `agentx/persistence/tools.py`, `agentx/persistence/recovery.py`
+- CLI: `agent status` (authoritative), `agent run` (tracked)
+- Persistence: `agent/persistence/tasks.py`, `agent/persistence/tools.py`, `agent/persistence/recovery.py`
+
+## Phase 7 (AJA Gateway): Premium Secretary Integration
+
+Porting the resilient messaging architecture from Hermes into the AJA persona.
+
+- **Resilient Connectivity**: `TelegramAdapter` with exponential back-off and 1-hour "freshness" gates.
+- **Mobile UX Enrichment**: `MobileMDRenderer` converts Markdown tables into bulleted lists for phone readability.
+- **Vision Bridge**: Automatic capture and semantic description of incoming images before agent ingestion.
+- **Notification Control**: Silent pings for tool progress updates; Priority pings for user-facing turns.
+- **Persistent Handoffs**: Session state stored in LanceDB (`gateway_sessions.lance`) using Apache Arrow for zero-copy retrieval.
+- **Security Whitelisting**: Integrated directly into `handle_gateway_event` for zero-trust message processing.
+- **Auto-Config**: Zero-setup startup by reading existing `.env` secrets.
+
+## Phase 8: Local-First "Gold Brain" Infrastructure [NEW]
+
+The system is now capable of running entirely without cloud dependencies using the **Llama Gold** local stack.
+
+- **Llama Gold Server**: High-performance `llama.cpp` backend configured for 50+ TPS on consumer hardware.
+- **Master Launcher**: `AgentX Launcher.bat` provides a one-click initialization of the entire swarm (LLM + Bridge + Dashboard + AJA).
+- **Unified Command**: `agentx.bat` provides global CLI access to the agent's core capabilities.
+- **Zero-Latency Reasoning**: Optimized for real-time Telegram response generation via local inference.
+
+Launchers:
+- **`AgentX Launcher.bat`**: Master orchestrator for production startup.
+- **`start_llama_gold.bat`**: Dedicated local LLM server initialization.
+- **`agentx.bat`**: Global CLI shim for `agentx-core`.
+- Specification: `docs/AJA_GATEWAY_SPEC.md`
 
 ## Phase 8: Resilient Skill System
 
@@ -211,8 +240,8 @@ Shifting from ephemeral task execution to a production-grade library of reusable
 - **Explainability & Ambiguity Resolution**: Introspection interface for skill diffs and score-proximity gating for near-identical matches.
 
 Interfaces:
-- CLI: `agentx` (pre-execution recommendation), `agentx status` (skill usage tracking)
-- Logic: `agentx/skills/skill_store.py`, `agentx/skills/skill_executor.py`, `agentx/skills/hierarchical_execution.py` (formerly skill_composer.py)
+- CLI: `agent` (pre-execution recommendation), `agent status` (skill usage tracking)
+- Logic: `agent/skills/skill_store.py`, `agent/skills/skill_executor.py`, `agent/skills/hierarchical_execution.py` (formerly skill_composer.py)
 
 ## Documentation Index
 - [ARCHITECTURE_FLOW.md](./ARCHITECTURE_FLOW.md): Visual mapping of the system and CLI reference.
@@ -223,12 +252,12 @@ Interfaces:
 - [PHASE_6_PRIORITY_ENGINE_DOD.md](./PHASE_6_PRIORITY_ENGINE_DOD.md): Judgment engine and mandatory delegation constraints.
 - [PHASE_7_RESILIENT_RECOVERY.md](./PHASE_7_RESILIENT_RECOVERY.md): Crash survival and tool-level idempotency.
 - [PHASE_8_RESILIENT_SKILLS.md](./PHASE_8_RESILIENT_SKILLS.md): Autonomous skill capture, verification, and composition.
-- [PHASE_9_RESILIENT_LOOP.md](./PHASE_9_RESILIENT_LOOP.md): Persistent agent loop, triggers, guardrails, and human-in-the-loop approvals.
+- [PHASE_9_RESILIENT_LOOP.md](./PHASE_9_RESILIENT_LOOP.md): Persistent agent loop, triggers, guardrails, and operator-in-the-loop approvals.
 - [PHASE_11_PARALLEL_SERIALIZABILITY.md](./PHASE_11_PARALLEL_SERIALIZABILITY.md): Conflict-serializable parallel execution and verification.
 - [PHASE_12_SELF_IMPROVING_METHODS.md](./PHASE_12_SELF_IMPROVING_METHODS.md): Method scoring, pruning, and automated learning.
 - [PHASE_14_MULTI_PLAN_VERIFICATION.md](./PHASE_14_MULTI_PLAN_VERIFICATION.md): Generate-Verify-Select architecture and Failure Memory.
 - [PHASE_15_TRANSACTIONAL_REPAIR.md](./PHASE_15_TRANSACTIONAL_REPAIR.md): Transactional state, rollbacks, and localized repair engine.
-- [PHASE_16_ORCHESTRATION_CAPABILITIES.md](./PHASE_16_ORCHESTRATION_CAPABILITIES.md): Capability system, sub-agents, and AgentX API.
+- [PHASE_16_ORCHESTRATION_CAPABILITIES.md](./PHASE_16_ORCHESTRATION_CAPABILITIES.md): Capability system, sub-agents, and Agent API.
 - [PHASE_21_UNCERTAINTY_PROPAGATION.md](./PHASE_21_UNCERTAINTY_PROPAGATION.md): System-wide uncertainty propagation and safety thresholds.
 - [PHASE_22_SYNTHETIC_DIVERSITY.md](./PHASE_22_SYNTHETIC_DIVERSITY.md): Structural plan diversity via reasoning modes.
 - [PHASE_23_MEMORY_FAILURE_INTELLIGENCE.md](./PHASE_23_MEMORY_FAILURE_INTELLIGENCE.md): Experience store and failure intelligence.
@@ -243,7 +272,7 @@ Interfaces:
 
 ## Phase 28: Universal Hardware Optimization & Intelligent Memory
 
-Optimizing AgentX for high-performance reasoning on resource-constrained local hardware.
+Optimizing Agent for high-performance reasoning on resource-constrained local hardware.
 
 - **Extreme Efficiency**: Achieved industry-leading throughput by utilizing zero-copy memory patterns and native Rust execution.
 - **Intelligent Memory Gate**: Implemented a 5,000-character context trigger that automatically summarizes task history to prevent the "Linear Latency Wall."
@@ -251,8 +280,8 @@ Optimizing AgentX for high-performance reasoning on resource-constrained local h
 - **Unified Launcher**: Created a single "Gold Standard" entry point for the engine and assistant services.
 
 Interfaces:
-- Launcher: `AgentX Launcher.bat` (Desktop Shortcut)
-- Logic: `agentx/gateway.py` (Memory Monitor), `agentx/orchestration/swarm.py` (Bypass Dummy)
+- Launcher: `Agent Launcher.bat` (Desktop Shortcut)
+- Logic: `agent/gateway.py` (Memory Monitor), `agent/orchestration/swarm.py` (Bypass Dummy)
 - Docs: `docs/HARDWARE_OPTIMIZATION.md`
 
 ## Phase 9: Resilient Loop & Presence
@@ -262,17 +291,17 @@ Transitioned from one-off command execution to a robust, continuous agentic runt
 - **Persistent Agent Loop**: A non-blocking execution engine with task prioritization (`INTERRUPTED > PENDING > FAILED`).
 - **Execution Guardrails**: Integrated rate limiting, duplicate task detection, retry storm protection, no-progress stalling, and a circuit breaker that hard-stops the loop on catastrophic failure.
 - **Event-driven Task Generator**: Event-driven task enqueuing supporting `TIME` (intervals), `TASK_STATE` (cascading workflows), and `FILE_FLAG` (external synchronization) with chronos-safe filtering. (formerly Trigger Engine)
-- **Real-time Awareness**: Added `agentx status` dashboard featuring system health indicators, load level scoring, and recent telemetry alerts.
+- **Real-time Awareness**: Added `agent status` dashboard featuring system health indicators, load level scoring, and recent telemetry alerts.
 - **Alerting & Notifications**: Telegram/CLI alerting for task completion, failures, stalls, and circuit breaker events with automated rate-limiting and duplicate collapse.
-- **Human Approval Layer**: Implementation of a pause-and-wait workflow for `HIGH` risk tasks, allowing remote `approve`/`reject`/`modify` actions and emergency CLI loop controls (`pause-loop`, `resume-loop`, `kill-task`).
+- **Operator Approval Layer**: Implementation of a pause-and-wait workflow for `HIGH` risk tasks, allowing remote `approve`/`reject`/`modify` actions and emergency CLI loop controls (`pause-loop`, `resume-loop`, `kill-task`).
 
 Interfaces:
-- CLI: `agentx run-loop`, `agentx trigger`, `agentx status`, `agentx approve/reject`, `agentx pause-loop/resume-loop`
-- Logic: `agentx/presence/agent_loop.py`, `agentx/presence/trigger_engine.py`, `agentx/presence/state.py`, `agentx/presence/notifier.py`, `agentx/presence/approval.py`
+- CLI: `agent run-loop`, `agent trigger`, `agent status`, `agent approve/reject`, `agent pause-loop/resume-loop`
+- Logic: `agent/presence/agent_loop.py`, `agent/presence/trigger_engine.py`, `agent/presence/state.py`, `agent/presence/notifier.py`, `agent/presence/approval.py`
 
 ## Phase 10 — Execution, Control & Learning Architecture (Research-Aligned)
 
-AgentX now follows a 4-layer agent architecture aligned with modern LLM agent research:
+Agent now follows a 4-layer agent architecture aligned with modern LLM agent research:
 
 1. **Execution Layer** (Acting)
 2. **Control Layer** (Evaluation + Safety)
@@ -295,18 +324,18 @@ AgentX now follows a 4-layer agent architecture aligned with modern LLM agent re
 
 ### Hierarchical Execution without Planning (Phase 10 state)
 
-AgentX currently operates as a hierarchical execution system without explicit planning.
+Agent currently operates as a hierarchical execution system without explicit planning.
 
 - Tasks are executed via skills (low-level actions).
 - Composition provides limited hierarchical structure.
 - Strategy selection is reactive (not goal-decomposed).
 
 > [!IMPORTANT]
-> Without goal decomposition, agents remain reactive instead of autonomous. AgentX is currently a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
+> Without goal decomposition, agents remain reactive instead of autonomous. Agent is currently a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
 
 ### Multi-Layer Evaluation Pipeline (Production-grade)
 
-AgentX implements a layered evaluation system inspired by LLM-as-judge research patterns:
+Agent implements a layered evaluation system inspired by LLM-as-judge research patterns:
 
 - **Layer 1: Deterministic Validation** — Code-based checks (postconditions, contradictory terms).
 - **Layer 2: Semantic Evaluation (LLM)** — LLM-based verification of intent satisfaction.
@@ -324,7 +353,7 @@ Features include:
 
 ### Uncertainty-Aware Execution Model
 
-AgentX treats uncertainty as a first-class control signal:
+Agent treats uncertainty as a first-class control signal:
 
 - **Step-level uncertainty tracking**: Confidence scores captured for every action.
 - **Task-level accumulation with decay**: Tracking drift over time without runaway scores.
@@ -336,7 +365,7 @@ AgentX treats uncertainty as a first-class control signal:
 
 ### Hierarchical Execution (Pre-Planning Form)
 
-AgentX partially implements hierarchical reasoning via:
+Agent partially implements hierarchical reasoning via:
 - **Skill abstraction** (macro-actions)
 - **Skill composition** (micro execution)
 - **Retry-based local replanning**
@@ -344,7 +373,7 @@ AgentX partially implements hierarchical reasoning via:
 However, global planning (task decomposition and DAG-based execution) is not yet implemented (Phase 11).
 
 > [!NOTE]
-> Hierarchical frameworks split planning into macro and micro levels. AgentX currently masters the micro-level execution.
+> Hierarchical frameworks split planning into macro and micro levels. Agent currently masters the micro-level execution.
 
 ### Causal Failure Classification System
 
@@ -370,7 +399,7 @@ Execution is stabilized through several structured guards:
 
 ### Predictive Routing Layer (Pre-Execution Intelligence)
 
-Before execution begins, AgentX estimates:
+Before execution begins, Agent estimates:
 - **Task Complexity**: Based on objective length and verb count.
 - **Expected Uncertainty**: Derived from complexity and historical performance.
 - **Execution Cost**: Estimated token/call budget.
@@ -378,7 +407,7 @@ Before execution begins, AgentX estimates:
 Based on these heuristics, it selects an optimal path:
 - **Fast Path**: Single evaluator for simple tasks.
 - **Cascade Path**: Multi-evaluator consensus for complex tasks.
-- **Abort**: Immediate human escalation for high-uncertainty tasks.
+- **Abort**: Immediate operator escalation for high-uncertainty tasks.
 
 > [!TIP]
 > This acts as a lightweight planning proxy, reducing unnecessary computation and failure risk.
@@ -413,7 +442,7 @@ Evolving into a continuous, multi-environment goal system.
 
 - **Goal Engine**: Managing objectives over long time horizons across `PENDING/DONE/FAILED`.
 - **Device Routing**: Intelligent task dispatch to `Phone`, `PC`, or `Cloud`.
-- **State Persistence**: Global state survives restarts via `agentx_state.json`.
+- **State Persistence**: Global state survives restarts via `agent_state.json`.
 
 ## Phase 25: Self-Initiated Goals (Governed Autonomy)
 
@@ -444,8 +473,8 @@ Equipping local, non-vision models with robust, resource-efficient internet acce
 Interfaces:
 - Capability: `browser.search`, `browser.read`, `browser.navigate`
 - Path: `E:\obscura\obscura.exe` (Primary), `agent-browser` (Standby)
-- Logic: `agentx/capabilities/browser.py`
+- Logic: `agent/capabilities/browser.py`
 
 ## Next Evolution: Full Autonomous Deployment
 
-AgentX is now a fully autonomous learner capable of proactive self-improvement and long-horizon multi-device orchestration. Final focus remains on edge-case refinement and cross-device state synchronization stability.
+Agent is now a fully autonomous learner capable of proactive self-improvement and long-horizon multi-device orchestration. Final focus remains on edge-case refinement and cross-device state synchronization stability.

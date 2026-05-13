@@ -1,10 +1,10 @@
 # Phase 5: Scheduler and Daily Executive Review
 
-Phase 5 makes AJA proactive. Instead of waiting for the user to ask what is unfinished, AJA can generate concise executive reviews, detect avoidance patterns, escalate ignored commitments, and deliver high-signal summaries through Telegram.
+Phase 5 makes Assistant proactive. Instead of waiting for the user to ask what is unfinished, Assistant can generate concise executive reviews, detect avoidance patterns, escalate ignored commitments, and deliver high-signal summaries through Telegram.
 
 ## Goal
 
-AJA actively manages:
+Assistant actively manages:
 
 - unfinished tasks
 - missed deadlines
@@ -50,7 +50,7 @@ Includes:
 The scheduler uses the existing LanceDB/Arrow secretary database:
 
 ```text
-.agentx/aja_secretary.lancedb
+.agent/assistant_secretary.lancedb
 ```
 
 Tables:
@@ -77,7 +77,7 @@ Configurable settings include:
 
 ## Accountability Behavior
 
-AJA scores urgency using:
+Assistant scores urgency using:
 
 - priority
 - due date proximity
@@ -113,9 +113,9 @@ POST /scheduler/snooze/{task_id}
 ### CLI
 
 ```bash
-python agentx.py review morning
-python agentx.py review night
-python agentx.py review weekly
+python agent.py review morning
+python agent.py review night
+python agent.py review weekly
 ```
 
 ### FastAPI
@@ -129,7 +129,7 @@ python agentx.py review weekly
 
 ### Telegram
 
-AJA recognizes:
+Assistant recognizes:
 
 - `morning review`
 - `night review`
@@ -139,7 +139,7 @@ AJA recognizes:
 - `why is recruiter follow-up still pending`
 - `snooze <task_id> tomorrow`
 
-Telegram delivery is required for scheduled reviews. Use `TELEGRAM_REVIEW_CHAT_ID` to override the default review chat; otherwise AJA falls back to `TELEGRAM_ALLOWED_USER_ID`.
+Telegram delivery is required for scheduled reviews. Use `TELEGRAM_REVIEW_CHAT_ID` to override the default review chat; otherwise Assistant falls back to `TELEGRAM_ALLOWED_USER_ID`.
 
 ## No-Spam Rules
 
@@ -147,5 +147,5 @@ Telegram delivery is required for scheduled reviews. Use `TELEGRAM_REVIEW_CHAT_I
 - Review delivery is windowed.
 - Delivered review events are recorded.
 - A due review is not delivered repeatedly in the same period.
-- AJA escalates repeated avoidance instead of sending noisy repeated pings.
+- Assistant escalates repeated avoidance instead of sending noisy repeated pings.
 

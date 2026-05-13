@@ -1,5 +1,5 @@
 """
-agentx/embeddings/index.py
+agent/embeddings/index.py
 ===========================
 Phase 13 - In-Memory Vector Index.
 

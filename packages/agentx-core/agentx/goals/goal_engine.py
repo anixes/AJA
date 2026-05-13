@@ -10,7 +10,7 @@ from agentx.runtime.event_bus import bus, EVENTS
 
 import agentx.config
 
-GLOBAL_STATE_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agentx_state.json"
+GLOBAL_STATE_FILE = agentx.config.PROJECT_ROOT / ".agentx" / "agent_state.json"
 
 class Goal:
     def __init__(self, objective: str, priority: int, deadline: float = None, is_sandbox: bool = False):

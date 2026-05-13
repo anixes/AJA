@@ -1,7 +1,7 @@
 # Phase 22: Synthetic Diversity Layer (BETA)
 
 ## Overview
-Phase 22 introduces a **Synthetic Diversity Layer** that ensures AgentX generates structurally different candidate plans from a single model. This prevents "diversity collapse" where multiple generated plans are merely syntactic variations of the same flawed logic.
+Phase 22 introduces a **Synthetic Diversity Layer** that ensures Agent generates structurally different candidate plans from a single model. This prevents "diversity collapse" where multiple generated plans are merely syntactic variations of the same flawed logic.
 
 ## Core Features
 
@@ -32,5 +32,5 @@ If the `disagreement_score` or `diversity_collapse_score` exceeds 0.75, the syst
 
 ## Technical Details
 - **Configuration**: `AGENTX_DIVERSITY_BETA = True` in `config.py`.
-- **Logic Location**: `agentx/planning/generator.py` and `agentx/planning/planner.py`.
+- **Logic Location**: `agent/planning/generator.py` and `agent/planning/planner.py`.
 - **Interaction**: Integrated into the Generate-Verify-Select pipeline.

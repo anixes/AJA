@@ -1,5 +1,5 @@
 """
-agentx/planning/dag_validator.py
+agent/planning/dag_validator.py
 =================================
 Phase 11 - DAG Validator.
 

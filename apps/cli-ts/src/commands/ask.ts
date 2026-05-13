@@ -1,5 +1,5 @@
 /**
- * agentx ask "prompt"
+ * agent ask "prompt"
  * 
  * Single-shot query: send prompt → get response → exit.
  * Supports streaming output and cost display.
@@ -17,7 +17,7 @@ export async function askCommand(prompt: string, opts: CommandOptions): Promise<
   }
 
   const contextBlock = await getGraphContext(prompt);
-  const sysPrompt = 'You are AgentX, a helpful coding assistant. Be concise and precise.' 
+  const sysPrompt = 'You are Agent, a helpful coding assistant. Be concise and precise.' 
     + (contextBlock ? `\n\nHere is relevant context from the repository:\n${contextBlock}` : '');
 
   const messages = [

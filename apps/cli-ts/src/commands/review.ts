@@ -1,5 +1,5 @@
 /**
- * agentx review [path]
+ * agent review [path]
  * 
  * Diff-aware code review: auto-detects git changes,
  * constructs a review prompt, and returns structured feedback.
@@ -49,7 +49,7 @@ export async function reviewCommand(targetPath: string, opts: CommandOptions): P
       console.log('📝 No git diff found. Reviewing file content directly.\n');
 
       const messages = [
-        { role: 'system' as const, content: `You are AgentX, an expert code reviewer. Review the following code for:
+        { role: 'system' as const, content: `You are Agent, an expert code reviewer. Review the following code for:
 1. Bugs and logic errors
 2. Security vulnerabilities
 3. Performance issues
@@ -73,7 +73,7 @@ Be specific, cite line numbers, and suggest fixes.` },
   console.log(`📋 Reviewing ${diff.split('\n').length} lines of diff...\n`);
 
   const messages = [
-    { role: 'system' as const, content: `You are AgentX, an expert code reviewer. Review the following git diff for:
+    { role: 'system' as const, content: `You are Agent, an expert code reviewer. Review the following git diff for:
 1. **Bugs**: Logic errors, off-by-one, null/undefined risks
 2. **Security**: Injection, secrets exposure, unsafe patterns
 3. **Performance**: Unnecessary allocations, N+1 queries, blocking calls

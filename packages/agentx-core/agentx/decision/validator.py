@@ -1,5 +1,5 @@
 """
-agentx/decision/validator.py
+agent/decision/validator.py
 ===========================
 Phase 10 — Deterministic Decision Validation.
 
@@ -10,7 +10,7 @@ before execution begins. This module is purely deterministic.
 import logging
 from typing import Dict, Any
 
-logger = logging.getLogger("agentx.decision.validator")
+logger = logging.getLogger("agent.decision.validator")
 
 def validate_decision(decision: Dict[str, Any], context: Dict[str, Any]) -> str:
     """
@@ -26,7 +26,7 @@ def validate_decision(decision: Dict[str, Any], context: Dict[str, Any]) -> str:
     if risk == "HIGH" and dtype not in ["ASK", "REJECT"]:
         logger.warning(f"[Validator] OVERRIDE: High risk objective requires ASK/REJECT. Original: {dtype}")
         decision["type"] = "ASK"
-        decision["reason"] = f"Deterministic Override: HIGH risk objective requires human approval. (Original: {dtype})"
+        decision["reason"] = f"Deterministic Override: HIGH risk objective requires operator approval. (Original: {dtype})"
         return "OVERRIDE"
 
     # 2. Confidence Threshold Constraint

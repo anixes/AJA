@@ -1,5 +1,5 @@
 /**
- * AgentX Cost Modes
+ * Agent Cost Modes
  * 
  * Defines three cost strategies that control how the Smart Model Router
  * selects models for each task:

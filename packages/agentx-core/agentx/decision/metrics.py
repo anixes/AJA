@@ -6,7 +6,7 @@ import lancedb
 import pyarrow as pa
 from agentx.memory.manager import MemoryManager, get_memory_manager
 
-logger = logging.getLogger("agentx.decision.metrics")
+logger = logging.getLogger("agent.decision.metrics")
 TRUE_SUCCESS_OUTCOMES = {"TRUE_SUCCESS", "SUCCESS"}
 DECAY_DAYS = 14
 
@@ -53,13 +53,17 @@ _ROUTING_METRICS_SCHEMA = pa.schema([
 
 def _init_metrics_tables():
     db = _manager.db
+    existing = db.list_tables()
+    if hasattr(existing, "tables"):
+        existing = existing.tables
+
     for name, schema in [
         ("decision_metrics", _DECISION_METRICS_SCHEMA),
         ("evaluation_metrics", _EVALUATION_METRICS_SCHEMA),
         ("evaluator_performance", _EVALUATOR_PERFORMANCE_SCHEMA),
         ("routing_metrics", _ROUTING_METRICS_SCHEMA),
     ]:
-        if name not in db.table_names():
+        if name not in existing:
             db.create_table(name, schema=schema)
 
 _init_metrics_tables()
@@ -341,7 +345,7 @@ def get_metrics_summary_for_prompt() -> str:
 def print_metrics():
     data = get_metrics()
     print("\n+----------------------------------------------+")
-    print("|        AgentX Decision Quality Metrics       |")
+    print("|        Agent Decision Quality Metrics       |")
     print("+----------------------------------------------+")
     print(f"  Total tasks tracked : {data['total_tasks']}")
     print(f"  Avg attempts/task   : {data['avg_attempts']}")

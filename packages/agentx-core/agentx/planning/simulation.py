@@ -37,7 +37,7 @@ def simulate_plan(plan: PlanGraph, strategy: Optional[Dict[str, Any]] = None) ->
     plan_json = json.dumps(plan.to_dict(), indent=2)
     strategy_info = f"\nApplied Strategy: {json.dumps(strategy, indent=2)}" if strategy else ""
     
-    system = """You are AgentX Plan Simulator.
+    system = """You are Agent Plan Simulator.
 Predict the outcome of the given plan before it is executed.
 Analyze dependencies, tool requirements, and potential failure points.
 Return JSON ONLY:

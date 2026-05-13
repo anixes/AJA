@@ -97,7 +97,7 @@ class Skill(Capability):
 
 class SkillManager:
     """
-    Manages procedural skills for AgentX.
+    Manages procedural skills for Agent.
     """
     def __init__(self, skills_dir: Optional[Path] = None):
         if skills_dir is None:

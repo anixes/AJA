@@ -4,7 +4,7 @@ from agentx.runtime.session import Session
 
 def execute_task_sync(session: Session, task: str):
     """
-    Synchronous bridge to the AgentX Planner and Executor.
+    Synchronous bridge to the Agent Planner and Executor.
     In production, this invokes Planner.decompose() and ReActExecutor.run()
     """
     print(f"[Engine] Starting execution for '{task}'...")
@@ -29,23 +29,23 @@ def execute_task_sync(session: Session, task: str):
     
     print(f"[Engine] Execution completed.")
 
-async def agentx_loop():
+async def agent_loop():
     """Background worker that pulls tasks and executes them seamlessly."""
-    print("[AgentX] Event Loop started. Waiting for tasks...")
+    print("[Agent] Event Loop started. Waiting for tasks...")
     
     while True:
         task_data = await task_queue.get()
         session: Session = task_data["session"]
         task: str = task_data["task"]
         
-        print(f"[AgentX] Processing task for user {session.user_id}: {task}")
+        print(f"[Agent] Processing task for user {session.user_id}: {task}")
         
         try:
             # ReActExecutor is synchronous currently, run in thread to keep API responsive
             await asyncio.to_thread(execute_task_sync, session, task)
             session.log_interaction("agent", f"Completed: {task}")
         except Exception as e:
-            print(f"[AgentX] Task failed: {e}")
+            print(f"[Agent] Task failed: {e}")
             session.log_interaction("agent", f"Failed: {e}")
             
         task_queue.task_done()

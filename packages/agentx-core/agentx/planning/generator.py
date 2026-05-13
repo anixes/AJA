@@ -1,5 +1,5 @@
 """
-agentx/planning/generator.py
+agent/planning/generator.py
 =============================
 Phase 14 - Candidate Generation & Refinement.
 

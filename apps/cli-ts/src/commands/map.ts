@@ -1,5 +1,5 @@
 /**
- * agentx map [path]
+ * agent map [path]
  * 
  * Index the repo and display the knowledge graph summary.
  * First run: full index. Subsequent: incremental update.
@@ -17,7 +17,7 @@ export async function mapCommand(targetPath: string, opts: MapOptions): Promise<
   const cwd = targetPath === '.' ? process.cwd() : targetPath;
   const indexer = new Indexer(cwd);
 
-  console.log('🧠 AgentX Repo Brain\n');
+  console.log('🧠 Agent Repo Brain\n');
 
   let graph;
   if (opts.full) {
@@ -79,5 +79,5 @@ export async function mapCommand(targetPath: string, opts: MapOptions): Promise<
     }
   }
 
-  console.log(`\n💡 Graph stored at: .agentx/graph.json`);
+  console.log(`\n💡 Graph stored at: .agent/graph.json`);
 }

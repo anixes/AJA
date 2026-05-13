@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync } from 'fs';
 import path from 'path';
 
 function appendApprovalAudit(record: Record<string, unknown>): void {
-  const dir = path.join(process.cwd(), '.agentx');
+  const dir = path.join(process.cwd(), '.agent');
   mkdirSync(dir, { recursive: true });
   appendFileSync(
     path.join(dir, 'approval-audit.jsonl'),

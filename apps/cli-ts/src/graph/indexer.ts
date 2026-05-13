@@ -1,5 +1,5 @@
 /**
- * AgentX Indexer
+ * Agent Indexer
  * 
  * Builds the repo graph by walking files, parsing symbols, and storing edges.
  * Supports full re-index and incremental (changed-files-only) updates.
@@ -15,7 +15,7 @@ import type { RepoGraph, GraphNode, GraphEdge } from './types.js';
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '__pycache__',
   'coverage', '.cache', '.turbo', 'vendor', '.venv', 'venv',
-  '.agentx', 'graphify-out', 'claude-code-reference',
+  '.agent', 'graphify-out', 'claude-code-reference',
 ]);
 
 // Extensions to index

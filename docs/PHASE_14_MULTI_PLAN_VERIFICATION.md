@@ -1,13 +1,13 @@
 # Phase 14: Research-Grade Multi-Plan Planning System
 
-Phase 14 transforms the AgentX planning architecture from a single-plan generator into an adaptive, research-aligned **Generate-Verify-Select** system. This prevents common planning failures such as hallucinations, structural loops, and repetitive mistakes.
+Phase 14 transforms the Agent planning architecture from a single-plan generator into an adaptive, research-aligned **Generate-Verify-Select** system. This prevents common planning failures such as hallucinations, structural loops, and repetitive mistakes.
 
 ## Architecture: Generator-Verifier-Selector
 
 The system now follows a three-stage pipeline for every complex goal:
 
 ### 1. Adaptive Candidate Generation
-- **Complexity Estimation**: Before planning, AgentX estimates the task complexity (LOW, MEDIUM, HIGH) based on word count and semantic keywords.
+- **Complexity Estimation**: Before planning, Agent estimates the task complexity (LOW, MEDIUM, HIGH) based on word count and semantic keywords.
 - **Dynamic K-Candidates**:
     - LOW: 1 candidate (fast path).
     - MEDIUM: 3 candidates.
@@ -32,7 +32,7 @@ The system now follows a three-stage pipeline for every complex goal:
 - **Risk Thresholds**: If a plan's risk score exceeds a threshold, the selector either picks the "Safest" candidate or escalates to the user.
 
 ## Failure Memory (Persistent Adaptation)
-AgentX now maintains a persistent `failures.json` store that records every failed execution attempt.
+Agent now maintains a persistent `failures.json` store that records every failed execution attempt.
 - **Similarity Penalization**: When generating new plans, the Scorer retrieves similar past failures via goal embeddings.
 - **Infinite Loop Protection**: If a proposed plan is structurally similar to a previously failed attempt for the same goal, it receives a heavy "Failure Penalty," forcing the generator to seek a novel approach.
 

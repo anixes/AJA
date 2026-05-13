@@ -1,5 +1,5 @@
 /**
- * AgentX Grep/Search Tool
+ * Agent Grep/Search Tool
  * 
  * Fast project-wide text search.
  * Uses ripgrep (rg) if available, falls back to built-in recursive grep.

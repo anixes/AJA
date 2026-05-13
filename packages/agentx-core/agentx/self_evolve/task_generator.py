@@ -26,7 +26,7 @@ class CurriculumManager:
         model_name = agentx.config.AGENTX_PLANNER_MODEL
         gw, mapped_model = get_gateway_for_model(model_name)
         
-        system = """You are AgentX Skill Gap Detector.
+        system = """You are Agent Skill Gap Detector.
 Analyze the failed execution result and detect the core weaknesses.
 Return JSON ONLY:
 {
@@ -57,7 +57,7 @@ Return JSON ONLY:
         model_name = agentx.config.AGENTX_PLANNER_MODEL
         gw, mapped_model = get_gateway_for_model(model_name)
         
-        system = f"""You are AgentX Curriculum Generator.
+        system = f"""You are Agent Curriculum Generator.
 Based on the provided skill gaps and current difficulty level ({self.difficulty_level}), generate a synthetic training task for the agent.
 It must be a safe, simulated task that allows the agent to practice the weak areas.
 Return JSON ONLY:

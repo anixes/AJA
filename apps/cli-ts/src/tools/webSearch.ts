@@ -1,5 +1,5 @@
 /**
- * AgentX Web Search Tool (Optional)
+ * Agent Web Search Tool (Optional)
  * 
  * Lightweight web search via DuckDuckGo Instant Answer API (no API key needed).
  * Can be extended with Brave, SearXNG, or Tavily if keys are available.
@@ -18,7 +18,7 @@ async function ddgSearch(query: string, max: number): Promise<string> {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
 
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'AgentX/1.0' },
+    headers: { 'User-Agent': 'Agent/1.0' },
     signal: AbortSignal.timeout(10_000),
   });
 

@@ -1,5 +1,5 @@
 /**
- * AgentX Test Runner Tool
+ * Agent Test Runner Tool
  * 
  * Auto-detects test framework and runs tests.
  * Supports: jest, vitest, mocha, pytest, bun test

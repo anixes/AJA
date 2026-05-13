@@ -3,6 +3,8 @@ import ast
 import re
 import json
 from pathlib import Path
+import lancedb
+import pyarrow as pa
 
 class LocalExtractor:
     """
@@ -12,6 +14,24 @@ class LocalExtractor:
         self.nodes = []
         self.edges = []
         self.seen_ids = set()
+        self.db_path = Path(".agentx") / "lancedb" / "structure"
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = lancedb.connect(self.db_path)
+        self._ensure_table()
+
+    def _ensure_table(self):
+        schema = pa.schema([
+            ("path", pa.string()),
+            ("mtime", pa.float64()),
+            ("nodes_json", pa.string()),
+            ("edges_json", pa.string())
+        ])
+        existing_tables = self.db.list_tables()
+        if hasattr(existing_tables, "tables"):
+            existing_tables = existing_tables.tables
+            
+        if "file_cache" not in existing_tables:
+            self.db.create_table("file_cache", schema=schema)
 
     def add_node(self, node_id, label, type_, line=None, path=None):
         if node_id not in self.seen_ids:
@@ -77,32 +97,60 @@ class LocalExtractor:
                     self.edges.append({"source": module_name, "target": func_id, "type": "contains"})
 
     def run(self):
-        # 1. Scan Files
+        table = self.db.open_table("file_cache")
+        
+        # 1. Scan and Process
         for root, _, files in os.walk("."):
-            if "node_modules" in root or ".git" in root or "graphify-out" in root:
+            if any(x in root for x in ["node_modules", ".git", "graphify-out", ".agentx", "dist", "__pycache__"]):
                 continue
             for f in files:
                 path = Path(root) / f
+                if path.suffix not in [".py", ".ts"]:
+                    continue
+                
+                str_path = str(path)
+                mtime = path.stat().st_mtime
+                
+                # Check cache
+                cached = table.search().where(f"path = '{str_path}'").to_list()
+                
+                if cached and cached[0]["mtime"] == mtime:
+                    # Load from cache
+                    file_nodes = json.loads(cached[0]["nodes_json"])
+                    file_edges = json.loads(cached[0]["edges_json"])
+                    self.nodes.extend(file_nodes)
+                    self.edges.extend(file_edges)
+                    for n in file_nodes:
+                        self.seen_ids.add(n["id"])
+                    continue
+
+                # Parse fresh
+                # We need to isolate this file's contribution
+                start_node_idx = len(self.nodes)
+                start_edge_idx = len(self.edges)
+                
                 if path.suffix == ".py":
                     self.extract_python(path)
                 elif path.suffix == ".ts":
                     self.extract_ts(path)
-
-        # 2. Merge with existing semantic data if possible
-        # For this demo, we just overwrite the local structure
-        output = {
-            "nodes": self.nodes,
-            "edges": self.edges,
-            "metadata": {"type": "local_ast_sync"}
-        }
+                
+                new_file_nodes = self.nodes[start_node_idx:]
+                new_file_edges = self.edges[start_edge_idx:]
+                
+                # Update table
+                new_data = {
+                    "path": str_path,
+                    "mtime": mtime,
+                    "nodes_json": json.dumps(new_file_nodes),
+                    "edges_json": json.dumps(new_file_edges)
+                }
+                
+                if cached:
+                    table.update(where=f"path = '{str_path}'", values=new_data)
+                else:
+                    table.add([new_data])
         
-        out_dir = Path("graphify-out")
-        out_dir.mkdir(exist_ok=True)
-        (out_dir / "graph_local.json").write_text(json.dumps(output, indent=2))
-        
-        # 3. Simple HTML update (Optional/Simplified)
-        # We'll just print status for now
-        print(f"Mapped {len(self.nodes)} nodes and {len(self.edges)} edges.")
+        print(f"Mapped {len(self.nodes)} structural nodes across Agent codebase.")
 
 if __name__ == "__main__":
     LocalExtractor().run()

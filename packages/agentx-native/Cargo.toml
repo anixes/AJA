@@ -1,10 +1,10 @@
 [package]
-name = "agentx-native"
+name = "agent-native"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "agentx_native"
+name = "agent_native"
 crate-type = ["cdylib"]
 
 [dependencies]

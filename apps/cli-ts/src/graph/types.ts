@@ -1,5 +1,5 @@
 /**
- * AgentX Graph Types
+ * Agent Graph Types
  * 
  * The repo brain stores code as a directed graph:
  *   Nodes = symbols (files, functions, classes, routes, tests, schemas)
@@ -25,7 +25,7 @@ export type NodeKind =
 export interface GraphNode {
   id: string;              // Unique: "file:src/foo.ts" or "fn:src/foo.ts:handleClick"
   kind: NodeKind;
-  name: string;            // Human label: "handleClick"
+  name: string;            // Operator label: "handleClick"
   filePath: string;        // Relative path
   line?: number;           // Start line
   endLine?: number;        // End line
@@ -99,7 +99,7 @@ export interface ImpactResult {
   transitiveDeps: GraphNode[];
   /** Risk score 0-100 */
   riskScore: number;
-  /** Human-readable summary */
+  /** Readable summary */
   summary: string;
 }
 

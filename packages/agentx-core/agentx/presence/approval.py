@@ -16,7 +16,7 @@ APPROVAL_DIR = ".agentx/approvals"
 
 def request_approval(task_id: int, objective: str, payload: dict = None) -> dict:
     """
-    Pause execution and wait for human approval via file-based polling.
+    Pause execution and wait for operator approval via file-based polling.
     """
     os.makedirs(APPROVAL_DIR, exist_ok=True)
     filepath = f"{APPROVAL_DIR}/{task_id}.json"
@@ -37,8 +37,8 @@ def request_approval(task_id: int, objective: str, payload: dict = None) -> dict
     print(f"\n[!] HIGH RISK TASK PAUSED FOR APPROVAL.")
     print(f"Task ID: {task_id}")
     print(f"Objective: {objective}")
-    print(f"To approve: agentx approve {task_id}")
-    print(f"To reject:  agentx reject {task_id}")
+    print(f"To approve: agent approve {task_id}")
+    print(f"To reject:  agent reject {task_id}")
     
     # --- Interactive Prompt (Phase 11) ---
     import sys

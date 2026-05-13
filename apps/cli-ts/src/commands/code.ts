@@ -1,5 +1,5 @@
 /**
- * agentx code "task"
+ * agent code "task"
  * 
  * Full agentic coding loop — uses the QueryEngine with all tools.
  * Plans, writes, tests, and iterates until the task is complete.
@@ -30,7 +30,7 @@ export async function codeCommand(task: string, opts: CommandOptions): Promise<v
     console.log(`🌿 Working on branch: ${branchName}\n`);
   }
 
-  console.log(`🤖 AgentX coding: "${task}"\n`);
+  console.log(`🤖 Agent coding: "${task}"\n`);
   console.log(`   Mode: ${opts.mode} | Tools: ${toolManager.getAvailableTools().length} available\n`);
 
   const contextBlock = await getGraphContext(task);
@@ -43,7 +43,7 @@ export async function codeCommand(task: string, opts: CommandOptions): Promise<v
     .map(t => `- ${t.name}: ${t.description}`)
     .join('\n');
 
-  const systemPrompt = `You are AgentX, an autonomous coding agent. Your task is to complete the following coding task.
+  const systemPrompt = `You are Agent, an autonomous coding agent. Your task is to complete the following coding task.
 
 Available tools:
 ${toolList}

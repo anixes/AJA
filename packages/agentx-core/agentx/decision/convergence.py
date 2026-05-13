@@ -1,4 +1,4 @@
-"""agentx/decision/convergence.py
+"""agent/decision/convergence.py
 ================================
 Phase 14 — Loop Stability & Convergence Control.
 Phase 16 — Confidence-aware convergence.
@@ -17,7 +17,7 @@ import hashlib
 import logging
 from typing import List, Dict, Any, Optional
 
-logger = logging.getLogger("agentx.decision.convergence")
+logger = logging.getLogger("agent.decision.convergence")
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -5,7 +5,7 @@ import pyarrow as pa
 from datetime import datetime, timezone
 from agentx.memory.manager import MemoryManager, get_memory_manager
 
-logger = logging.getLogger("agentx.decision.feedback")
+logger = logging.getLogger("agent.decision.feedback")
 FEEDBACK_DECAY_DAYS = 30
 
 _manager = get_memory_manager()
@@ -24,7 +24,10 @@ _FEEDBACK_SCHEMA = pa.schema([
 
 
 def _init_feedback_table():
-    if "decision_logs" not in _manager.db.table_names():
+    existing = _manager.db.list_tables()
+    if hasattr(existing, "tables"):
+        existing = existing.tables
+    if "decision_logs" not in existing:
         _manager.db.create_table("decision_logs", schema=_FEEDBACK_SCHEMA)
 
 _init_feedback_table()
@@ -119,3 +122,17 @@ def get_feedback_stats(objective: str):
         stats[dtype][entry.get("outcome", "FAILURE")] = \
             stats[dtype].get(entry.get("outcome", "FAILURE"), 0) + 1
     return stats
+
+
+def cleanup_old_decisions(ttl_days: int = 30):
+    """
+    Prune decision logs older than ttl_days to maintain database performance.
+    """
+    from datetime import timedelta
+    try:
+        table = _manager.db.open_table("decision_logs")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat()
+        table.delete(f"created_at < '{cutoff}'")
+        print(f"[Maintenance] Pruned decision logs older than {cutoff}")
+    except Exception as e:
+        print(f"[Feedback] Failed to prune decision logs: {e}")

@@ -1,5 +1,5 @@
 """
-agentx/decision/retry.py
+agent/decision/retry.py
 ========================
 Phase 10 — Decision Retry Controller.
 Phase 12 — Causal Rule Integration.
@@ -15,7 +15,7 @@ import time
 import hashlib
 from typing import Dict, Any, Tuple, Optional, List
 
-logger = logging.getLogger("agentx.decision.retry")
+logger = logging.getLogger("agent.decision.retry")
 
 MAX_RETRIES = 3
 
@@ -148,7 +148,7 @@ def _apply_causal_action(
 
     if causal_upper == "ASK":
         decision["type"] = "ASK"
-        decision["reason"] = f"Causal rule: failure classified → escalating to human."
+        decision["reason"] = f"Causal rule: failure classified → escalating to operator."
         return "CHANGE_STRATEGY", decision, current_hash
 
     if causal_upper == "REJECT":

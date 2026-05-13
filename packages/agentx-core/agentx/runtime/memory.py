@@ -7,10 +7,11 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from agentx.config import PROJECT_ROOT
+from agentx.memory.manager import list_tables_defensive
 
 class MemoryTree:
     """
-    High-performance Unified Memory for AgentX powered by Apache Arrow and LanceDB.
+    High-performance Unified Memory for Agent powered by Apache Arrow and LanceDB.
     Replaces legacy LanceDB/Arrow with a columnar data store for maximum hardware efficiency.
     """
     def __init__(self, table_name: str = "agent_activity"):
@@ -23,7 +24,9 @@ class MemoryTree:
 
     def _ensure_table(self):
         """Ensures the activity table exists with an Arrow-optimized schema."""
-        if self.table_name not in self.db.table_names():
+        existing_tables = list_tables_defensive(self.db)
+        
+        if self.table_name not in existing_tables:
             # Schema design for maximum performance
             schema = pa.schema([
                 pa.field("id", pa.string()),
@@ -57,11 +60,8 @@ class MemoryTree:
         Note: This is now backed by Arrow's SIMD-accelerated filtering.
         """
         table = self.db.open_table(self.table_name)
-        # LanceDB SQL filtering on Arrow tables
-        results = table.to_lance().scanner(
-            filter=f"content LIKE '%{query}%'",
-            limit=limit
-        ).to_table().to_pandas()
+        # Standard LanceDB SQL filtering
+        results = table.search().where(f"content LIKE '%{query}%'").limit(limit).to_pandas()
         
         return [
             {
@@ -75,25 +75,26 @@ class MemoryTree:
     def get_recent_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Retrieves recent history using Arrow's zero-copy scan."""
         table = self.db.open_table(self.table_name)
-        # Efficient scan ordered by timestamp
-        results = table.to_lance().scanner(
-            limit=limit
-        ).to_table().to_pandas()
+        # Efficient scan using LanceDB's search API
+        results = table.search().limit(limit).to_pandas()
         
         # Sort in memory for small limits (Pandas is fast here)
-        results = results.sort_values(by="timestamp", ascending=False).head(limit)
+        if not results.empty:
+            results = results.sort_values(by="timestamp", ascending=False).head(limit)
         
-        return [
-            {
+        history = []
+        for _, row in results.iterrows():
+            history.append({
                 "type": row["type"],
                 "content": row["content"],
                 "timestamp": row["timestamp"]
-            } 
-            for _, row in results.iterrows()
-        ]
+            })
+        return history
 
     def clear(self):
         """Wipes the memory table."""
-        if self.table_name in self.db.table_names():
+        existing = list_tables_defensive(self.db)
+            
+        if self.table_name in existing:
             self.db.drop_table(self.table_name)
             self._ensure_table()

@@ -135,7 +135,7 @@ def compare_reasoning(plans: List[PlanGraph]) -> dict:
             similarity_score = (total_patterns - unique_patterns) / (unique_patterns * (len(plans) - 1))
             
     if similarity_score > 0.9:
-        escalation = "HITL"
+        escalation = "OITL"
     elif similarity_score > 0.7:
         escalation = "verifier"
     elif similarity_score > 0.5:

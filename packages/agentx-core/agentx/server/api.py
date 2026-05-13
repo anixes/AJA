@@ -1,9 +1,9 @@
 """
-agentx/server/api.py
+agent/server/api.py
 =====================
-FastAPI server for AgentX.
+FastAPI server for Agent.
 
-Wave 3 HITL endpoints added:
+Wave 3 OITL endpoints added:
   POST /hitl/approve            - approve pending node (optionally override inputs)
   POST /hitl/reject             - reject pending node (with reason)
   POST /hitl/modify_node        - mutate pending node inputs while paused
@@ -20,7 +20,7 @@ from agentx.runtime.session import session_manager
 from agentx.runtime.event_bus import bus, EVENTS
 import agentx.config
 
-app = FastAPI(title="AgentX Core Server")
+app = FastAPI(title="Agent Core Server")
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ class ModifyRequest(BaseModel):
     user_id: str
     new_plan_data: dict
 
-# --- Wave 3: HITL models ---
+# --- Wave 3: OITL models ---
 
 class ApproveRequest(BaseModel):
     user_id: str
@@ -93,7 +93,7 @@ task_queue: asyncio.Queue = asyncio.Queue()
 
 
 # ---------------------------------------------------------------------------
-# Wave 3: HITL (Human-in-the-Loop) endpoints
+# Wave 3: OITL (Operator-in-the-Loop) endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/hitl/approve")
@@ -189,7 +189,7 @@ async def hitl_modify_node(req: ModifyNodeRequest):
 @app.get("/hitl/status/{user_id}")
 async def hitl_status(user_id: str):
     """
-    Return current HITL state for a user session.
+    Return current OITL state for a user session.
     """
     if user_id not in session_manager.sessions:
         return {"status": "no_session"}

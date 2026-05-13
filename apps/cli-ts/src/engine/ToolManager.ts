@@ -1,5 +1,5 @@
 /**
- * AgentX Tool Manager (v2)
+ * Agent Tool Manager (v2)
  * 
  * Registers all tools and enforces execution mode policies
  * before dispatching tool calls.

@@ -1,0 +1,31 @@
+{
+  "baseline": {
+    "success_rate": 1.0,
+    "avg_latency": 0.10000000000000002,
+    "avg_repairs": 0.3333333333333333,
+    "avg_rollbacks": 0.0
+  },
+  "raw_results": [
+    {
+      "task": "deploy_project",
+      "success": true,
+      "repairs": 0,
+      "rollbacks": 0,
+      "latency": 0.1
+    },
+    {
+      "task": "fix_failing_tests",
+      "success": true,
+      "repairs": 1,
+      "rollbacks": 0,
+      "latency": 0.1
+    },
+    {
+      "task": "setup_env",
+      "success": true,
+      "repairs": 0,
+      "rollbacks": 0,
+      "latency": 0.1
+    }
+  ]
+}

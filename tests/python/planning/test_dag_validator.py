@@ -5,8 +5,8 @@ Unit tests for DAGValidator — cycle detection, dependency integrity, etc.
 """
 
 import pytest
-from agentx.planning.models import DoD, PlanGraph, PlanNode
-from agentx.planning.dag_validator import DAGValidator, UNCERTAINTY_HARD_LIMIT
+from agent.planning.models import DoD, PlanGraph, PlanNode
+from agent.planning.dag_validator import DAGValidator, UNCERTAINTY_HARD_LIMIT
 
 
 def _node(nid, deps=None, uncertainty=0.1, inputs=None):

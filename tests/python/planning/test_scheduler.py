@@ -5,8 +5,8 @@ Unit tests for the dependency-aware Scheduler.
 """
 
 import pytest
-from agentx.planning.models import DoD, PlanGraph, PlanNode
-from agentx.planning.scheduler import Scheduler
+from agent.planning.models import DoD, PlanGraph, PlanNode
+from agent.planning.scheduler import Scheduler
 
 
 def _node(nid, deps=None, status="PENDING"):

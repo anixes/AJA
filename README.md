@@ -1,9 +1,9 @@
 # AgentX & AJA
+### *The Local-First Agentic OS*
 
-## 🚀 The Local-First Agentic OS
 **High-Performance Autonomy for Every Machine.**
 
-AgentX is a cutting-edge orchestration framework designed to bridge the gap between elite AI capabilities and accessible hardware. By leveraging a **Local-First** philosophy and extreme memory engineering, AgentX enables a sophisticated, autonomous agent swarm to run efficiently on the cheapest of hardware while delivering maximum performance.
+AgentX is a high-performance orchestration core designed for autonomous swarm intelligence. While AgentX handles the heavy lifting—native Rust execution and Arrow memory stacks—**AJA** (Assistant of Joint Agents) acts as your personal natural-language secretary, planning missions and managing your workflow via CLI or Telegram.
 
 ---
 
@@ -35,7 +35,8 @@ Distributed mission coordination uses **Apache Arrow Tables**. When a task is de
 While **AgentX** is the high-performance engine, **AJA** is your interface. She is the conversational operator who:
 - **Plans & Delegates**: Translates your natural language intent into structured missions for the AgentX swarm.
 - **Guards Your System**: Uses the **AJA Guard** to audit every command for safety before execution.
-- **Simplifies Complexity**: Manages your schedule, obligations, and local-first memory seamlessly.
+- **Simplifies Complexity**: Manages your schedule, obligations, and local-first memory seamlessly via the **AJA Telegram Gateway**.
+- **Real-time Sync**: Keeps your mobile device in sync with your local missions using high-performance WebSockets.
 
 ---
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * AgentX CLI Entry Point
+ * Agent CLI Entry Point
  * 
  * Commands:
- *   agentx ask "prompt"          → single-shot query
- *   agentx review [path]         → diff-aware code review
- *   agentx code "task"           → agentic coding loop
- *   agentx fix <file>            → error diagnosis + fix
- *   agentx explain <target>      → semantic analysis
- *   agentx map [path]            → index repo & show graph summary
- *   agentx trace <query>         → trace symbol connections
- *   agentx impact <file|symbol>  → blast radius analysis
- *   agentx (no args)             → interactive TUI mode
+ *   agent ask "prompt"          → single-shot query
+ *   agent review [path]         → diff-aware code review
+ *   agent code "task"           → agentic coding loop
+ *   agent fix <file>            → error diagnosis + fix
+ *   agent explain <target>      → semantic analysis
+ *   agent map [path]            → index repo & show graph summary
+ *   agent trace <query>         → trace symbol connections
+ *   agent impact <file|symbol>  → blast radius analysis
+ *   agent (no args)             → interactive TUI mode
  */
 
 import { Command } from 'commander';
@@ -28,7 +28,7 @@ import type { ExecutionMode } from './engine/executionModes.js';
 const program = new Command();
 
 program
-  .name('agentx')
+  .name('agent')
   .description('The cheapest serious coding agent — local-first, repo-aware, safely autonomous.')
   .version('1.0.0');
 
@@ -179,7 +179,7 @@ program
     const targetShell = shell || (process.env.SHELL?.includes('zsh') ? 'zsh' : 'bash');
     console.log(getCompletionScript(targetShell));
     if (!shell) {
-      console.error(`\n# To enable, run: eval "$(agentx completion)"`);
+      console.error(`\n# To enable, run: eval "$(agent completion)"`);
     }
   });
 

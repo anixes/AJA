@@ -1,10 +1,10 @@
 # Phase 3: Structured Secretary Memory
 
-Phase 3 gives AJA persistent executive-assistant memory. This is not chat-history recall and it is not a vector database. It is a structured LanceDB/Arrow task system for obligations, follow-ups, recurring responsibilities, and accountability commitments.
+Phase 3 gives Assistant persistent executive-assistant memory. This is not chat-history recall and it is not a vector database. It is a structured LanceDB/Arrow task system for obligations, follow-ups, recurring responsibilities, and accountability commitments.
 
 ## Goal
 
-AJA should remember what needs to be done, when it matters, who is involved, whether approval is required, and whether a commitment is going stale.
+Assistant should remember what needs to be done, when it matters, who is involved, whether approval is required, and whether a commitment is going stale.
 
 Examples:
 
@@ -19,13 +19,13 @@ Examples:
 LanceDB/Arrow database:
 
 ```text
-.agentx/aja_secretary.lancedb
+.agent/assistant_secretary.lancedb
 ```
 
 Runtime files are ignored by git:
 
-- `.agentx/aja_secretary.lancedb`
-- `.agentx/aja_secretary.lancedb-*`
+- `.agent/assistant_secretary.lancedb`
+- `.agent/assistant_secretary.lancedb-*`
 
 ## Core Task Object
 
@@ -79,7 +79,7 @@ Supported recurrence frequencies:
 - `monthly`
 - `yearly`
 
-When a recurring task is completed, AJA schedules the next occurrence instead of losing the responsibility.
+When a recurring task is completed, Assistant schedules the next occurrence instead of losing the responsibility.
 
 ## Review and Escalation
 
@@ -90,18 +90,18 @@ The scheduled review path detects:
 - stale tasks
 - blocked tasks
 
-Stale tasks can increment `escalation_level`, giving AJA a way to notice ignored commitments and become firmer in later summaries.
+Stale tasks can increment `escalation_level`, giving Assistant a way to notice ignored commitments and become firmer in later summaries.
 
 ## Interfaces
 
 ### CLI
 
 ```bash
-python agentx.py memory add "follow up with recruiter next Tuesday"
-python agentx.py memory list
-python agentx.py memory review
-python agentx.py memory complete <task_id>
-python agentx.py memory archive <task_id>
+python agent.py memory add "follow up with recruiter next Tuesday"
+python agent.py memory list
+python agent.py memory review
+python agent.py memory complete <task_id>
+python agent.py memory archive <task_id>
 ```
 
 ### FastAPI
@@ -119,7 +119,7 @@ These endpoints require the same bearer token as the other protected bridge acti
 
 ### Telegram
 
-AJA recognizes secretary commands from Telegram:
+Assistant recognizes secretary commands from Telegram:
 
 - `tasks`
 - `task review`
@@ -138,7 +138,7 @@ Telegram summaries are compact and mobile-readable.
 ## Design Rules
 
 - Memory is structured, not guessed from chat logs.
-- AJA tracks obligations, not just conversations.
+- Assistant tracks obligations, not just conversations.
 - LanceDB/Arrow is the source of truth for Phase 3.
 - Vector memory is intentionally deferred.
 - Secretary behavior is more important than chatbot recall.

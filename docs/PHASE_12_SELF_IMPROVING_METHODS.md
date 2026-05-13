@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 12 transitions AgentX from a purely generative HTN planner to a **learning system** that gets faster, more reliable, and more autonomous over time.
+Phase 12 transitions Agent from a purely generative HTN planner to a **learning system** that gets faster, more reliable, and more autonomous over time.
 
 Instead of generating a plan from scratch via LLM for every goal, the system now maintains a persistent, scored **MethodStore**. Successful executions are automatically extracted, generalized, and saved as reusable methods.
 
@@ -11,7 +11,7 @@ The planner uses a **method-first routing** strategy: if a high-confidence, prov
 ## Key Components
 
 ### 1. `MethodStore` (Schema & Persistence)
-Methods are stored with a rich schema in `.agentx/methods.json`.
+Methods are stored with a rich schema in `.agent/methods.json`.
 A method includes:
 - `id`: Unique identifier
 - `task_type`: Inferred category (deploy, build, test, etc.)

@@ -1,12 +1,12 @@
 /**
- * agentx trace <query>
+ * agent trace <query>
  * 
  * Trace connections between symbols or concepts in the codebase.
  * Uses graph BFS to find relationship paths.
  * 
  * Examples:
- *   agentx trace "login bug"       — find symbols related to login
- *   agentx trace "auth -> router"   — trace path from auth to router
+ *   agent trace "login bug"       — find symbols related to login
+ *   agent trace "auth -> router"   — trace path from auth to router
  */
 
 import { Indexer, GraphQuery } from '../graph/index.js';
@@ -33,7 +33,7 @@ export async function traceCommand(query: string, opts: TraceOptions): Promise<v
     const result = gq.trace(from, to);
     if (!result) {
       console.log('❌ No path found between these symbols.');
-      console.log('\nTry broader terms or check available symbols with: agentx map .');
+      console.log('\nTry broader terms or check available symbols with: agent map .');
       return;
     }
 

@@ -3,7 +3,7 @@ import { ToolManager } from '../src/engine/ToolManager.js';
 import { RuntimeStateStore } from '../src/services/runtimeState.js';
 
 async function runFullSimulation() {
-  console.log('🚀 Starting Full AgentX Security Pressure Test...');
+  console.log('🚀 Starting Full Agent Security Pressure Test...');
   
   const toolManager = new ToolManager();
   const engine = new MockQueryEngine(toolManager);
@@ -21,7 +21,7 @@ async function runFullSimulation() {
   console.log(`Approval Result: ${approvalResult.slice(0, 100)}...`);
   
   // 3. The engine should automatically proceed to Step 3 in the playbook
-  // Step 3 is a 'DENY' for 'edit_file' on 'agentx.json'
+  // Step 3 is a 'DENY' for 'edit_file' on 'agent.json'
   
   // Wait, in QueryEngine.approvePendingTool(), it executes the tool and then returns.
   // It DOES NOT automatically call runToolLoop again.

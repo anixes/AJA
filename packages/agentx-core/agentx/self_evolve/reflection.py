@@ -6,7 +6,7 @@ import agentx.config
 from agentx.llm import get_gateway_for_model
 from agentx.runtime.event_bus import bus, EVENTS
 
-KNOWLEDGE_BASE_FILE = "d:/AgenticAI/Project1(no-name)/agentx_knowledge_base.json"
+KNOWLEDGE_BASE_FILE = "d:/AgenticAI/Project1(no-name)/agent_knowledge_base.json"
 
 class KnowledgeBase:
     def __init__(self):
@@ -80,7 +80,7 @@ def reflect(goal: str, plan: Any, result: Dict[str, Any]) -> Dict[str, Any]:
     else:
         plan_desc = str(plan)
         
-    system = """You are the AgentX Reflection Engine.
+    system = """You are the Agent Reflection Engine.
 Analyze the executed goal, the plan, and its result.
 Return ONLY JSON:
 {

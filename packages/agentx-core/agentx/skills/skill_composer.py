@@ -1,5 +1,5 @@
 """
-agentx/skills/skill_composer.py
+agent/skills/skill_composer.py
 ================================
 Phase 9 — Gap 2: Multi-skill composition.
 
@@ -158,9 +158,10 @@ def build_chain(
 def _skill_done(run_id: str, skill_id: str) -> bool:
     """Return True if this skill already completed in this run_id."""
     try:
-        from agentx.memory.manager import MemoryManager
-        db = MemoryManager().db
-        if "skill_composition_log" not in db.table_names():
+        from agentx.memory.manager import get_memory_manager, list_tables_defensive
+        db = get_memory_manager().db
+        existing = list_tables_defensive(db)
+        if "skill_composition_log" not in existing:
             return False
         t = db.open_table("skill_composition_log")
         results = t.search().where(
@@ -176,14 +177,15 @@ def _log_skill_status(run_id: str, skill_id: str, status: str,
     """Persist composition progress to the Arrow skill_composition_log table."""
     try:
         import pyarrow as pa
-        from agentx.memory.manager import MemoryManager
-        _mgr = MemoryManager()
+        from agentx.memory.manager import get_memory_manager, list_tables_defensive
+        _mgr = get_memory_manager()
         schema = pa.schema([
             ("run_id", pa.string()), ("skill_id", pa.string()),
             ("status", pa.string()), ("position", pa.int32()),
             ("total", pa.int32()), ("logged_at", pa.string()),
         ])
-        if "skill_composition_log" not in _mgr.db.table_names():
+        existing = list_tables_defensive(_mgr.db)
+        if "skill_composition_log" not in existing:
             _mgr.db.create_table("skill_composition_log", schema=schema)
         t = _mgr.db.open_table("skill_composition_log")
         existing = t.search().where(

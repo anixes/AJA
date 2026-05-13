@@ -1,5 +1,5 @@
 /**
- * AgentX Execution Modes
+ * Agent Execution Modes
  * 
  * 5 safety levels from read-only to fully autonomous.
  * Each mode defines what operations are permitted without user approval.
@@ -97,7 +97,7 @@ const NEVER_AUTO_EDIT = [
   'tsconfig.json', 'webpack.config.js', 'vite.config.ts',
   '.gitignore', '.npmrc', '.nvmrc',
   'Dockerfile', 'docker-compose.yml',
-  'agentx.json', 'providers.json',
+  'agent.json', 'providers.json',
 ];
 
 /**

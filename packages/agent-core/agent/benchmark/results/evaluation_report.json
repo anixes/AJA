@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "success_rate": 1.0,
+    "avg_latency": 0.10000000000000002,
+    "avg_repairs": 0.3333333333333333,
+    "avg_rollbacks": 0.0
+  },
+  "failure_modes": {
+    "tool_error": 0,
+    "planning_error": 0,
+    "state_mismatch": 0,
+    "verification_failure": 0,
+    "retrieval_error": 0
+  },
+  "stress_metrics": {
+    "stress_success_rate": 1.0,
+    "stress_avg_repairs": 1.3333333333333333,
+    "stress_avg_rollbacks": 0.0
+  },
+  "stability": {
+    "success_rate_variance": 0.1111,
+    "mean_success_rate": 0.6667
+  }
+}

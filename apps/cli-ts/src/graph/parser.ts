@@ -1,5 +1,5 @@
 /**
- * AgentX Code Parser
+ * Agent Code Parser
  * 
  * Regex-based symbol extraction — lightweight, no AST dependency.
  * Parses: functions, classes, interfaces, types, imports, exports,

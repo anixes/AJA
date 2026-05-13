@@ -1,5 +1,5 @@
 /**
- * AgentX Graph — Persistent Repo Brain
+ * Agent Graph — Persistent Repo Brain
  * 
  * Public API for the repo intelligence layer.
  */

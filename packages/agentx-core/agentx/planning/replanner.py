@@ -1,5 +1,5 @@
 """
-agentx/planning/replanner.py
+agent/planning/replanner.py
 =============================
 Phase 11 - Dynamic Replanner.
 
@@ -21,7 +21,7 @@ Recovery actions
 RETRY           - Requeue node with incremented attempt counter
 SKIP            - Mark node SKIPPED_PERMANENT; unblock successors
 DECOMPOSE       - Break node into sub-nodes (basic heuristic split)
-ESCALATE        - Surface to human / circuit-breaker
+ESCALATE        - Surface to operator / circuit-breaker
 
 The Replanner does NOT modify the DAGValidator or engine - it only
 mutates node-level fields (status, task, error) and optionally injects

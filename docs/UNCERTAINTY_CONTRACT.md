@@ -1,8 +1,8 @@
-# AgentX Uncertainty Contract
+# Agent Uncertainty Contract
 **Status:** Mandatory Behavioral Core (Phase 21.5)
-**Scope:** Entire AgentX System (Execution, Decision, Planning, Memory)
+**Scope:** Entire Agent System (Execution, Decision, Planning, Memory)
 
-This document establishes the strict behavioral rules regarding uncertainty within the AgentX system. **This is not a feature; it is a fundamental system guarantee.** All future layers, especially the Phase 11 Planning Layer, MUST adhere to these rules.
+This document establishes the strict behavioral rules regarding uncertainty within the Agent system. **This is not a feature; it is a fundamental system guarantee.** All future layers, especially the Phase 11 Planning Layer, MUST adhere to these rules.
 
 ## Core Mandate
 Every decision, plan step, and execution MUST carry and reason over uncertainty. The system must optimize and guard against `trajectory_uncertainty`, not just immediate step correctness.
@@ -23,7 +23,7 @@ Future decisions (such as next-step selection, retry loops, and replanning) MUST
 ### RULE 3 — Hard Stop Condition
 If `task_uncertainty > MAX_TASK_UNCERTAINTY` (default 0.8):
 1. **STOP** execution immediately.
-2. **ESCALATE** to human (`ASK`).
+2. **ESCALATE** to operator (`ASK`).
 3. **LOG** `SYSTEM_UNCERTAINTY_EXCEEDED`.
 
 ### RULE 4 — Planning Constraint
@@ -51,7 +51,7 @@ Then:
 - The system MUST terminate the chain early and log `CHAIN_UNCERTAINTY_EXCEEDED`.
 
 ### RULE 7 — Strategy Selection Module Integration
-The Strategy Selection Module (`agentx/decision/engine.py`) MUST bias against complexity when uncertainty is high.
+The Strategy Selection Module (`agent/decision/engine.py`) MUST bias against complexity when uncertainty is high.
 If `task_uncertainty` is high:
 - **PREFER**: `ASK` (escalate) or `NEW` (safe fallback execution).
 - **AVOID**: `Hierarchical Execution` (multi-step skill chains) or deep logical paths.
@@ -81,12 +81,12 @@ The following forensic events MUST be logged:
 - `HIGH_UNCERTAINTY_DECISION`
 - `REPLAN_TRIGGERED`
 
-These events must be exposed in CLI diagnostic tools (e.g., `agentx explain <task_id>`).
+These events must be exposed in CLI diagnostic tools (e.g., `agent explain <task_id>`).
 
 ---
 
 ## System Guarantees
-By adhering to these rules, the AgentX system guarantees:
+By adhering to these rules, the Agent system guarantees:
 1. The system stops before cascaded failures occur.
 2. Long-horizon error accumulation is strictly mathematically controlled.
 3. The planner fundamentally respects and bounds uncertainty.

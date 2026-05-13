@@ -1,7 +1,7 @@
 # Phase 20: Context-Aware Evaluator Reliability
 
 ## Objective
-Harden the AgentX evaluation system before transitioning to the Phase 11 planning layer by transitioning from global reliability metrics to a context-aware reliability model.
+Harden the Agent evaluation system before transitioning to the Phase 11 planning layer by transitioning from global reliability metrics to a context-aware reliability model.
 
 ## Key Capabilities Added
 1. **Context Extraction**: The system dynamically evaluates task context, estimating its `task_type` (e.g. coding, reasoning, retrieval, tool_use), `difficulty`, and `risk` using the `get_evaluation_context` utility in `evaluator.py`.

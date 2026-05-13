@@ -1,9 +1,9 @@
 import pytest
 
-from agentx.planning.models import PlanGraph, PlanNode, DoD
-from agentx.planning.dag_validator import DAGValidator, ValidationResult
-from agentx.planning.scheduler import Scheduler
-from agentx.planning.execution_bridge import ExecutionBridge
+from agent.planning.models import PlanGraph, PlanNode, DoD
+from agent.planning.dag_validator import DAGValidator, ValidationResult
+from agent.planning.scheduler import Scheduler
+from agent.planning.execution_bridge import ExecutionBridge
 
 
 def _make_node(id_str: str, node_type="primitive", children=None, deps=None) -> PlanNode:

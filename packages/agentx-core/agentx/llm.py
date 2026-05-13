@@ -1,7 +1,7 @@
 
 import json
 import os
-from agentx.gateway import UnifiedGateway
+from agentx.orchestration.gateway import UnifiedGateway
 
 # Singleton gateway instance
 _gateway = None
@@ -77,7 +77,7 @@ def get_gateway_for_model(model_str):
 
 def completion(prompt, system_prompt="You are a helpful assistant.", model=None):
     """
-    Standard completion interface used across AgentX.
+    Standard completion interface used across Agent.
     Routes to the correct provider based on model name/prefix.
     """
     if model is None:

@@ -4,7 +4,7 @@
 
 ## Summary
 
-AJA now supports a mature "Controlled Execution Operator" workflow. Instead of blindly trusting worker-reported success, AJA uses a multi-stage delegation process that includes automated recommendation, worker dispatch, and independent outcome verification.
+Assistant now supports a mature "Controlled Execution Operator" workflow. Instead of blindly trusting worker-reported success, Assistant uses a multi-stage delegation process that includes automated recommendation, worker dispatch, and independent outcome verification.
 
 ---
 
@@ -12,15 +12,15 @@ AJA now supports a mature "Controlled Execution Operator" workflow. Instead of b
 
 ```mermaid
 graph TD
-    User[Human Operator] -->|Approves Task| Planner[AJA Planner]
+    User[Operator Operator] -->|Approves Task| Planner[Assistant Planner]
     Planner -->|Requests Recommendation| RE[Recommendation Engine]
     RE -->|Scores Workers| WR[Worker Registry]
     Planner -->|Displays| Dashboard[Executive Desk]
-    Dashboard -->|Human Selects Worker| Dispatch[Dispatch System]
+    Dashboard -->|Operator Selects Worker| Dispatch[Dispatch System]
     Dispatch -->|Adapters| Workers[Specialist Workers]
     Workers -->|Output + Diff| VE[Verification Engine]
     VE -->|Audit Results| Dashboard
-    Dashboard -->|Human Approval| Merge[Final Merge]
+    Dashboard -->|Operator Approval| Merge[Final Merge]
 ```
 
 ## Key Components
@@ -28,13 +28,13 @@ graph TD
 1.  **Worker Capability Registry:** Persistent LanceDB/Arrow profiles for specialist agents (Copilot, Gemini, Aider, etc.).
 2.  **Recommendation Engine:** An 8-dimension scoring system that selects the best agent for a specific task based on reliability, speed, and cost.
 3.  **Dispatch Adapters (`scripts/dispatch_adapters.py`):** Modular drivers that handle the unique CLI patterns of different agents.
-4.  **Verification Engine (`scripts/verification_engine.py`):** An independent auditor that vetting worker output before human review.
+4.  **Verification Engine (`scripts/verification_engine.py`):** An independent auditor that vetting worker output before operator review.
 
 ---
 
 ## PART A — Worker Registry & Recommendation
 
-AJA manages a registry of specialist workers and provides ranked recommendations for every mission.
+Assistant manages a registry of specialist workers and provides ranked recommendations for every mission.
 
 ### Recommendation Dimensions:
 *   Task Type Match
@@ -48,7 +48,7 @@ AJA manages a registry of specialist workers and provides ranked recommendations
 
 ## PART B — Independent Verification Engine
 
-AJA no longer trusts self-reported worker success. Every completed mission is audited by the **Verification Engine**.
+Assistant no longer trusts self-reported worker success. Every completed mission is audited by the **Verification Engine**.
 
 ### Automated Checks:
 1.  **Test Integrity:** Verifies that tests were executed and that no "failed" or "error" strings exist in the captured `tests_output`.
@@ -60,7 +60,7 @@ AJA no longer trusts self-reported worker success. Every completed mission is au
 ### Dashboard Guardrails:
 *   **Merge Block:** The "Approve Merge" button is disabled if verification fails.
 *   **Visual Status:** Failures display red status indicators with specific error messages in the Baton Board.
-*   **Recovery Paths:** Provides UI triggers for "Retry Same Worker," "Fallback to Alternate," or "Escalate to Human Review."
+*   **Recovery Paths:** Provides UI triggers for "Retry Same Worker," "Fallback to Alternate," or "Escalate to Operator Review."
 
 ---
 
@@ -68,7 +68,7 @@ AJA no longer trusts self-reported worker success. Every completed mission is au
 
 A task is only considered "Done" when:
 1. Automated Verification passes.
-2. Human Executive provides final merge approval via the dashboard.
+2. Operator Executive provides final merge approval via the dashboard.
 3. The merge is successfully recorded in the audit log.
 
 ---
@@ -81,4 +81,4 @@ A task is only considered "Done" when:
 | Dispatch | `scripts/dispatch_adapters.py`, `scripts/agent_worker.py` |
 | Verification | `scripts/verification_engine.py` |
 | UI | `dashboard/src/App.tsx` |
-| CLI | `agentx.py`, `test_worker_registry.py` |
+| CLI | `agent.py`, `test_worker_registry.py` |

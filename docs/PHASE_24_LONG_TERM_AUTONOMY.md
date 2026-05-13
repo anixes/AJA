@@ -1,7 +1,7 @@
 # Phase 24: Long-Term Autonomy + Multi-Device Orchestration
 
 ## Overview
-Phase 24 evolves AgentX into a continuous, goal-driven system that manages objectives across multiple devices (Phone, PC, Cloud) over long time horizons.
+Phase 24 evolves Agent into a continuous, goal-driven system that manages objectives across multiple devices (Phone, PC, Cloud) over long time horizons.
 
 ## Core Features
 
@@ -9,7 +9,7 @@ Phase 24 evolves AgentX into a continuous, goal-driven system that manages objec
 A centralized engine for managing long-term objectives.
 - **Goal Lifecycle**: Tracks `PENDING`, `RUNNING`, `DONE`, and `FAILED` states.
 - **Decomposition**: Uses the Planner to break high-level goals into executable subgoals.
-- **Persistence**: Goals survive system restarts via `agentx_state.json`.
+- **Persistence**: Goals survive system restarts via `agent_state.json`.
 
 ### 2. Multi-Device Routing
 The system can now route task execution to the most appropriate node:
@@ -24,5 +24,5 @@ A background loop that constantly evaluates the goal queue, prioritizes tasks ba
 ---
 
 ## Technical Details
-- **Goal Management**: `agentx/goals/goal_engine.py`.
+- **Goal Management**: `agent/goals/goal_engine.py`.
 - **Remote Control**: Expanded Telegram interface for adding, pausing, and status-checking long-term goals.

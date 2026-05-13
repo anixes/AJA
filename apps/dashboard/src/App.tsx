@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useStore } from './store/useStore';
-import { useAnimations, useFadeInUp, useStaggerChildren } from './hooks/useAnimations';
+import { useFadeInUp, useStaggerChildren } from './hooks/useAnimations';
 import { useWebSocket } from './hooks/useWebSocket';
 import {
   Activity,
@@ -58,7 +58,7 @@ type Approval = {
   level?: string;
   riskLevel?: 'low' | 'medium' | 'high';
   reasons: string[];
-  humanReason?: string;
+  operatorReason?: string;
   rollbackPath?: string;
   expiresAt?: string;
   requesterSource?: 'CLI' | 'dashboard' | 'Telegram' | 'swarm';
@@ -262,11 +262,11 @@ const emptyStatus: DashboardStatus = {
   pending_approval: null,
 };
 
-const Dashboard = () => {
+const App = () => {
   const { activeTab, setActiveTab, connectionState, setConnectionState, setStats } = useStore();
 
-  // Mobile Bridge Connection (Port 8001)
-  useWebSocket('ws://localhost:8001/ws/mobile');
+  // Mobile Bridge Connection (Port 8000)
+  useWebSocket('ws://localhost:8000/ws/mobile');
 
   const headerRef = useFadeInUp<HTMLElement>(0);
   const statsGridRef = useStaggerChildren<HTMLDivElement>(':scope > *', 50);
@@ -698,7 +698,7 @@ const Dashboard = () => {
                           />
                           {!missionDod.trim() && (
                             <p className="text-[10px] text-violet-400/70 flex items-center gap-1">
-                              <TrendingUp size={10} /> No DoD entered — AJA will auto-generate from the objective.
+                              <TrendingUp size={10} /> No DoD entered — Assistant will auto-generate from the objective.
                             </p>
                           )}
                         </div>
@@ -706,7 +706,7 @@ const Dashboard = () => {
 
                       {!missionDodExpanded && missionInput.trim() && (
                         <p className="text-[10px] text-slate-700">
-                          No DoD defined — AJA will auto-generate success criteria from the objective.
+                          No DoD defined — Assistant will auto-generate success criteria from the objective.
                         </p>
                       )}
                     </>
@@ -1035,7 +1035,7 @@ const ApprovalPanel = ({
 
       <p className="text-white text-lg font-medium leading-snug">Manual review required before execution</p>
       <p className="text-sm text-amber-100/80 mt-2">
-        {approval.humanReason || 'Review the full approval object, then approve or deny it directly from the dashboard.'}
+        {approval.operatorReason || 'Review the full approval object, then approve or deny it directly from the dashboard.'}
       </p>
 
       <div className="mt-6 rounded-2xl bg-black/25 border border-white/10 p-5">
@@ -1247,7 +1247,7 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                 {!baton.verification.passed && (
                   <div className="rounded bg-red-500/10 border border-red-500/20 p-3 mt-2 text-xs text-red-300">
                     <p className="font-semibold mb-1">Merge Blocked: Verification Failed</p>
-                    <p>AJA has blocked this merge. The worker reported completion, but independent checks failed. Please review the failed checks above.</p>
+                    <p>Assistant has blocked this merge. The worker reported completion, but independent checks failed. Please review the failed checks above.</p>
                     <div className="flex gap-2 mt-3">
                       <button className="px-3 py-1.5 bg-[#16191f] border border-red-500/30 hover:bg-red-500/20 text-red-300 rounded transition-colors flex items-center gap-1.5">
                         <RefreshCw size={12} /> Retry Same Worker
@@ -1256,7 +1256,7 @@ const BatonBoard = ({ batons }: { batons: Baton[] }) => {
                         <Users size={12} /> Fallback to Alternate Worker
                       </button>
                       <button className="px-3 py-1.5 bg-[#16191f] border border-yellow-500/30 hover:bg-yellow-500/20 text-yellow-300 rounded transition-colors flex items-center gap-1.5">
-                        <AlertTriangle size={12} /> Escalate to Human Review
+                        <AlertTriangle size={12} /> Escalate to Operator Review
                       </button>
                     </div>
                   </div>
@@ -1541,7 +1541,7 @@ const Top3Panel = ({ priorities }: { priorities: PriorityEngine | null }) => {
   if (!priorities) {
     return (
       <div className="bg-[#16191f] rounded-3xl border border-white/[0.03] p-8 shadow-sm">
-        <p className="text-sm text-slate-500">Calculating priorities from AJA Brain…</p>
+        <p className="text-sm text-slate-500">Calculating priorities from Assistant Brain…</p>
       </div>
     );
   }
@@ -1630,7 +1630,7 @@ const Top3Panel = ({ priorities }: { priorities: PriorityEngine | null }) => {
           {/* Decision layer */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-[#0f1115] rounded-2xl p-3 border border-white/[0.03]">
-              <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">AJA Recommends</p>
+              <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">Assistant Recommends</p>
               <p className="text-xs text-cyan-300 font-medium">{task.decision_recommendation}</p>
             </div>
             <div className="bg-[#0f1115] rounded-2xl p-3 border border-white/[0.03]">
@@ -1774,7 +1774,7 @@ const TaskBoard = ({ tasks, onAction }: { tasks: Task[], onAction: (id: string, 
   );
 };
 
-export default Dashboard;
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Phase 6.1 — Worker Registry Panel
@@ -1879,7 +1879,7 @@ const WorkerRegistryPanel = ({
             Worker Registry
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            {workers.length} registered · {available} available · AJA recommends, you decide
+            {workers.length} registered · {available} available · Assistant recommends, you decide
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1901,7 +1901,7 @@ const WorkerRegistryPanel = ({
           <Brain size={16} className="text-cyan-400" />
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Recommendation Engine</h3>
           <span className="text-[10px] px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-cyan-400 font-medium">
-            AJA Recommends → You Confirm
+            Assistant Recommends → You Confirm
           </span>
         </div>
 
@@ -2240,3 +2240,5 @@ const WorkerRegistryPanel = ({
     </div>
   );
 };
+
+export default App;

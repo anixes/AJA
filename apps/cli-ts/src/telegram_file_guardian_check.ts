@@ -1,7 +1,7 @@
 import { validateFileOperation } from './engine/FileGuardian.js';
 
 async function main() {
-  const filePath = process.argv[2] || '.agentx/telegram-command.txt';
+  const filePath = process.argv[2] || '.agent/telegram-command.txt';
   const content = process.argv[3] || '';
   const decision = await validateFileOperation(filePath, content, process.cwd());
   console.log(JSON.stringify({ decision }));

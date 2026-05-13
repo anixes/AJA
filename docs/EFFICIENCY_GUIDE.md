@@ -1,6 +1,6 @@
-# 🚀 AgentX Efficiency Guide: Max Work, Min Tokens
+# 🚀 Agent Efficiency Guide: Max Work, Min Tokens
 
-AgentX is designed to operate autonomously while minimizing the "Token Tax" associated with large context windows. We achieve this through **Surgical Tools** and **Semantic Indexing**.
+Agent is designed to operate autonomously while minimizing the "Token Tax" associated with large context windows. We achieve this through **Surgical Tools** and **Semantic Indexing**.
 
 ## 1. Zero-Token Indexing (`semantic_search`)
 Instead of the agent reading every file to understand the project structure, we use a local Python-based AST/Regex scanner (`local_extractor.py`).

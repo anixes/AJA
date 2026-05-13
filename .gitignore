@@ -70,6 +70,10 @@ temp_batons/
 .env
 providers.json.local
 agentx.json.local
+path.txt
+final_verify.py
+speed_demon.log
+vault_data.json
 
 # Project Specific Junk
 .graphify*

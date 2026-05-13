@@ -2,10 +2,10 @@ import asyncio
 import json
 import os
 import shutil
-from agentx.gateway import UnifiedGateway
+from agent.gateway import UnifiedGateway
 
 async def verify():
-    print("--- AgentX Hybrid Verification ---")
+    print("--- Agent Hybrid Verification ---")
     
     # 1. Initialize Gateway
     gateway = UnifiedGateway()
@@ -18,14 +18,14 @@ async def verify():
     
     # 2. Test Chat (which triggers native memory and translation)
     print("\nTesting Unified Chat Loop...")
-    user_msg = "Hello AgentX! How are you today?"
+    user_msg = "Hello Agent! How are you today?"
     response = await gateway.chat(user_msg)
     print(f"User: {user_msg}")
     print(f"Response: {response}")
     
     # 3. Verify Native Translation directly
     print("\nTesting Native Translation Layer...")
-    import agentx_native
+    import agent_native
     sample_request = {
         "model": "claude-3-5-sonnet",
         "input": [
@@ -36,7 +36,7 @@ async def verify():
             }
         ]
     }
-    translated = agentx_native.translate_to_anthropic(json.dumps(sample_request))
+    translated = agent_native.translate_to_anthropic(json.dumps(sample_request))
     translated_data = json.loads(translated)
     print(f"Translated Model: {translated_data.get('model')}")
     print(f"Message Count: {len(translated_data.get('messages', []))}")

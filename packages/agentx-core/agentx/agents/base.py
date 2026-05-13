@@ -1,7 +1,7 @@
 from typing import Dict, Any
 
 class SubAgent:
-    name: str = "base.agent"
+    name: str = "base.agentx"
     max_steps: int = 10
     allowed_tools: list[str] = []
 

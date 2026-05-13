@@ -1,7 +1,7 @@
 # Phase 26: RL-lite Behavioral Learning System
 
 ## Overview
-Phase 26 implements a lightweight decision-optimization layer. Instead of training neural networks, AgentX uses a reward-based system to bias its internal policies towards historically successful patterns.
+Phase 26 implements a lightweight decision-optimization layer. Instead of training neural networks, Agent uses a reward-based system to bias its internal policies towards historically successful patterns.
 
 ## Core Features
 
@@ -29,5 +29,5 @@ The Planner uses an **Epsilon-Greedy** strategy:
 ---
 
 ## Technical Details
-- **Persistence**: `agentx_policy.json`.
-- **Logic**: `agentx/rl/policy_store.py` and integration in `planner.py` / `scorer.py`.
+- **Persistence**: `agent_policy.json`.
+- **Logic**: `agent/rl/policy_store.py` and integration in `planner.py` / `scorer.py`.

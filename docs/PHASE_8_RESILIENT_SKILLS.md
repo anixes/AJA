@@ -1,6 +1,6 @@
 # Phase 8: Resilient Skill System
 
-The **Resilient Skill System** shifts AgentX from executing one-off tasks to managing a production-grade library of reusable, verifiable, and versioned behaviors. It captures successful tool sequences and transforms them into "skills" that can be safely replayed, chained, and audited.
+The **Resilient Skill System** shifts Agent from executing one-off tasks to managing a production-grade library of reusable, verifiable, and versioned behaviors. It captures successful tool sequences and transforms them into "skills" that can be safely replayed, chained, and audited.
 
 ## Core Objective
 Systematize expertise by autonomously capturing successful task execution patterns, validating their correctness via post-execution assertions, and allowing complex multi-skill composition with risk-aware gating.
@@ -8,7 +8,7 @@ Systematize expertise by autonomously capturing successful task execution patter
 ## Key Components
 
 ### 1. Autonomous Skill Capture & Store (`skill_store.py`)
-AgentX passively observes successful missions and "crystallizes" them into skills.
+Agent passively observes successful missions and "crystallizes" them into skills.
 - **High-Fidelity Capture**: Tool sequences, sanitized arguments, and success metadata are stored in LanceDB/Arrow.
 - **Versioning**: Skills are versioned; structural changes to a tool sequence create a new immutable version for traceability.
 - **Recall Engine**: Uses token-matching with synonym expansion (e.g., "fetch" matches "download") and bidirectional scoring to suggest the best skill for an objective.
@@ -42,7 +42,7 @@ Transparency and explainability for autonomous selection.
 ## Interfaces
 
 ### CLI / Runtime
-- **Discovery**: `agentx` now uses `recommend_skill()` before attempting a raw task plan.
+- **Discovery**: `agent` now uses `recommend_skill()` before attempting a raw task plan.
 - **Explain**: Users can inspect any recommended skill before allowing it to run.
 - **Feedback**: Post-execution reports now include a "Correctness" section based on postconditions.
 
@@ -62,4 +62,4 @@ Transparency and explainability for autonomous selection.
 | **5. Version Safety** | Replaying a skill uses the exact tool sequence from its version record. | ✅ **VERIFIED** |
 
 ### Test Harness
-A Phase 8 smoke test is available in `.agentx/test_phase9.py` (which covers these gaps). It verifies postcondition failures, context injection, and ambiguity resolution.
+A Phase 8 smoke test is available in `.agent/test_phase9.py` (which covers these gaps). It verifies postcondition failures, context injection, and ambiguity resolution.

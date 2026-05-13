@@ -1,5 +1,5 @@
 import json
-import agentx_native
+import agent_native
 
 def test_translation():
     request = {
@@ -16,7 +16,7 @@ def test_translation():
     }
     
     request_json = json.dumps(request)
-    translated_json = agentx_native.translate_to_anthropic(request_json)
+    translated_json = agent_native.translate_to_anthropic(request_json)
     translated = json.loads(translated_json)
     
     print("--- Translated Request ---")

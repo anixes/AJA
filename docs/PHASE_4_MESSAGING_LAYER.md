@@ -1,10 +1,10 @@
 # Phase 4: Messaging Layer
 
-Phase 4 turns AJA from a task tracker into a relationship manager. AJA can draft, manage, approve, and track outbound communication without unsafe auto-send behavior.
+Phase 4 turns Assistant from a task tracker into a relationship manager. Assistant can draft, manage, approve, and track outbound communication without unsafe auto-send behavior.
 
 ## Goal
 
-AJA should help with communication while preserving human control.
+Assistant should help with communication while preserving operator control.
 
 Examples:
 
@@ -19,7 +19,7 @@ Examples:
 Messaging is stored in the existing LanceDB/Arrow secretary database:
 
 ```text
-.agentx/aja_secretary.lancedb
+.agent/assistant_secretary.lancedb
 ```
 
 Table:
@@ -57,7 +57,7 @@ Draft -> Edit -> Approval -> Send -> Follow-up tracking
 
 Rules:
 
-- AJA never auto-sends the first version.
+- Assistant never auto-sends the first version.
 - All outbound messages require approval.
 - Sending is blocked unless `approval_status = approved`.
 - Telegram is the only direct outbound adapter for now.
@@ -86,10 +86,10 @@ Production policy uses `pending` by default for outbound communication.
 ### CLI
 
 ```bash
-python agentx.py message draft "draft recruiter follow-up"
-python agentx.py message list
-python agentx.py message approve <message_id>
-python agentx.py message reject <message_id>
+python agent.py message draft "draft recruiter follow-up"
+python agent.py message list
+python agent.py message approve <message_id>
+python agent.py message reject <message_id>
 ```
 
 ### FastAPI
@@ -106,7 +106,7 @@ python agentx.py message reject <message_id>
 
 ### Telegram
 
-AJA recognizes:
+Assistant recognizes:
 
 - `draft recruiter follow-up`
 - `draft professional reply to recruiter`
@@ -118,9 +118,9 @@ AJA recognizes:
 - `send message <message_id>`
 - `check pending unanswered messages`
 
-`send message <message_id>` still requires prior approval. For email/professional drafts, AJA keeps the message ready but does not pretend to send it through a missing adapter.
+`send message <message_id>` still requires prior approval. For email/professional drafts, Assistant keeps the message ready but does not pretend to send it through a missing adapter.
 
 ## Relationship Management
 
-Recruiter and professional drafts use context-aware templates and default to a professional tone. Follow-up-required messages can create secretary tasks, so AJA can track unanswered communication rather than merely drafting text.
+Recruiter and professional drafts use context-aware templates and default to a professional tone. Follow-up-required messages can create secretary tasks, so Assistant can track unanswered communication rather than merely drafting text.
 

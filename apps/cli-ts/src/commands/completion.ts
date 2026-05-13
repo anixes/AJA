@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
 const BASH_COMPLETION = `
-_agentx_completion() {
+_agent_completion() {
   local cur prev words cword
   _init_completion || return
 
@@ -28,13 +28,13 @@ _agentx_completion() {
     return
   fi
 }
-complete -F _agentx_completion agentx
+complete -F _agent_completion agent
 `;
 
 const ZSH_COMPLETION = `
-#compdef agentx
+#compdef agent
 
-_agentx() {
+_agent() {
   local -a commands
   commands=(
     'ask:Single-shot query'
@@ -69,7 +69,7 @@ _agentx() {
   esac
 }
 
-compdef _agentx agentx
+compdef _agent agent
 `;
 
 export function getCompletionScript(shell: string): string {

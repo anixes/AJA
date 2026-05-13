@@ -1,8 +1,8 @@
 [package]
-name = "agentx-mobile"
+name = "agent-mobile"
 version = "0.1.0"
-description = "Tauri wrapper for AgentX Cognitive OS"
-authors = ["AgentX Team"]
+description = "Tauri wrapper for Agent Cognitive OS"
+authors = ["Agent Team"]
 license = ""
 repository = ""
 edition = "2021"

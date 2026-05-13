@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from agentx.memory.manager import MemoryManager, get_memory_manager
 from agentx.decision.metrics import update_evaluator_performance
 
-logger = logging.getLogger("agentx.decision.calibration")
+logger = logging.getLogger("agent.decision.calibration")
 
 DRIFT_THRESHOLD = 0.30
 _manager = get_memory_manager()
@@ -24,7 +24,10 @@ _GOLDEN_SCHEMA = pa.schema([
 
 
 def _init_golden_table():
-    if "golden_tasks" not in _manager.db.table_names():
+    existing = _manager.db.list_tables()
+    if hasattr(existing, "tables"):
+        existing = existing.tables
+    if "golden_tasks" not in existing:
         _manager.db.create_table("golden_tasks", schema=_GOLDEN_SCHEMA)
 
 _init_golden_table()

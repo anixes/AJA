@@ -1,6 +1,6 @@
 # Phase 18-19: Risk-Aware Correctness & Evaluator Reliability
 
-The **Risk-Aware Correctness Pipeline** and **Evaluator Reliability Tracking** represent a major upgrade to AgentX's decision gate. The system has shifted from a simple consensus model to a probabilistic, reliability-weighted meta-evaluation system that detects and suppresses its own biases.
+The **Risk-Aware Correctness Pipeline** and **Evaluator Reliability Tracking** represent a major upgrade to Agent's decision gate. The system has shifted from a simple consensus model to a probabilistic, reliability-weighted meta-evaluation system that detects and suppresses its own biases.
 
 ## Core Objective
 Ensure that autonomous execution is gated by a trustworthy verification layer that accounts for individual model strengths, historical performance, and the inherent risk of the task.
@@ -10,11 +10,11 @@ Ensure that autonomous execution is gated by a trustworthy verification layer th
 ### 1. Risk-Aware Correctness (`evaluator.py`)
 Evaluation is no longer binary. Every verification pass returns a structured risk profile.
 - **Probabilistic Risk Scoring**: Calculates a `risk_score` (0.0 to 1.0) based on weighted consensus and execution confidence.
-- **Risk-Aware Convergence**: If the agent loop detects convergence (stability), it is only allowed to finish if the `risk_score` is below the safety threshold. High-risk convergence triggers a `HIGH_RISK_CONVERGENCE` event and forces human escalation.
+- **Risk-Aware Convergence**: If the agent loop detects convergence (stability), it is only allowed to finish if the `risk_score` is below the safety threshold. High-risk convergence triggers a `HIGH_RISK_CONVERGENCE` event and forces operator escalation.
 - **Nuanced Outcomes**: The system differentiates between `PASS`, `FAIL`, and `UNCERTAIN`. `UNCERTAIN` results are treated as failures in the main loop to prevent "hallucination success."
 
 ### 2. Evaluator Reliability Tracking (`metrics.py`)
-AgentX now maintains a long-term "reputation" for every model used in the evaluation pipeline.
+Agent now maintains a long-term "reputation" for every model used in the evaluation pipeline.
 - **Performance Schema**: The `evaluator_performance` table tracks:
     - `total_evals`: Total number of verification passes.
     - `false_success_count`: Number of times the judge missed a failure (False Positive).
@@ -40,9 +40,9 @@ The system monitors the health of the evaluation gate itself.
 ## Interfaces & Observability
 
 ### CLI Commands
-- `agentx metrics`: Now includes a detailed breakdown of evaluator reliability and performance.
-- `agentx explain <task_id>`: Surfaces `VETO_SOURCE` and `RISK_SCORE` for every verification attempt.
-- `agentx doctor`: Validates the health of the evaluator pipeline and reports on detected drift.
+- `agent metrics`: Now includes a detailed breakdown of evaluator reliability and performance.
+- `agent explain <task_id>`: Surfaces `VETO_SOURCE` and `RISK_SCORE` for every verification attempt.
+- `agent doctor`: Validates the health of the evaluator pipeline and reports on detected drift.
 
 ### Event Log
 | Event | Meaning |
@@ -64,4 +64,4 @@ The system monitors the health of the evaluation gate itself.
 | **5. Continuous Calibration** | Judge reliability scores are updated during every golden task run. | ✅ **VERIFIED** |
 
 ---
-*Generated via AgentX Hardening Pass (Phases 18-19) on 2026-04-30.*
+*Generated via Agent Hardening Pass (Phases 18-19) on 2026-04-30.*

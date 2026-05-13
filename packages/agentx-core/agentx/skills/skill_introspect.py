@@ -1,11 +1,11 @@
 """
-agentx/skills/skill_introspect.py
+agent/skills/skill_introspect.py
 ==================================
 Phase 9 — Gap 4: Skill explainability and management interface.
 
-AgentX supports viewing, editing, and invoking skills directly.
+Agent supports viewing, editing, and invoking skills directly.
 This module provides the explainability layer, formatting skills into
-human-readable summaries, diffs, and validation reports.
+readable summaries, diffs, and validation reports.
 
 Public API
 ----------
@@ -21,7 +21,7 @@ from agentx.skills.skill_store import get_skill, get_skill_sources, _get_conn
 
 def explain_skill(skill_id: str) -> str:
     """
-    Return a human-readable markdown explanation of a skill.
+    Return a readable markdown explanation of a skill.
     Includes tools used, parameters, postconditions, and confidence metrics.
     """
     skill = get_skill(skill_id)

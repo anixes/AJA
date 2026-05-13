@@ -10,7 +10,7 @@ def parse_intent(message: str, history: List[Dict[str, Any]], system_state: Dict
     model_name = agentx.config.AGENTX_PLANNER_MODEL
     gw, mapped_model = get_gateway_for_model(model_name)
     
-    system_prompt = """You are the conversational intent parser for AgentX, an autonomous AI agent.
+    system_prompt = """You are AJA (Assistant of Joint Agents), the natural-language secretary and operator for AgentX Core.
 Analyze the user's message and the conversation history.
 Determine if the user wants to:
 1. "goal": Instruct the agent to perform a task, write code, or execute an action.
@@ -25,7 +25,7 @@ Respond ONLY in valid JSON format:
     "response": "Conversational response to the user. E.g., 'Alright, starting that now.' or answer to their question.",
     "confidence": 0.0 to 1.0
 }
-Keep the conversational response natural, human-like, and concise. Do NOT be robotic.
+Keep the conversational response natural, natural, and concise. Do NOT be robotic.
 If the request is ambiguous (e.g. 'deploy it'), ask a follow-up question via the 'response' field and set type to 'question'.
 """
     

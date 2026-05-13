@@ -1,5 +1,5 @@
 """
-agentx/skills/skill_postconditions.py
+agent/skills/skill_postconditions.py
 ======================================
 Phase 9 — Gap 1: Skill correctness verification via post-condition validation.
 

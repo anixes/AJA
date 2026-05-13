@@ -1,7 +1,7 @@
 # Phase 3 Plan: Ecosystem (MCP Integration) [COMPLETED]
 
 ## Objective
-Enable AgentX to interact with external tools and applications using the Model Context Protocol (MCP).
+Enable Agent to interact with external tools and applications using the Model Context Protocol (MCP).
 
 ## Tasks
 - [x] **Task 3.1: Implement MCPClientManager**
@@ -14,4 +14,4 @@ Enable AgentX to interact with external tools and applications using the Model C
 
 ## Verification [SUCCESS]
 - `mcp` library (v1.26.0) installed.
-- `MCPToolCapability` registered in `agentx-core`.
+- `MCPToolCapability` registered in `agent-core`.

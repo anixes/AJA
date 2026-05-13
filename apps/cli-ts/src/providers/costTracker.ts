@@ -1,5 +1,5 @@
 /**
- * AgentX Cost Tracker (v2 — Phase 3: Cost Intelligence)
+ * Agent Cost Tracker (v2 — Phase 3: Cost Intelligence)
  * 
  * Tracks token usage, estimated costs, provider breakdown, and savings.
  * Always-on by design — cost transparency is a core feature.
