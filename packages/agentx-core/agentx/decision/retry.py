@@ -1,5 +1,5 @@
 """
-agent/decision/retry.py
+agentx/decision/retry.py
 ========================
 Phase 10 — Decision Retry Controller.
 Phase 12 — Causal Rule Integration.

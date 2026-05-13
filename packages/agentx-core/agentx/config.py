@@ -1,6 +1,6 @@
-# agent/config.py
+# agentx/config.py
 # ================
-# Global configuration and feature flags for Agent.
+# Global configuration and feature flags for AgentX.
 
 import os
 from pathlib import Path
@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def find_project_root():
-    """Finds the Agent project root by looking for agentx.json or .git."""
-    # Start from this file's location (agent/config.py)
+    """Finds the AgentX project root by looking for agentx.json or .git."""
+    # Start from this file's location (agentx/config.py)
     current = Path(__file__).resolve().parent
     # Check up to 4 levels up
     for _ in range(4):
@@ -22,6 +22,7 @@ def find_project_root():
         current = current.parent
     # Fallback to current working directory if nothing found
     return Path(os.getcwd())
+
 
 PROJECT_ROOT = find_project_root()
 AGENTX_DIVERSITY_BETA = True

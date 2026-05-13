@@ -1,5 +1,5 @@
 """
-agent/decision/validator.py
+agentx/decision/validator.py
 ===========================
 Phase 10 — Deterministic Decision Validation.
 

@@ -1,5 +1,5 @@
 """
-agent/embeddings/service.py
+agentx/embeddings/service.py
 =============================
 Phase 13 - Embedding Service.
 

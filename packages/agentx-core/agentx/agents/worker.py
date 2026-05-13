@@ -97,7 +97,7 @@ async def work(baton_path: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python agent_worker.py <baton_path>")
+        print("Usage: python -m agentx.agents.worker <baton_path>")
         sys.exit(1)
 
     asyncio.run(work(sys.argv[1]))

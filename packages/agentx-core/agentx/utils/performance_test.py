@@ -53,7 +53,7 @@ if __name__ == "__main__":
     models = ["gemma-4-e2b-it-local"]
     results = {}
     
-    print("--- Agent Model Performance Benchmark (llama-server) ---")
+    print("--- AgentX Model Performance Benchmark (llama-server) ---")
     for m in models:
         tps = test_model(m, test_prompt)
         results[m] = tps

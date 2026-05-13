@@ -1,7 +1,7 @@
 import sys
 import os
 from agentx.utils.health_check import run_health_check
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 from pathlib import Path
 
 # Config
@@ -42,7 +42,7 @@ def heal_system(territory="src/prod"):
         No explanations, no markdown backticks.
         """
         
-        gateway = UnifiedGateway(PROVIDER, KEY)
+        gateway = LLMGateway(PROVIDER, KEY)
         
         print(f"[AI] Calling AI to diagnose and repair {file_path.name}...")
         

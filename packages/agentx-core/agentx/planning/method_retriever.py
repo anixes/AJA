@@ -1,5 +1,5 @@
 """
-agent/planning/method_retriever.py
+agentx/planning/method_retriever.py
 =====================================
 Phase 13 - Method Retrieval & Fit Scoring (Embeddings).
 

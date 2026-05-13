@@ -1,7 +1,7 @@
 """
 agentx/interface/tui.py
 ========================
-Premium TUI for AgentX / AJA.
+Premium TUI for AgentX powered by AJA (Assistant of Joint Agents).
 Refactored for 100% Pure AgentX (Arrow/LanceDB memory).
 """
 
@@ -36,7 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from agentx.security.stripper import CommandStripper
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 from agentx.presence.state import get_system_state
 
 AJA_LOGO = """
@@ -46,7 +46,7 @@ AJA_LOGO = """
 ██╔══██║██   ██║██╔══██║
 ██║  ██║╚█████╔╝██║  ██║
 ╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝
-[bold cyan]Assistant Bot Interface[/]
+[bold cyan]Assistant of Joint Agents[/]
 """
 
 
@@ -66,7 +66,7 @@ class RiskPanel(Static):
 class AgentXShell(App):
     """
     A premium TUI replacing 'SafeShellTUI'.
-    Now fully integrated with the AJA persona and AgentX Core.
+    Powered by AJA (Assistant of Joint Agents) and the AgentX orchestration core.
     """
 
     CSS = """
@@ -140,7 +140,7 @@ class AgentXShell(App):
 
     def __init__(self, provider, key, model):
         super().__init__()
-        self.gateway = UnifiedGateway(provider, key)
+        self.gateway = LLMGateway(provider, key)
         self.model = model
         self.dangerous_binaries = {
             "rm",
@@ -248,7 +248,7 @@ class AgentXShell(App):
             import asyncio
 
             loop = asyncio.get_event_loop()
-            prompt = f"User request: '{raw_input}'. If it's a command, wrap in <cmd>bash</cmd>. Otherwise reply as AJA."
+            prompt = f"User request: '{raw_input}'. If it's a command, wrap in <cmd>bash</cmd>. Otherwise reply as AJA (Assistant of Joint Agents)."
             response = await loop.run_in_executor(
                 None, self.gateway.chat, self.model, prompt
             )

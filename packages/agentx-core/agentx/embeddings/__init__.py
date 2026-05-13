@@ -1,5 +1,5 @@
 """
-agent/embeddings/__init__.py
+agentx/embeddings/__init__.py
 ==============================
 Phase 13 - Embeddings & Vector Search Package.
 

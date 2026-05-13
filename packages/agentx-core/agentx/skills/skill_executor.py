@@ -1,5 +1,5 @@
 """
-agent/skills/skill_executor.py
+agentx/skills/skill_executor.py
 ================================
 Phase 8B + 8B.1 (Final gaps 1–3) — Safe skill execution within orchestration guarantees.
 
@@ -35,25 +35,33 @@ import json
 import os
 import pyarrow as pa
 from datetime import datetime, timezone, timedelta
-from agentx.memory.manager import MemoryManager, get_memory_manager, list_tables_defensive
+from agentx.memory.manager import (
+    MemoryManager,
+    get_memory_manager,
+    list_tables_defensive,
+)
 
 _manager = get_memory_manager()
 
 # Arrow schema for step-level checkpoints
-_CHECKPOINT_SCHEMA = pa.schema([
-    ("checkpoint_id", pa.string()),
-    ("skill_id", pa.string()),
-    ("run_id", pa.string()),
-    ("step_index", pa.int32()),
-    ("tool_name", pa.string()),
-    ("result", pa.string()),
-    ("completed_at", pa.string()),
-])
+_CHECKPOINT_SCHEMA = pa.schema(
+    [
+        ("checkpoint_id", pa.string()),
+        ("skill_id", pa.string()),
+        ("run_id", pa.string()),
+        ("step_index", pa.int32()),
+        ("tool_name", pa.string()),
+        ("result", pa.string()),
+        ("completed_at", pa.string()),
+    ]
+)
+
 
 def _ensure_checkpoint_table():
     existing = list_tables_defensive(_manager.db)
     if "skill_step_checkpoints" not in existing:
         _manager.db.create_table("skill_step_checkpoints", schema=_CHECKPOINT_SCHEMA)
+
 
 _ensure_checkpoint_table()
 
@@ -71,6 +79,7 @@ def mark_stale_skills(stale_after_days: int = STALE_AFTER_DAYS) -> int:
     Returns the count of skills newly marked stale.
     """
     from agentx.skills.skill_store import mark_skills_stale
+
     try:
         return mark_skills_stale(stale_after_days)
     except Exception as e:
@@ -82,6 +91,7 @@ def _refresh_last_used(skill_id: str) -> None:
     """Touch last_used_at + clear stale flag whenever a skill is attempted."""
     try:
         from agentx.skills.skill_store import touch_skill
+
         touch_skill(skill_id)
     except Exception:
         pass
@@ -105,6 +115,7 @@ _ENV_VALIDATORS: dict = {
 
 def _check_network() -> tuple:
     import socket
+
     try:
         socket.setdefaulttimeout(2)
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
@@ -167,6 +178,7 @@ def check_environment(skill: dict) -> tuple:
 # Risk gate (Step 2)
 # ---------------------------------------------------------------------------
 
+
 def _risk_gate(skill: dict, confirm_fn=None) -> bool:
     """
     Enforce execution gate based on skill risk_level.
@@ -215,37 +227,57 @@ def _risk_gate(skill: dict, confirm_fn=None) -> bool:
 # Gap 1 — Step-level checkpoint helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_completed_steps(skill_id: str, run_id: str) -> dict:
     """Return {step_index: result} for all already-completed steps."""
     try:
         t = _manager.db.open_table("skill_step_checkpoints")
-        rows = t.search().where(
-            f"skill_id = '{skill_id}' AND run_id = '{run_id}'"
-        ).to_list()
+        rows = (
+            t.search()
+            .where(f"skill_id = '{skill_id}' AND run_id = '{run_id}'")
+            .to_list()
+        )
         return {r["step_index"]: r["result"] for r in rows}
     except Exception:
         return {}
 
 
-def _checkpoint_step(skill_id: str, run_id: str, step_index: int,
-                     tool_name: str, result: str) -> None:
+def _checkpoint_step(
+    skill_id: str, run_id: str, step_index: int, tool_name: str, result: str
+) -> None:
     """Persist a completed step checkpoint (upsert for idempotency)."""
     import uuid
+
     try:
         t = _manager.db.open_table("skill_step_checkpoints")
-        existing = t.search().where(
-            f"skill_id = '{skill_id}' AND run_id = '{run_id}' AND step_index = {step_index}"
-        ).limit(1).to_list()
+        existing = (
+            t.search()
+            .where(
+                f"skill_id = '{skill_id}' AND run_id = '{run_id}' AND step_index = {step_index}"
+            )
+            .limit(1)
+            .to_list()
+        )
         now_iso = datetime.now(timezone.utc).isoformat()
         if existing:
             t.update(
                 where=f"skill_id = '{skill_id}' AND run_id = '{run_id}' AND step_index = {step_index}",
-                values={"result": result, "completed_at": now_iso}
+                values={"result": result, "completed_at": now_iso},
             )
         else:
-            t.add([{"checkpoint_id": uuid.uuid4().hex, "skill_id": skill_id, "run_id": run_id,
-                    "step_index": step_index, "tool_name": tool_name,
-                    "result": result, "completed_at": now_iso}])
+            t.add(
+                [
+                    {
+                        "checkpoint_id": uuid.uuid4().hex,
+                        "skill_id": skill_id,
+                        "run_id": run_id,
+                        "step_index": step_index,
+                        "tool_name": tool_name,
+                        "result": result,
+                        "completed_at": now_iso,
+                    }
+                ]
+            )
     except Exception as e:
         print(f"[SkillExec] _checkpoint_step() error: {e}")
 
@@ -256,7 +288,7 @@ def _clear_checkpoints(skill_id: str, run_id: str) -> None:
         t = _manager.db.open_table("skill_step_checkpoints")
         t.update(
             where=f"skill_id = '{skill_id}' AND run_id = '{run_id}'",
-            values={"result": "__CLEARED__"}
+            values={"result": "__CLEARED__"},
         )
     except Exception:
         pass
@@ -265,6 +297,7 @@ def _clear_checkpoints(skill_id: str, run_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Tool step executor (Step 3) — all calls go through ToolGuard
 # ---------------------------------------------------------------------------
+
 
 def _execute_step(run_id: str, step: dict, step_index: int) -> tuple:
     """
@@ -279,13 +312,13 @@ def _execute_step(run_id: str, step: dict, step_index: int) -> tuple:
     from agentx.persistence.tools import ToolGuard
 
     tool_name = step.get("tool_name", "unknown")
-    args      = step.get("args_schema", {})
+    args = step.get("args_schema", {})
 
     guard = ToolGuard(
-        run_id    = run_id,
-        tool_name = tool_name,
-        args      = args,
-        step      = f"skill_step_{step_index}",
+        run_id=run_id,
+        tool_name=tool_name,
+        args=args,
+        step=f"skill_step_{step_index}",
     )
 
     cached = guard.reserve()
@@ -294,7 +327,9 @@ def _execute_step(run_id: str, step: dict, step_index: int) -> tuple:
         # Coalesce: already COMPLETED or currently RUNNING by another execution
         status = cached.get("status", "COMPLETED")
         if status == "COMPLETED" or "result" in cached:
-            print(f"[SkillExec][Step {step_index}] Coalesced cached result for '{tool_name}'")
+            print(
+                f"[SkillExec][Step {step_index}] Coalesced cached result for '{tool_name}'"
+            )
             return True, cached.get("result"), None
         # Another runner holds the reservation — treat as transient failure
         return False, None, f"Tool '{tool_name}' already RUNNING (concurrent execution)"
@@ -316,7 +351,7 @@ def _invoke_tool(tool_name: str, args: dict) -> tuple:
     """
     Look up and call a real tool implementation.
 
-    Tool implementations live in agent/tools/<tool_name>.py and expose
+    Tool implementations live in agentx/tools/<tool_name>.py and expose
     a run(args: dict) -> str function.  If no implementation exists,
     the step is simulated (logged but not executed for real).
 
@@ -326,13 +361,14 @@ def _invoke_tool(tool_name: str, args: dict) -> tuple:
 
     module_path = f"agentx.tools.{tool_name}"
     try:
-        mod    = importlib.import_module(module_path)
+        mod = importlib.import_module(module_path)
         result = mod.run(args)
         return str(result), None
     except ModuleNotFoundError:
         # No real implementation — simulate (safe default)
-        simulated = json.dumps({"simulated": True, "tool": tool_name,
-                                "args_keys": list(args.keys())})
+        simulated = json.dumps(
+            {"simulated": True, "tool": tool_name, "args_keys": list(args.keys())}
+        )
         print(f"[SkillExec][SIM] No impl for '{tool_name}' — simulating step.")
         return simulated, None
     except Exception as e:
@@ -342,8 +378,15 @@ def _invoke_tool(tool_name: str, args: dict) -> tuple:
 def _is_permanent_error(error: str) -> bool:
     """Classify whether an error should never be retried."""
     permanent_signals = (
-        "AuthenticationError", "PermissionError", "InvalidInput",
-        "NotFound", "400", "401", "403", "404", "422",
+        "AuthenticationError",
+        "PermissionError",
+        "InvalidInput",
+        "NotFound",
+        "400",
+        "401",
+        "403",
+        "404",
+        "422",
     )
     return any(sig in error for sig in permanent_signals)
 
@@ -352,25 +395,27 @@ def _is_permanent_error(error: str) -> bool:
 # Metrics update (Step 5)
 # ---------------------------------------------------------------------------
 
+
 def _update_skill_metrics(skill_id: str, success: bool) -> None:
     """Atomically update success_count / failure_count / confidence_score via skill_store."""
     try:
         from agentx.skills.skill_store import update_skill_metrics
+
         update_skill_metrics(skill_id, success=success)
     except Exception as e:
         print(f"[SkillExec] _update_skill_metrics() error: {e}")
-
 
 
 # ---------------------------------------------------------------------------
 # Main entry point (Steps 1 – 6 + Gaps 1, 2, 3)
 # ---------------------------------------------------------------------------
 
+
 def execute_skill(
-    skill:      dict,
-    task_id:    int,
-    run_id:     str,
-    objective:  str,
+    skill: dict,
+    task_id: int,
+    run_id: str,
+    objective: str,
     tracker=None,
     confirm_fn=None,
 ) -> bool:
@@ -401,12 +446,17 @@ def execute_skill(
              stale flag is cleared on reuse.
     """
 
-    skill_id   = skill.get("id", "unknown")
+    skill_id = skill.get("id", "unknown")
     skill_name = skill.get("name", skill_id)
 
     def _log(event: str, extra: dict = None):
-        payload = {"skill_id": skill_id, "skill_name": skill_name,
-                   "task_id": task_id, "objective": objective, **(extra or {})}
+        payload = {
+            "skill_id": skill_id,
+            "skill_name": skill_name,
+            "task_id": task_id,
+            "objective": objective,
+            **(extra or {}),
+        }
         print(f"[SkillExec] {event}  skill='{skill_name}'  task={task_id}")
         if tracker:
             try:
@@ -419,8 +469,13 @@ def execute_skill(
         _refresh_last_used(skill_id)
 
         # ── Step 6a — SKILL_SELECTED ─────────────────────────────────────────
-        _log("SKILL_SELECTED", {"risk_level": skill.get("risk_level", "LOW"),
-                                 "confidence": skill.get("confidence_score", 0)})
+        _log(
+            "SKILL_SELECTED",
+            {
+                "risk_level": skill.get("risk_level", "LOW"),
+                "confidence": skill.get("confidence_score", 0),
+            },
+        )
 
         # ── Step 2 — Risk gate (may prompt operator) ──────────────────────────
         if not _risk_gate(skill, confirm_fn=confirm_fn):
@@ -430,10 +485,13 @@ def execute_skill(
         # ── Gap 2 — Environment validation ────────────────────────────────────
         env_ok, env_failures = check_environment(skill)
         if not env_ok:
-            _log("SKILL_EXECUTION_FAILED", {
-                "reason":   "environment validation failed",
-                "failures": env_failures,
-            })
+            _log(
+                "SKILL_EXECUTION_FAILED",
+                {
+                    "reason": "environment validation failed",
+                    "failures": env_failures,
+                },
+            )
             _log("SKILL_FALLBACK")
             _update_skill_metrics(skill_id, success=False)
             return False
@@ -457,21 +515,31 @@ def execute_skill(
         done_steps = _load_completed_steps(skill_id, run_id)
         resumed_from = min(done_steps.keys()) if done_steps else None
         if done_steps:
-            _log("SKILL_RESUMING", {
-                "steps_already_done": sorted(done_steps.keys()),
-                "resuming_from_step": max(done_steps.keys()) + 1,
-            })
+            _log(
+                "SKILL_RESUMING",
+                {
+                    "steps_already_done": sorted(done_steps.keys()),
+                    "resuming_from_step": max(done_steps.keys()) + 1,
+                },
+            )
 
         # ── Step 3 — Execute each tool step via ToolGuard ────────────────────
         step_results = []
         for i, step in enumerate(tool_sequence):
-
             # Gap 1: skip steps already completed in a previous execution
             if i in done_steps:
-                print(f"[SkillExec][Step {i}] Skipping '{step.get('tool_name')}' "
-                      f"(checkpoint found from prior run)")
-                step_results.append({"step": i, "tool": step.get("tool_name"),
-                                     "ok": True, "recovered": True})
+                print(
+                    f"[SkillExec][Step {i}] Skipping '{step.get('tool_name')}' "
+                    f"(checkpoint found from prior run)"
+                )
+                step_results.append(
+                    {
+                        "step": i,
+                        "tool": step.get("tool_name"),
+                        "ok": True,
+                        "recovered": True,
+                    }
+                )
                 continue
 
             ok, result, error = _execute_step(run_id, step, step_index=i)
@@ -479,17 +547,21 @@ def execute_skill(
 
             if ok:
                 # Gap 1: persist checkpoint so a crash here doesn't redo this step
-                _checkpoint_step(skill_id, run_id, i,
-                                 step.get("tool_name", ""), result or "ok")
+                _checkpoint_step(
+                    skill_id, run_id, i, step.get("tool_name", ""), result or "ok"
+                )
             else:
                 # Step 4 — Failure fallback
-                _log("SKILL_EXECUTION_FAILED", {
-                    "failed_step":    i,
-                    "tool_name":      step.get("tool_name"),
-                    "error":          error,
-                    "steps_done":     [r["step"] for r in step_results if r["ok"]],
-                    "resume_hint":    f"Re-run with same run_id='{run_id}' to resume from step {i}",
-                })
+                _log(
+                    "SKILL_EXECUTION_FAILED",
+                    {
+                        "failed_step": i,
+                        "tool_name": step.get("tool_name"),
+                        "error": error,
+                        "steps_done": [r["step"] for r in step_results if r["ok"]],
+                        "resume_hint": f"Re-run with same run_id='{run_id}' to resume from step {i}",
+                    },
+                )
                 _log("SKILL_FALLBACK")
                 # Step 5 — Failure metrics
                 _update_skill_metrics(skill_id, success=False)
@@ -498,10 +570,13 @@ def execute_skill(
                 return False
 
         # ── Step 6c — SKILL_EXECUTION_COMPLETED ──────────────────────────────
-        _log("SKILL_EXECUTION_COMPLETED", {
-            "steps_completed": len(step_results),
-            "resumed_from":    resumed_from,
-        })
+        _log(
+            "SKILL_EXECUTION_COMPLETED",
+            {
+                "steps_completed": len(step_results),
+                "resumed_from": resumed_from,
+            },
+        )
         # Gap 1: cleanup checkpoints on full success
         _clear_checkpoints(skill_id, run_id)
         # Step 5 — Success metrics

@@ -5,7 +5,7 @@
 AgentX is engineered to run on standard hardware while delivering maximum performance. By utilizing the **Apache Arrow** memory stack and **Rust-native** acceleration, it brings elite autonomous orchestration to standard machines with a strict local-first philosophy.
 
 ## Project Milestone: "Adaptive Execution & Control"
-Agent is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
+AgentX is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
 
 ## Naming
 
@@ -14,22 +14,22 @@ Agent is a self-correcting execution system with adaptive control, not yet a ful
 - **AgentX Core powers AJA**.
 
 ### Components Delivered:
-- **Unified CLI**: Single `agent` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
+- **Unified CLI**: Single `agentx` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
 - **Safety Gate**: Semantic command auditing via `CommandStripper`.
 - **Secret Vault**: Encrypted credential storage.
 - **Unified Swarm Engine**: Replaces disjointed scripts with a single engine supporting Background, Parallel, and Baton modes.
 - **API Bridge & Dashboard**: Glassmorphic real-time telemetry with secure, CSRF-protected approval routes and a Mission Launcher panel.
-- **Telegram Remote Control**: Assistant can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> Agent Core.
+- **Telegram Remote Control**: AJA can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> AgentX Core.
 - **Structured Approval Workflow**: Risky actions become approval objects with command preview, action type, reason, risk level, rollback path, expiry, requester source, and dry-run summary.
-- **Structured Secretary Memory**: Assistant persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
-- **Messaging Layer**: Assistant drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
-- **Scheduler and Executive Reviews**: Assistant generates morning, night, and weekly reviews with urgency scoring, snooze, escalation, and Telegram delivery.
+- **Structured Secretary Memory**: AJA persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
+- **Messaging Layer**: AJA drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
+- **Scheduler and Executive Reviews**: AJA generates morning, night, and weekly reviews with urgency scoring, snooze, escalation, and Telegram delivery.
 - **Centralized Gateway**: Unified `UnifiedGateway` utilizing a single `providers.json` source of truth. First-class OpenRouter support.
 - **Priority Engine & Decision Layer**: Multi-factor judgment scoring (urgency, stakeholder weight, consequence of delay) that ranks tasks and challenges false urgency.
 - **Definition of Done (DoD) Framework**: Mandatory success criteria for all delegations, with auto-generation support for common engineering and executive tasks.
 - **Executive Desk Dashboard**: Refactored command center focusing on high-level agenda and delegation oversight.
 - **Resilient Recovery Layer**: LanceDB/Arrow-backed authoritative task tracking, boot-time crash recovery, and atomic tool idempotency guards.
-- **Persistent Presence Loop**: Continuous agent loop with triggers, guardrails, health dashboard, and remote operator-in-the-loop approvals.
+- **Persistent Presence Loop**: Continuous AgentX loop with triggers, guardrails, health dashboard, and remote operator-in-the-loop approvals.
 - **Strategy Selection Module**: Strategic dispatch layer that chooses optimal execution paths (Skill vs Compose vs Swarm) with hard risk gates and confidence fallbacks. (formerly LLM Decision Engine)
 - **AJA Telegram Gateway**: Resilient, mobile-optimized communication layer with adaptive polling, table-to-bullet rendering, and vision-to-text enrichment.
 
@@ -101,7 +101,7 @@ Before execution, approvals are checked for expiration and revalidated through `
 
 ## Phase 3: Structured Secretary Memory
 
-Assistant now has a persistent LanceDB/Arrow task system at `.agent/assistant_secretary.lancedb`.
+AJA now has a persistent LanceDB/Arrow task system at `.agent/assistant_secretary.lancedb`.
 
 The task object supports:
 
@@ -112,13 +112,13 @@ The task object supports:
 
 Interfaces:
 
-- CLI: `python agent.py memory add|list|review|complete|archive`
+- CLI: `python -m agentx memory add|list|review|complete|archive`
 - FastAPI: `/memory/tasks`, `/memory/review`, `/memory/summary`
 - Telegram: `tasks`, `task review`, `complete <task_id>`, `archive <task_id>`, and natural obligation messages
 
 ## Phase 4: Messaging Layer
 
-Assistant now stores outbound communication records in the same LanceDB/Arrow secretary database.
+AJA now stores outbound communication records in the same LanceDB/Arrow secretary database.
 
 The communication object supports:
 
@@ -136,20 +136,20 @@ Draft -> Edit -> Approval -> Send -> Follow-up tracking
 
 Safety rules:
 
-- Assistant never auto-sends the first version.
+- AJA never auto-sends the first version.
 - All outbound messages require approval.
 - Telegram is the only direct outbound adapter for now.
 - Email and recruiter messages are drafted and tracked, not silently sent.
 
 Interfaces:
 
-- CLI: `python agent.py message draft|list|approve|reject`
+- CLI: `python -m agentx message draft|list|approve|reject`
 - FastAPI: `/communications`, `/communications/{message_id}/approve`, `/communications/{message_id}/send`
 - Telegram: `draft recruiter follow-up`, `approve message <id>`, `send message <id>`, `check pending unanswered messages`
 
 ## Phase 5: Scheduler and Daily Executive Review
 
-Assistant now generates proactive executive reviews from structured tasks and communications.
+AJA now generates proactive executive reviews from structured tasks and communications.
 
 Supported reviews:
 
@@ -170,7 +170,7 @@ Scheduler capabilities:
 
 Interfaces:
 
-- CLI: `python agent.py review morning|night|weekly`
+- CLI: `python -m agentx review morning|night|weekly`
 - FastAPI: `/scheduler/config`, `/scheduler/review/{kind}`, `/scheduler/run`, `/scheduler/snooze/{task_id}`
 - Telegram: `morning review`, `night review`, `weekly review`, `what am I avoiding today`, `what slipped this week`
 
@@ -199,7 +199,7 @@ Transforming execution from ephemeral scripts into a state-aware platform.
 - **Concurrent Safety**: Task-level locking prevents parallel execution collisions on the same objective.
 
 Interfaces:
-- CLI: `agent status` (authoritative), `agent run` (tracked)
+- CLI: `agentx status` (authoritative), `agentx run` (tracked)
 - Persistence: `agent/persistence/tasks.py`, `agent/persistence/tools.py`, `agent/persistence/recovery.py`
 
 ## Phase 7 (AJA Gateway): Premium Secretary Integration
@@ -296,7 +296,7 @@ Transitioned from one-off command execution to a robust, continuous agentic runt
 - **Operator Approval Layer**: Implementation of a pause-and-wait workflow for `HIGH` risk tasks, allowing remote `approve`/`reject`/`modify` actions and emergency CLI loop controls (`pause-loop`, `resume-loop`, `kill-task`).
 
 Interfaces:
-- CLI: `agent run-loop`, `agent trigger`, `agent status`, `agent approve/reject`, `agent pause-loop/resume-loop`
+- CLI: `agentx run-loop`, `agentx trigger`, `agentx status`, `agentx approve/reject`, `agentx pause-loop/resume-loop`
 - Logic: `agent/presence/agent_loop.py`, `agent/presence/trigger_engine.py`, `agent/presence/state.py`, `agent/presence/notifier.py`, `agent/presence/approval.py`
 
 ## Phase 10 — Execution, Control & Learning Architecture (Research-Aligned)

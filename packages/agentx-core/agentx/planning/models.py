@@ -1,5 +1,5 @@
 """
-agent/planning/models.py
+agentx/planning/models.py
 ==========================
 Phase 11 - PlanNode and PlanGraph data model.
 

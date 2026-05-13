@@ -1,5 +1,5 @@
 """
-agent/planning/verification.py
+agentx/planning/verification.py
 ==================================
 Phase 11 - Serializability Verification Layer.
 

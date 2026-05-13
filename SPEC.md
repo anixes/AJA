@@ -33,6 +33,18 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 - **Tech**: asyncio, python-telegram-bot, WebSockets, Secretary Memory
 - **Action**: Implemented the **AJA Gateway**, a high-fidelity messaging layer for remote mission management. Features include resilient polling, mobile WebSocket sync, and intent-aware task capture.
 
+### Phase 8: Autonomous Tool Loop (Self-Correcting Execution) [DONE]
+- **Tech**: Subprocess, ToolExecutor, Intent Analysis
+- **Action**: Enabled the swarm to autonomously suggest, audit, and execute shell commands (tools) during the planning phase to gather environment state before worker dispatch.
+
+### Phase 9: Deep Territory RAG (Codebase Awareness) [DONE]
+- **Tech**: LanceDB Vector Store, TerritoryScanner, RAG
+- **Action**: Implemented a recursive codebase scanner that indexes the project territory into a vector knowledge base. Agents now perform semantic RAG lookups to "understand" the repository before acting.
+
+### Phase 10: Synthetic Skill Library (Reflective Learning) [DONE]
+- **Tech**: ReflectionEngine, SkillStore, Arrow
+- **Action**: Automated the extraction of reusable "Skills" from successful mission histories. These synthetic skills are hot-swapped into future mission plans based on objective similarity.
+
 ## 3. Success Criteria
 - [x] Pytest suite returns 100% success with Pydantic models.
 - [x] Dashboard passes a visual "premium" audit.
@@ -41,6 +53,17 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 - [x] AJA Telegram Gateway maintains 100% uptime through local network blips.
 - [x] Intent-aware parsing correctly identifies tasks vs natural chat.
 - [x] Real-time Mobile Sync operational via /ws/mobile.
+- [x] **Power 2**: Autonomous tool loop successfully prep-executes shell logic.
+- [x] **Power 4**: Deep Territory RAG provides relevant code context to the planner.
+- [x] **Power 5**: ReflectionEngine successfully synthesizes and stores synthetic skills.
 
 ## 4. Hardware Optimization (The High-Efficiency Target)
 The architecture is specifically tuned for resource-constrained environments. By using **Columnar State Slicing** (Arrow) and **Native Token Counting** (Rust), we maintain elite reasoning speeds even during complex multi-step missions on consumer-grade hardware.
+
+## 5. Architectural Decoupling: The "Brain, Muscle, Voice" Model
+To ensure maximum scalability and user experience, the system is decoupled into three distinct layers:
+1. **The Brain (LLM)**: Reasoning & Decision logic.
+2. **The Voice (AJA)**: Conversational Secretary & Planning Gateway. Handles I/O and user interaction.
+3. **The Muscle (AgentX)**: High-performance Native Core. Handles execution and state management.
+
+**Performance Impact**: This separation allows the "Voice" (AJA) to remain responsive during heavy "Muscle" (AgentX) operations, while both share a **Zero-Copy Memory Layer (LanceDB/Arrow)** to eliminate communication latency.

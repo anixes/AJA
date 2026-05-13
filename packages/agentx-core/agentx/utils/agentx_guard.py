@@ -2,15 +2,16 @@ import os
 import subprocess
 import json
 from agentx.security.stripper import CommandStripper
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 from agentx.runtime.sandbox import execute_command
 from agentx.utils.tokenjuice import TokenJuice
 
 
 class AJAGuard:
     """
-    The AJA Guard (formerly SafeShell) intercepts and inspects commands for security risks
-    before AgentX execution.
+    AJA Guard (formerly SafeShell) — the command safety layer inside AgentX Core.
+    AJA uses it to keep shell execution explainable, auditable, and operator-approved
+    when risk is present. Intercepts and inspects commands before AgentX execution.
     """
 
     # Tier 1: Truly dangerous binaries that almost always need analysis
@@ -40,7 +41,7 @@ class AJAGuard:
     }
 
     def __init__(self, provider: str, api_key: str, model: str):
-        self.gateway = UnifiedGateway(provider, api_key)
+        self.gateway = LLMGateway(provider, api_key)
         self.model = model
         self.juice = TokenJuice()
 

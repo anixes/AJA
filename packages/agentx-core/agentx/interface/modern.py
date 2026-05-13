@@ -16,7 +16,7 @@ from rich.theme import Theme
 from rich.markdown import Markdown
 from rich.columns import Columns
 
-# Custom theme for AJA/AgentX
+# Custom theme for AJA (Assistant of Joint Agents) / AgentX
 AJA_THEME = Theme(
     {
         "info": "cyan",
@@ -38,7 +38,7 @@ AJA_BANNER = """
 ██╔══██║██   ██║██╔══██║
 ██║  ██║╚█████╔╝██║  ██║
 ╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝
-[bold cyan]Assistant to the Joint Agents[/]
+[bold cyan]Assistant of Joint Agents[/]
 """
 
 

@@ -1,5 +1,5 @@
 """
-agent/planning/version_store.py
+agentx/planning/version_store.py
 ==================================
 Wave 2 - Plan Versioning System
 

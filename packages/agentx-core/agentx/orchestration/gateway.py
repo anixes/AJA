@@ -11,7 +11,7 @@ def find_project_root() -> Path:
     """Find the repo root from CWD or this module location."""
     candidates = [Path.cwd(), *Path(__file__).resolve().parents]
     for current in candidates:
-        if (current / "agent.json").exists() or (current / ".git").exists():
+        if (current / "agentx.json").exists() or (current / ".git").exists():
             return current
     return Path.cwd()
 
@@ -72,11 +72,14 @@ def load_config():
         pass
     return {}
 
-class UnifiedGateway:
+class LLMGateway:
     """
-    A unified client for multiple AI model providers.
-    Supports NVIDIA, Groq, Together, OpenRouter, and Custom (BYO) endpoints.
+    LLMGateway — the low-level AI provider client for AgentX.
+    Supports NVIDIA, Groq, Together, OpenRouter, Google (Gemini), and custom (BYO) endpoints.
     Reads config from .agentx/config.json first, then falls back to constructor args.
+
+    Formerly named ``UnifiedGateway``. Renamed to avoid collision with the high-level
+    ``UnifiedGateway`` orchestration hub in ``agentx.gateway.orchestrator``.
     """
     
     PROVIDERS = load_providers()
@@ -96,10 +99,21 @@ class UnifiedGateway:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 default_headers={
-                    "HTTP-Referer": "https://github.com/agent",
-                    "X-Title": "Agent Swarm Toolkit"
+                    "HTTP-Referer": "https://github.com/agentx",
+                    "X-Title": "AgentX Swarm Toolkit"
                 }
             )
+
+    def complete(self, system: str, user: str, model: str = None):
+        """
+        Convenience method for deterministic completions.
+        If model is None, it attempts to resolve the default planner model.
+        """
+        if model is None:
+            # Fallback to a sane default if not provided
+            model = "gemini-2.5-flash" 
+            
+        return self.chat(model=model, prompt=user, system=system)
 
     def chat(self, model: str, prompt: str, system: str = "You are a helpful assistant."):
         """Simple chat completion."""
@@ -187,9 +201,12 @@ class UnifiedGateway:
             print(f"[Gateway] Embedding Error: {e}")
             return []
 
+# Backward-compatible alias — remove after all call-sites are updated to LLMGateway
+UnifiedGateway = LLMGateway
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Unified AI API Gateway CLI")
+    parser = argparse.ArgumentParser(description="LLMGateway CLI")
     parser.add_argument("--provider", required=True, help="Provider name (nvidia, groq, together, openrouter, custom)")
     parser.add_argument("--key", required=True, help="API Key")
     parser.add_argument("--url", help="Custom base URL (required if provider is 'custom')")
@@ -198,6 +215,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    gateway = UnifiedGateway(args.provider, args.key, args.url)
+    gateway = LLMGateway(args.provider, args.key, args.url)
     print(f"\n--- Result from {args.provider} ({args.model}) ---")
     print(gateway.chat(args.model, args.prompt))

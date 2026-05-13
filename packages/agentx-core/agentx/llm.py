@@ -2,7 +2,7 @@
 import json
 import os
 import agentx.config
-from agentx.orchestration.gateway import UnifiedGateway
+from agentx.orchestration.gateway import LLMGateway
 
 # Singleton gateway instance
 _gateway = None
@@ -10,7 +10,7 @@ _gateway = None
 def get_gateway():
     global _gateway
     if _gateway is None:
-        _gateway = UnifiedGateway()
+        _gateway = LLMGateway()
     return _gateway
 
 def get_gateway_for_model(model_str):
@@ -77,11 +77,11 @@ def get_gateway_for_model(model_str):
     if not api_key and provider == "google":
         api_key = os.getenv("GEMINI_API_KEY", "")
 
-    return UnifiedGateway(provider=provider, api_key=api_key), model_name
+    return LLMGateway(provider=provider, api_key=api_key), model_name
 
 def completion(prompt, system_prompt="You are a helpful assistant.", model=None):
     """
-    Standard completion interface used across Agent.
+    Standard completion interface used across AgentX.
     Routes to the correct provider based on model name/prefix.
     """
     if model is None:

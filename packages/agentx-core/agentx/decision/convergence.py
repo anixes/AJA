@@ -1,4 +1,4 @@
-"""agent/decision/convergence.py
+"""agentx/decision/convergence.py
 ================================
 Phase 14 — Loop Stability & Convergence Control.
 Phase 16 — Confidence-aware convergence.

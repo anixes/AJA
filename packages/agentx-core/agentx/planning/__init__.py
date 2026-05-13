@@ -1,5 +1,5 @@
 """
-agent/planning/__init__.py
+agentx/planning/__init__.py
 ============================
 Phase 12 - Planning Layer Package.
 

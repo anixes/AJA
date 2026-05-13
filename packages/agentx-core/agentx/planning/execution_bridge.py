@@ -1,5 +1,5 @@
 """
-agent/planning/execution_bridge.py
+agentx/planning/execution_bridge.py
 =====================================
 Phase 11 - Execution Bridge.
 
@@ -18,7 +18,7 @@ Architecture notes
 * On success the node is marked COMPLETED; on exception it is marked FAILED
   with the error stored in `node.error` for the replanner.
 
-No code in `agent/decision/` or `agent/persistence/` is modified.
+No code in `agentx/decision/` or `agentx/persistence/` is modified.
 """
 
 from __future__ import annotations

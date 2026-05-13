@@ -1,4 +1,4 @@
-"""agent/decision/context.py
+"""agentx/decision/context.py
 ================================
 Phase 16 — Context Compaction (Anti-Drift).
 
