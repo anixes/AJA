@@ -1,6 +1,6 @@
 # Phase 3: Structured Secretary Memory
 
-Phase 3 gives Assistant persistent executive-assistant memory. This is not chat-history recall and it is not a vector database. It is a structured LanceDB/Arrow task system for obligations, follow-ups, recurring responsibilities, and accountability commitments.
+Phase 3 gives Assistant persistent executive-assistant memory. This is a hybrid memory system combining a **structured LanceDB/Arrow task system** for obligations with a **high-performance Semantic RAG (Vector)** layer for project-wide knowledge retrieval.
 
 ## Goal
 
@@ -50,6 +50,23 @@ The `secretary_tasks` table stores:
 - `last_reviewed_at`
 - `created_at`
 - `updated_at`
+
+## Territory Knowledge (Semantic RAG)
+
+The `territory_knowledge` table enables the agent to search project files semantically. It uses real embeddings to understand context beyond simple keyword matching.
+
+### Schema:
+- `id`: Unique chunk identifier.
+- `path`: Relative path to the source file.
+- `content`: Raw text content of the chunk.
+- `metadata_json`: Rich metadata (line numbers, chunk index, extension).
+- `updated_at`: Last index timestamp.
+- `vector`: **384-dimension float array** (optimized for `all-MiniLM-L6-v2`).
+
+### Capabilities:
+- **Territory Scanning**: Automated project-wide indexing of supported files (.py, .ts, .md, etc.).
+- **Semantic Search**: Retrieval of relevant context based on vector similarity rather than exact strings.
+- **Idempotent Updates**: Automatic cleanup of old chunks before re-scanning paths.
 
 Structured JSON fields are stored as JSON text in LanceDB/Arrow where appropriate.
 
@@ -137,9 +154,9 @@ Telegram summaries are compact and mobile-readable.
 
 ## Design Rules
 
-- Memory is structured, not guessed from chat logs.
-- Assistant tracks obligations, not just conversations.
-- LanceDB/Arrow is the source of truth for Phase 3.
-- Vector memory is intentionally deferred.
-- Secretary behavior is more important than chatbot recall.
+- Memory is structured and semantic, not guessed from chat logs.
+- Assistant tracks obligations and project-wide context.
+- LanceDB/Arrow is the authoritative source of truth.
+- Vector memory is utilized for "Territory Awareness" (RAG).
+- Secretary behavior and context-retrieval are core Phase 3 features.
 
