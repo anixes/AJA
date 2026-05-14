@@ -26,10 +26,10 @@ graph TD
 ## 2. The Tri-Memory Stack
 
 ### A. LanceDB (The Persistent Brain)
-**Storage Location:** `.agentx/`
-- **Purpose**: Authoritative long-term memory.
-- **Components**: `core_tasks`, `skill_store`, `decision_metrics`.
-- **Performance**: Columnar retrieval using Arrow IPC fragments.
+**Storage Location:** `.agentx/lancedb/`
+- **Purpose**: Authoritative long-term memory and project context.
+- **Components**: `aja_tasks`, `territory_knowledge` (Semantic RAG), `self_evolve_knowledge`.
+- **Performance**: Columnar retrieval and vector similarity search via `sentence-transformers`.
 
 ### B. Arrow IPC (The Reflexive Nerves)
 **Storage Location:** `.agentx/batons/*.arrow`

@@ -99,16 +99,15 @@ Approval commands:
 
 Before execution, approvals are checked for expiration and revalidated through `FileGuardian` and `CommandStripper`.
 
-## Phase 3: Structured Secretary Memory
+## Phase 3: Structured & Semantic Memory
 
-AJA now has a persistent LanceDB/Arrow task system at `.agent/assistant_secretary.lancedb`.
+AJA now has a hybrid LanceDB/Arrow memory system at `.agent/assistant_secretary.lancedb`.
 
-The task object supports:
-
-- task identity, title, context, owner, due date, recurrence, priority, and status
-- follow-up state, reminder state, escalation level, approval state, related people, and communication history
-- source tracking across Telegram, CLI, dashboard, and system-created tasks
-- scheduled review, stale task detection, priority sorting, recurring task rescheduling, and Telegram summaries
+The system combines:
+- **Executive Obligations**: Persistent tracking of tasks, title, context, due date, recurrence, priority, and status.
+- **Semantic RAG (Territory)**: Automated project-wide indexing with real semantic embeddings (`all-MiniLM-L6-v2`) for project-aware context retrieval.
+- **Safety Hardening**: Sanitized LanceDB filters to prevent injection and explicit PyArrow schemas for high integrity.
+- **Scheduled Review**: Proactive reviews with urgency scoring and accountability escalations.
 
 Interfaces:
 
@@ -452,13 +451,13 @@ Proactive task generation within safety bounds.
 - **Safety Filtering**: Risk/Benefit scoring and forbidden action blocking.
 - **Budgeting**: Enforcing action caps and cooldown periods.
 
-## Phase 26: RL-lite Behavioral Learning
+## Phase 26: RL-lite Behavioral Learning & Optimized Reflection
 
-Dynamic decision optimization via reward-based policy biasing.
+Dynamic decision optimization via reward-based policy biasing and O(1) reflection.
 
 - **Policy Store**: Scoring plan patterns, tools, and modes based on success.
 - **Reward Function**: `Success - Latency - Repair - Risk`.
-- **Exploration vs Exploitation**: Epsilon-greedy strategy for strategy discovery.
+- **O(1) Reflection Engine**: Refactored `KnowledgeBase` to eliminate table scans, utilizing on-demand LanceDB queries for pattern tracking and strategy discovery.
 - **Drift Control**: Auto-reset of policy on success rate degradation.
 
 ## Phase 27: Hybrid Agentic Browsing & Internet Access
