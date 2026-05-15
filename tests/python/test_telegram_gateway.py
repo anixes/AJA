@@ -41,9 +41,9 @@ def test_orchestrator_authorization_uses_user_id(monkeypatch):
     assert gateway._is_telegram_user_authorized(event) is True
 
 
-def test_low_priority_throttle_blocks_fast_repeats():
+def test_low_priority_throttle_blocks_fast_repeats(monkeypatch):
+    monkeypatch.setenv("AJA_TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS", "60")
     adapter = TelegramAdapter({"token": "test-token"})
-    adapter._low_priority_min_interval_seconds = 60
 
     assert adapter._should_emit_low_priority("chat-1", "tick") is True
     assert adapter._should_emit_low_priority("chat-1", "tick") is False

@@ -1,7 +1,7 @@
 import logging
 from agentx.autonomy.intent_engine import intent_engine
 from agentx.goals.goal_engine import goal_engine
-from agentx.config import TELEGRAM_TOKEN, TELEGRAM_ALLOWED_USER_ID
+from agentx.config import TELEGRAM_ALLOWED_USER_ID
 from agentx.interface.intent_parser import parse_intent
 from agentx.interface.telegram_listener import async_send_telegram_message
 from agentx.memory.secretary import AJAMemory
@@ -72,5 +72,5 @@ def _send_telegram_report(message: str):
             }
         )
     except Exception:
-        if not TELEGRAM_TOKEN or not TELEGRAM_ALLOWED_USER_ID:
-            print(f"[Telegram Bot] [MOCKED] REPORT: {message}")
+        logger.exception("Failed to emit legacy telegram runtime event")
+        logger.info("legacy_telegram_report_dropped", extra={"message": message or ""})
