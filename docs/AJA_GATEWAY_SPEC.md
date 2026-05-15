@@ -5,11 +5,13 @@ The **AJA Gateway** is a high-fidelity communication bridge between the AgentX c
 
 ## 2. Core Architectural Pillars
 
-### 2.1 Resilient Connection [DONE]
+### 2.1 Resilient Connection [STABILIZED]
 - [x] **Adaptive Polling**: Implemented exponential back-off in `gateway/telegram.py`.
 - [x] **Draining Mode**: Supported via lifecycle hooks in `UnifiedGateway`.
 - [x] **Freshness Gate**: Integrated into polling loop logic.
 - [x] **Security Whitelisting**: Messages restricted to `TELEGRAM_ALLOWED_USER_ID` from `.env`.
+- [x] **Unified Architecture**: Deprecated the legacy `_send_telegram_report` "split-brain" loop in favor of the `UnifiedGateway` telemetry poller, resolving notification spam and enabling two-way responsive communication.
+
 
 ### 2.2 Mobile-First Rendering [DONE]
 - [x] **MD-to-Mobile Renderer**: `MobileMDRenderer` in `gateway/render.py` converts tables to bullet lists.
