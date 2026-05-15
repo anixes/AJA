@@ -7,7 +7,7 @@
       "auto_heal": true
     },
     {
-      "path": "packages/agentx-core",
+      "path": "libs/agentx-core",
       "health_cmd": "python -m agentx status",
       "auto_heal": false
     }

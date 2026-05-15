@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 pythonpath = [
-  "packages/agentx-core"
+  "libs/agentx-core"
 ]
 testpaths = [
   "tests/python"

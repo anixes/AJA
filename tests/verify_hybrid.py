@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import shutil
-from agent.gateway import UnifiedGateway
+from agentx.gateway import UnifiedGateway
 
 async def verify():
     print("--- Agent Hybrid Verification ---")

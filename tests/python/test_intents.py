@@ -1,5 +1,5 @@
 import json
-from agent.security.stripper import CommandStripper
+from agentx.security.stripper import CommandStripper
 
 # Mock AI Translation Logic (Simulating what happens in the TUI)
 INTENT_MAPPING = {

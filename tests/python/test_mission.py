@@ -1,0 +1,27 @@
+import asyncio
+import os
+import logging
+from agentx.orchestration.swarm import SwarmEngine
+
+logging.basicConfig(level=logging.INFO)
+
+async def main():
+    # Configure environment
+    os.environ["AI_PROVIDER"] = "google"
+    # DO NOT HARDCODE KEYS. Ensure GEMINI_API_KEY is set in your environment or .env file.
+    model = "gemini-1.5-flash"
+    
+    print(f"Initializing SwarmEngine with model {model}...")
+    engine = SwarmEngine(model=model)
+    
+    objective = "Analyze the AJAMemory implementation in secretary.py and verify if the new territory_knowledge table is correctly being used by the TerritoryScanner."
+    
+    print(f"\n🚀 STARTING OVERDRIVE TEST MISSION: {objective}\n")
+    try:
+        await engine.plan_and_execute_batons(objective)
+    except Exception as e:
+        print(f"Mission failed: {e}")
+
+if __name__ == "__main__":
+    print("Script started.")
+    asyncio.run(main())

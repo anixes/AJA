@@ -6,7 +6,7 @@ import process from 'node:process';
 
 const root = process.cwd();
 const dashboardDir = path.join(root, 'apps', 'dashboard');
-const pythonPath = path.join(root, 'packages', 'agentx-core');
+const pythonPath = path.join(root, 'libs', 'agentx-core');
 const isWindows = process.platform === 'win32';
 
 function loadDotEnv() {
@@ -172,19 +172,43 @@ if (!python) {
   console.error('[AJA] The dashboard can run with npm, but AJA/Telegram need the Python API bridge.');
   process.exit(1);
 }
+console.log(`[AJA] Using Python: ${python.command} ${python.args.join(' ')}`);
 
 const env = {
   ...process.env,
   ...dotenvVars,
   PYTHONPATH: process.env.PYTHONPATH ? `${pythonPath}${path.delimiter}${process.env.PYTHONPATH}` : pythonPath,
+  OPENBLAS_NUM_THREADS: '1',
+  OPENBLAS_MAIN_FREE: '1',
+  KMP_DUPLICATE_LIB_OK: 'TRUE',
+  OMP_NUM_THREADS: '1',
+  MKL_NUM_THREADS: '1',
+  PYTHONUNBUFFERED: '1',
+  PYTHONIOENCODING: 'utf-8',
 };
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Print readiness using the effective env we will pass to child processes.
 process.env = env;
 
+console.log('[AJA] Launching Hardened v2.0 Swarm...');
+
+// 1. Launch the Unified Gateway (Telegram + Telemetry Bridge)
 children.push(
-  spawnService('API bridge', python.command, [...python.args, '-m', 'agentx.api.bridge'], { env }),
+  spawnService('Unified Gateway', python.command, [...python.args, '-m', 'agentx.gateway.server'], { env }),
 );
+
+await sleep(5000);
+
+// 2. Launch the Autonomous Worker (The Terminal Engine)
+children.push(
+  spawnService('Autonomous Worker', python.command, [...python.args, '-m', 'agentx.runtime.autonomous_loop'], { env }),
+);
+
+await sleep(5000);
+
+// 3. Launch the Dashboard
 children.push(
   spawnService('Dashboard', 'npm', ['run', 'dev', '-w', '@agent/dashboard'], { env }),
 );

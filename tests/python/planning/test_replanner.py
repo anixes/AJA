@@ -6,8 +6,8 @@ Unit tests for the Replanner — failure classification and recovery actions.
 
 import pytest
 from unittest.mock import patch, MagicMock
-from agent.planning.models import DoD, PlanGraph, PlanNode
-from agent.planning.replanner import (
+from agentx.planning.models import DoD, PlanGraph, PlanNode
+from agentx.planning.replanner import (
     Replanner,
     classify_error,
     FailureKind,
@@ -75,7 +75,7 @@ class TestReplannerRetry:
     def test_rate_limit_retries(self):
         n = _node(error="429 Too Many Requests", attempt=1)
         g = _graph(n)
-        with patch("agent.planning.replanner.time.sleep"):   # skip real sleep
+        with patch("agentx.planning.replanner.time.sleep"):   # skip real sleep
             r = Replanner(g)
             action = r.handle_failure(n)
         assert action == RecoveryAction.RETRY

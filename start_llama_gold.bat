@@ -3,14 +3,16 @@
 :: Based on the peak performance recorded in speed_demon.log.
 :: REQUIRED: Run as ADMINISTRATOR for GPU clock locking.
 
-:: Try to load from .env if it exists
-if exist ".env" (
-    for /f "tokens=*" %%a in ('findstr /v "^#" .env') do set %%a
+:: Try to load from .env using absolute path
+if exist "%~dp0.env" (
+    for /f "usebackq tokens=*" %%a in ("%~dp0.env") do (
+        echo %%a | findstr /v "^#" >nul && set "%%a"
+    )
 )
 
 :: Set defaults if not provided in .env
-if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=llama-server.exe"
-if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=models\gold-standard-model.gguf"
+if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=C:\Users\Asus\.gemini\antigravity\scratch\llama-bin\llama-server.exe"
+if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=E:\llama_models\gemma-4-E2B-it-Q4_K_M.gguf"
 
 echo [GOLD] Optimizing GPU clocks (if available)...
 :: Optional optimization commands

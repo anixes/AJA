@@ -1,4 +1,4 @@
-from agent.security.stripper import CommandStripper
+from agentx.security.stripper import CommandStripper
 import json
 
 tests = [

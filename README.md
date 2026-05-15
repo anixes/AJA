@@ -20,6 +20,16 @@ We believe that high-performance autonomous orchestration should not be a luxury
 
 ---
 
+## 🏗️ Project Structure
+AgentX is organized as a modern monorepo to ensure clean separation of concerns and high-performance execution:
+- **`libs/agentx-core`**: The primary Python package (`agentx.*`). Contains the engine, memory, and orchestration logic.
+- **`apps/`**: High-level applications, including the React Dashboard.
+- **`tools/launchers`**: Entry point scripts (.bat/.ps1) for various model configurations (Turbo, Gold, Lightning).
+- **`tests/`**: Centralized test suite (Planning, System, and Hardening tests).
+- **`.agentx/`**: The local-first data directory (LanceDB, Logs, and State).
+
+---
+
 ## 🏗️ The Pure AgentX Architecture
 
 ### 1. Unified Arrow Memory (LanceDB)
@@ -57,6 +67,9 @@ The swarm no longer just plans—it **acts**. Using the `ToolExecutor`, AgentX c
 
 ### 🧠 Synthetic Skill Library (Reflective Learning)
 The **ReflectionEngine** audits every completed mission. If it identifies a successful pattern, it extracts it as a **Synthetic Skill**. These skills are stored in the `SkillStore` and are automatically hot-swapped into future missions if a similar objective is detected.
+
+### 🛡️ Self-Healing HTN (Plan Hardening)
+AgentX now features a **Structural Sanitizer** for its Hierarchical Task Network. If an LLM generates an invalid dependency (e.g., a compound node pointing to another compound node instead of a primitive leaf), the engine automatically "heals" the graph by re-routing dependencies and populating missing effects, ensuring 100% plan validity before execution.
 
 ---
 
