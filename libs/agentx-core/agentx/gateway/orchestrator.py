@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import time
+import uuid
+import logging
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional, Set
@@ -18,6 +20,8 @@ from agentx.memory.secretary import AJAMemory
 from agentx.gateway.persistence import GatewayState
 from agentx.gateway.vision import VisionBridge
 from agentx.gateway.base import MessageEvent, MessageType
+
+logger = logging.getLogger(__name__)
 
 
 class UnifiedGateway:
@@ -207,12 +211,27 @@ class UnifiedGateway:
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
         chat_id = event.chat_id
+        correlation_id = event.message_id or uuid.uuid4().hex[:8]
 
-        # 0. Security Whitelist
-        print(f"AJA: Incoming event from chat_id {chat_id}")
-        if TELEGRAM_ALLOWED_USER_ID and str(chat_id) != str(TELEGRAM_ALLOWED_USER_ID):
-            print(
-                f"AJA Warning: Unauthorized access attempt from chat_id {chat_id} (Expected: {TELEGRAM_ALLOWED_USER_ID})"
+        # 0. Security Whitelist (always validate by Telegram user_id)
+        logger.info(
+            "telegram_event_received",
+            extra={
+                "correlation_id": correlation_id,
+                "chat_id": str(chat_id),
+                "user_id": str(event.user_id),
+                "message_type": event.message_type.value,
+            },
+        )
+        if not self._is_telegram_user_authorized(event):
+            logger.warning(
+                "telegram_event_unauthorized",
+                extra={
+                    "correlation_id": correlation_id,
+                    "chat_id": str(chat_id),
+                    "user_id": str(event.user_id),
+                    "expected_user_id": str(TELEGRAM_ALLOWED_USER_ID),
+                },
             )
             return
 
@@ -271,12 +290,28 @@ class UnifiedGateway:
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
+        logger.info(
+            "telegram_event_replied",
+            extra={
+                "correlation_id": correlation_id,
+                "chat_id": str(chat_id),
+                "user_id": str(event.user_id),
+                "intent": intent,
+                "response_length": len(response or ""),
+            },
+        )
 
         # 5. Finalize Session Update
         session["history"].append(
             {"role": "assistant", "text": response, "time": time.time()}
         )
         self.gateway_state.update_session(chat_id, session)
+
+    def _is_telegram_user_authorized(self, event: MessageEvent) -> bool:
+        """Returns True when Telegram user_id passes whitelist policy."""
+        if not TELEGRAM_ALLOWED_USER_ID:
+            return True
+        return str(event.user_id) == str(TELEGRAM_ALLOWED_USER_ID)
 
     def route_intent(self, user_input: str) -> str:
         """

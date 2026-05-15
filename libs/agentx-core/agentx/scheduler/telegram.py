@@ -1,13 +1,15 @@
-import json
-from agentx.scheduler.scheduler import scheduler
+import logging
 from agentx.autonomy.intent_engine import intent_engine
 from agentx.goals.goal_engine import goal_engine
 from agentx.config import TELEGRAM_TOKEN, TELEGRAM_ALLOWED_USER_ID
 from agentx.interface.intent_parser import parse_intent
 from agentx.interface.telegram_listener import async_send_telegram_message
+from agentx.memory.secretary import AJAMemory
+
+logger = logging.getLogger(__name__)
 
 async def handle_telegram_message(text: str, user_id: str, session):
-    """Conversational Router for Telegram messages."""
+    """Legacy conversational router kept for compatibility with webhook paths."""
     
     # Security check
     if TELEGRAM_ALLOWED_USER_ID and str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
@@ -54,25 +56,21 @@ async def handle_telegram_message(text: str, user_id: str, session):
         # The conversational response_text covers the confirmation.
 
 def _send_telegram_report(message: str):
-    """Legacy sync wrapper for IntentEngine usage. Use async_send_telegram_message instead where possible."""
-    import asyncio
-    
-    if not TELEGRAM_TOKEN or not TELEGRAM_ALLOWED_USER_ID:
-        print(f"[Telegram Bot] [MOCKED] REPORT: {message}")
-        return
-
-    def get_loop():
-        try:
-            return asyncio.get_running_loop()
-        except RuntimeError:
-            return None
-
-    loop = get_loop()
-    if loop and loop.is_running():
-        asyncio.create_task(async_send_telegram_message(TELEGRAM_ALLOWED_USER_ID, message))
-    else:
-        try:
-            asyncio.run(async_send_telegram_message(TELEGRAM_ALLOWED_USER_ID, message))
-        except Exception as e:
-            print(f"[Telegram Sync Fallback] Error: {e}")
-
+    """Legacy shim: emits runtime events for UnifiedGateway telemetry tailing."""
+    logger.warning(
+        "legacy_telegram_report_path_used",
+        extra={"message_length": len(message or "")},
+    )
+    try:
+        AJAMemory().add_runtime_event(
+            {
+                "event_type": "LEGACY_TELEGRAM_REPORT",
+                "tool": "intent_engine",
+                "message": message or "",
+                "level": "info",
+                "metadata": {"source": "scheduler.telegram._send_telegram_report"},
+            }
+        )
+    except Exception:
+        if not TELEGRAM_TOKEN or not TELEGRAM_ALLOWED_USER_ID:
+            print(f"[Telegram Bot] [MOCKED] REPORT: {message}")
