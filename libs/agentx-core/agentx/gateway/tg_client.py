@@ -58,7 +58,10 @@ class TelegramAdapter(BasePlatformAdapter):
         self._low_priority_last_sent: Dict[str, float] = {}
         self._low_priority_last_message: Dict[str, str] = {}
         self._low_priority_min_interval_seconds = int(
-            os.getenv("AJA_TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS", "8")
+            os.getenv(
+                "TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS",
+                os.getenv("AJA_TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS", "8"),
+            )
         )
 
     async def start(self, gateway):
@@ -142,8 +145,8 @@ class TelegramAdapter(BasePlatformAdapter):
             event = await self._queue.get()
             self.metrics["events_dequeued"] += 1
             self.metrics["queue_size"] = self._queue.qsize()
-            self.metrics["queue_lag_seconds"] = max(
-                0.0, datetime.now().timestamp() - float(event.timestamp)
+            self.metrics["queue_lag_seconds"] = self._compute_queue_lag_seconds(
+                event.timestamp
             )
             yield event
 
@@ -237,14 +240,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 pass
         
         if action == "approve":
-            if status in {"ACTIVE", "DONE", "FAILED"}:
+            if status in {"ACTIVE", "DONE", "FAILED", "REJECTED"}:
                 await query.edit_message_text(
                     text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
-                )
-                return
-            if status == "REJECTED":
-                await query.edit_message_text(
-                    text=f"ℹ️ Mission {mission_id} was already rejected."
                 )
                 return
             # Update mission status to ACTIVE to signal GoalEngine to resume
@@ -264,14 +262,9 @@ class TelegramAdapter(BasePlatformAdapter):
             }])
             await query.edit_message_text(text=f"✅ Mission {mission_id} Approved.")
         else:
-            if status in {"REJECTED", "DONE", "FAILED"}:
+            if status in {"ACTIVE", "REJECTED", "DONE", "FAILED"}:
                 await query.edit_message_text(
                     text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
-                )
-                return
-            if status == "ACTIVE":
-                await query.edit_message_text(
-                    text=f"ℹ️ Mission {mission_id} is already active."
                 )
                 return
             # Update mission status to REJECTED
@@ -304,12 +297,10 @@ class TelegramAdapter(BasePlatformAdapter):
         processed_text = self._prepare_text_for_mobile(text)
 
         try:
-            reply_markup = kwargs.pop("reply_markup", None)
             result = await self._bot.send_message(
                 chat_id=chat_id,
                 text=processed_text,
                 parse_mode=None, 
-                reply_markup=reply_markup,
                 **kwargs,
             )
             self.metrics["messages_sent"] += 1
@@ -340,7 +331,7 @@ class TelegramAdapter(BasePlatformAdapter):
         return MobileMDRenderer.render(text)
 
     def _should_emit_low_priority(self, chat_id: str, msg: str) -> bool:
-        now_ts = datetime.now().timestamp()
+        now_ts = datetime.now(timezone.utc).timestamp()
         key = str(chat_id)
         last_ts = self._low_priority_last_sent.get(key, 0.0)
         last_msg = self._low_priority_last_message.get(key, "")
@@ -360,3 +351,15 @@ class TelegramAdapter(BasePlatformAdapter):
             "is_running": self.is_running,
             **self.metrics,
         }
+
+    def _compute_queue_lag_seconds(self, event_timestamp: Any) -> float:
+        now_ts = datetime.now(timezone.utc).timestamp()
+        try:
+            if isinstance(event_timestamp, (int, float)):
+                return max(0.0, now_ts - float(event_timestamp))
+            if isinstance(event_timestamp, str):
+                parsed = datetime.fromisoformat(event_timestamp.replace("Z", "+00:00"))
+                return max(0.0, now_ts - parsed.timestamp())
+        except Exception:
+            pass
+        return 0.0

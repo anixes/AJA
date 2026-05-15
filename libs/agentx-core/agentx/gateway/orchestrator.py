@@ -211,7 +211,11 @@ class UnifiedGateway:
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
         chat_id = event.chat_id
-        correlation_id = event.message_id or uuid.uuid4().hex[:8]
+        correlation_id = (
+            event.message_id
+            if event.message_id not in (None, "")
+            else uuid.uuid4().hex
+        )
 
         # 0. Security Whitelist (always validate by Telegram user_id)
         logger.info(
