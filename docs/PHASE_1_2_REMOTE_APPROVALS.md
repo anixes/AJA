@@ -16,14 +16,15 @@ Goal: control the PC from a phone using Telegram.
 Flow:
 
 ```text
-Telegram Bot API -> FastAPI bridge -> Agent Core runtime -> safety gate -> execution layer
+Telegram Bot API -> UnifiedGateway (TelegramAdapter polling) -> Agent Core runtime -> safety gate -> execution layer
 ```
 
 Implemented endpoints:
 
 - `GET /telegram/status`: bridge configuration and pending count.
 - `GET /telegram/history`: recent Telegram command history.
-- **Local Long-Polling Loop**: Replaced brittle webhooks with a robust local polling loop in `bridge.py`. This ensures reliability behind NAT and avoids conflict with public-facing webhooks.
+- **Primary Polling Path**: Telegram is handled through `gateway/tg_client.py` + `gateway/orchestrator.py` with long-polling for resilient NAT-friendly operation.
+- **Compatibility Path**: FastAPI bridge/webhook endpoints remain available for legacy integrations, but are no longer the primary remote-control pipeline.
 
 ### Command Priority Logic
 Telegram messages are processed with the following priority:

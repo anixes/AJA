@@ -101,7 +101,9 @@ read config.json first, falling back to environment variables if the config is m
 
 ## Phase 1: Telegram Remote Control
 
-The Telegram Bot API connects to `POST /telegram/webhook` on the FastAPI bridge. The bridge whitelists `TELEGRAM_ALLOWED_USER_ID`, accepts text commands only, maps supported intents to known actions, and logs command history to `.agent/telegram-history.jsonl`.
+The primary Telegram path is `UnifiedGateway` + `TelegramAdapter` (polling mode). It enforces `TELEGRAM_ALLOWED_USER_ID`, routes intents (`MISSION` / `STATUS` / `CHAT`), and forwards runtime telemetry/approval callbacks to mobile.
+
+Bridge webhook endpoints (`/telegram/webhook`, `/telegram/command`) remain compatibility paths for legacy integrations and are not the preferred runtime control loop.
 
 ## Phase 2: Production Approval Workflow
 

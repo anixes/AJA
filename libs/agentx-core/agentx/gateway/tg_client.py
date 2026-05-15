@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -42,6 +43,26 @@ class TelegramAdapter(BasePlatformAdapter):
         self._queue = asyncio.Queue()
         self._last_telemetry_check = 0
         self.name = "telegram"
+        self.metrics: Dict[str, Any] = {
+            "events_received": 0,
+            "events_dequeued": 0,
+            "messages_sent": 0,
+            "send_failures": 0,
+            "poll_retries": 0,
+            "callback_handled": 0,
+            "last_error": None,
+            "last_error_at": None,
+            "queue_lag_seconds": 0.0,
+            "queue_size": 0,
+        }
+        self._low_priority_last_sent: Dict[str, float] = {}
+        self._low_priority_last_message: Dict[str, str] = {}
+        self._low_priority_min_interval_seconds = int(
+            os.getenv(
+                "TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS",
+                os.getenv("AJA_TELEGRAM_LOW_PRIORITY_MIN_INTERVAL_SECONDS", "8"),
+            )
+        )
 
     async def start(self, gateway):
         if not TELEGRAM_AVAILABLE:
@@ -80,6 +101,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 break
             except Exception as e:
                 wait = min(2**attempt, 30)
+                self.metrics["poll_retries"] += 1
+                self.metrics["last_error"] = str(e)
+                self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
                 print(
                     f"Telegram connect attempt {attempt + 1} failed: {e}. Retrying in {wait}s..."
                 )
@@ -109,6 +133,9 @@ class TelegramAdapter(BasePlatformAdapter):
             raw_event=update,
         )
         logger.info(f"Received message from {event.user_id}: {event.text}")
+        self.metrics["events_received"] += 1
+        self.metrics["queue_size"] = self._queue.qsize() + 1
+        self.metrics["queue_lag_seconds"] = 0.0
         await self._queue.put(event)
         return event
 
@@ -116,6 +143,11 @@ class TelegramAdapter(BasePlatformAdapter):
         """Async generator for orchestrator to consume events."""
         while True:
             event = await self._queue.get()
+            self.metrics["events_dequeued"] += 1
+            self.metrics["queue_size"] = self._queue.qsize()
+            self.metrics["queue_lag_seconds"] = self._compute_queue_lag_seconds(
+                event.timestamp
+            )
             yield event
 
     async def tail_events(self, chat_id: str):
@@ -150,11 +182,17 @@ class TelegramAdapter(BasePlatformAdapter):
                             importance = "normal"
                             
                         msg = f"[{ev['status']}] {ev['message']}"
-                        await self.send_notification(chat_id, msg, importance=importance)
+                        should_emit = True
+                        if importance == "low":
+                            should_emit = self._should_emit_low_priority(chat_id, msg)
+                        if should_emit:
+                            await self.send_notification(chat_id, msg, importance=importance)
                     last_check = ev['timestamp']
                     
             except Exception as e:
                 logger.error(f"Telemetry tail error: {e}")
+                self.metrics["last_error"] = str(e)
+                self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
             
             await asyncio.sleep(2)
 
@@ -164,11 +202,49 @@ class TelegramAdapter(BasePlatformAdapter):
         
         data = query.data
         action, mission_id = data.split("_", 1)
+        self.metrics["callback_handled"] += 1
+        allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
+        callback_user_id = str(query.from_user.id) if query.from_user else ""
+        if allowed_user_id and callback_user_id != str(allowed_user_id):
+            await query.edit_message_text(text="🚫 Unauthorized callback action.")
+            return
         
         from agentx.memory.secretary import AJAMemory
         memory = AJAMemory()
+        mission = memory.get_mission(mission_id)
+        if not mission:
+            await query.edit_message_text(
+                text=f"ℹ️ Mission {mission_id} no longer exists or was already handled."
+            )
+            return
+
+        status = str(mission.get("status", "")).upper()
+        metadata_raw = mission.get("metadata_json") or "{}"
+        try:
+            metadata = json.loads(metadata_raw)
+        except Exception:
+            metadata = {}
+
+        expires_at = metadata.get("approval_expires_at") or metadata.get("expires_at")
+        if expires_at:
+            try:
+                parsed_expires_at = datetime.fromisoformat(
+                    str(expires_at).replace("Z", "+00:00")
+                )
+                if datetime.now(timezone.utc) > parsed_expires_at:
+                    await query.edit_message_text(
+                        text=f"⏳ Mission {mission_id} approval has expired."
+                    )
+                    return
+            except Exception:
+                pass
         
         if action == "approve":
+            if status in {"ACTIVE", "DONE", "FAILED", "REJECTED"}:
+                await query.edit_message_text(
+                    text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
+                )
+                return
             # Update mission status to ACTIVE to signal GoalEngine to resume
             memory.update_mission(mission_id, {"status": "ACTIVE"})
             
@@ -186,6 +262,11 @@ class TelegramAdapter(BasePlatformAdapter):
             }])
             await query.edit_message_text(text=f"✅ Mission {mission_id} Approved.")
         else:
+            if status in {"ACTIVE", "REJECTED", "DONE", "FAILED"}:
+                await query.edit_message_text(
+                    text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
+                )
+                return
             # Update mission status to REJECTED
             memory.update_mission(mission_id, {"status": "REJECTED"})
             
@@ -216,16 +297,19 @@ class TelegramAdapter(BasePlatformAdapter):
         processed_text = self._prepare_text_for_mobile(text)
 
         try:
-            reply_markup = kwargs.get("reply_markup")
-            return await self._bot.send_message(
+            result = await self._bot.send_message(
                 chat_id=chat_id,
                 text=processed_text,
                 parse_mode=None, 
-                reply_markup=reply_markup,
                 **kwargs,
             )
+            self.metrics["messages_sent"] += 1
+            return result
         except Exception as e:
             logger.error(f"Failed to send Telegram message: {e}")
+            self.metrics["send_failures"] += 1
+            self.metrics["last_error"] = str(e)
+            self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
             return None
 
     async def send_notification(
@@ -245,3 +329,37 @@ class TelegramAdapter(BasePlatformAdapter):
     def _prepare_text_for_mobile(self, text: str) -> str:
         """Applies mobile-friendly formatting (e.g. table-to-bullet)."""
         return MobileMDRenderer.render(text)
+
+    def _should_emit_low_priority(self, chat_id: str, msg: str) -> bool:
+        now_ts = datetime.now(timezone.utc).timestamp()
+        key = str(chat_id)
+        last_ts = self._low_priority_last_sent.get(key, 0.0)
+        last_msg = self._low_priority_last_message.get(key, "")
+        if (now_ts - last_ts) < self._low_priority_min_interval_seconds:
+            return False
+        if msg == last_msg and (now_ts - last_ts) < (
+            self._low_priority_min_interval_seconds * 3
+        ):
+            return False
+        self._low_priority_last_sent[key] = now_ts
+        self._low_priority_last_message[key] = msg
+        return True
+
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        return {
+            "adapter": self.name,
+            "is_running": self.is_running,
+            **self.metrics,
+        }
+
+    def _compute_queue_lag_seconds(self, event_timestamp: Any) -> float:
+        now_ts = datetime.now(timezone.utc).timestamp()
+        try:
+            if isinstance(event_timestamp, (int, float)):
+                return max(0.0, now_ts - float(event_timestamp))
+            if isinstance(event_timestamp, str):
+                parsed = datetime.fromisoformat(event_timestamp.replace("Z", "+00:00"))
+                return max(0.0, now_ts - parsed.timestamp())
+        except Exception:
+            pass
+        return 0.0

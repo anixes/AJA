@@ -11,6 +11,8 @@ The **AJA Gateway** is a high-fidelity communication bridge between the AgentX c
 - [x] **Freshness Gate**: Integrated into polling loop logic.
 - [x] **Security Whitelisting**: Messages restricted to `TELEGRAM_ALLOWED_USER_ID` from `.env`.
 - [x] **Unified Architecture**: Deprecated the legacy `_send_telegram_report` "split-brain" loop in favor of the `UnifiedGateway` telemetry poller, resolving notification spam and enabling two-way responsive communication.
+- [x] **Identity Consistency**: Authorization checks use Telegram `user_id` for both message and callback flows.
+- [x] **Health Metrics**: Adapter tracks received/dequeued events, send failures, retry counts, and queue lag.
 
 
 ### 2.2 Mobile-First Rendering [DONE]
@@ -18,6 +20,7 @@ The **AJA Gateway** is a high-fidelity communication bridge between the AgentX c
 - [x] **Notification Management**: 
     - [x] **Silent Mode**: Progress updates use `disable_notification=True`.
     - [x] **Priority Pings**: User turns and critical errors use standard notification pings.
+    - [x] **Low-Priority Throttling**: Coalesces frequent low-importance telemetry updates per chat.
 
 ### 2.3 Media & Context Enrichment [DONE]
 - [x] **Vision Integration**: `VisionBridge` in `gateway/vision.py` provides semantic description placeholders.
