@@ -1,7 +1,7 @@
 
 import pytest
-from agent.planning.models import PlanGraph, PlanNode, DoD
-from agent.planning.verification import SerializabilityVerifier
+from agentx.planning.models import PlanGraph, PlanNode, DoD
+from agentx.planning.verification import SerializabilityVerifier
 
 def _make_node(id_str: str, preconditions=None, effects=None, deps=None) -> PlanNode:
     return PlanNode(

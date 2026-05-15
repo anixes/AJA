@@ -6,7 +6,7 @@ Unit tests for PlanNode, PlanGraph, and DoD data model.
 
 import json
 import pytest
-from agent.planning.models import DoD, PlanNode, PlanGraph, VALID_STRATEGIES
+from agentx.planning.models import DoD, PlanNode, PlanGraph, VALID_STRATEGIES
 
 
 # ---------------------------------------------------------------------------

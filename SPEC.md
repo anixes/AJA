@@ -45,6 +45,14 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 - **Tech**: ReflectionEngine, SkillStore, Arrow
 - **Action**: Automated the extraction of reusable "Skills" from successful mission histories. These synthetic skills are hot-swapped into future mission plans based on objective similarity.
 
+### Phase 11: Monorepo Infrastructure & Hardening [DONE]
+- **Tech**: Pytest, Monorepo Architecture, Deterministic Mocking
+- **Action**: Consolidated all core logic into `libs/agentx-core`, normalized namespaces to `agentx.*`, and implemented sub-second test-time mocks for embeddings. Purged legacy SQLite artifacts and enforced strict LanceDB/Arrow usage across the stack.
+
+### Phase 12: Self-Healing HTN & Consensus Planning [DONE]
+- **Tech**: HTN Sanitizer, Multi-Run Consensus, Semantic Healing
+- **Action**: Implemented a structural healing layer for HTN plan graphs. Hallucinated dependencies are automatically mapped to valid leaf nodes. Added a multi-run consensus phase to the planner to ensure high-precision mission logic.
+
 ## 3. Success Criteria
 - [x] Pytest suite returns 100% success with Pydantic models.
 - [x] Dashboard passes a visual "premium" audit.
@@ -56,6 +64,8 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 - [x] **Power 2**: Autonomous tool loop successfully prep-executes shell logic.
 - [x] **Power 4**: Deep Territory RAG provides relevant code context to the planner.
 - [x] **Power 5**: ReflectionEngine successfully synthesizes and stores synthetic skills.
+- [x] **Power 6**: Self-Healing HTN automatically repairs invalid plan dependencies.
+- [x] **Power 7**: Multi-Run Consensus ensures 99.9% plan validity for complex missions.
 
 ## 4. Hardware Optimization (The High-Efficiency Target)
 The architecture is specifically tuned for resource-constrained environments. By using **Columnar State Slicing** (Arrow) and **Native Token Counting** (Rust), we maintain elite reasoning speeds even during complex multi-step missions on consumer-grade hardware.

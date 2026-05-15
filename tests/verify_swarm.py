@@ -5,9 +5,9 @@ import os
 # Add the packages directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-from agent.gateway import UnifiedGateway
-from agent.api.mcp_client import MCPClientManager, MCPToolCapability
-from agent.capabilities.swarm import SwarmCapability
+from agentx.gateway import UnifiedGateway
+from agentx.api.mcp_client import MCPClientManager, MCPToolCapability
+from agentx.capabilities.swarm import SwarmCapability
 
 async def main():
     print("--- Agent Phase 4 Verification: Multi-Agent Swarm ---")

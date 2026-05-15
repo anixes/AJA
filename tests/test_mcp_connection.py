@@ -6,7 +6,7 @@ import json
 # Add packages to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-from agent.api.mcp_client import MCPClientManager
+from agentx.api.mcp_client import MCPClientManager
 
 async def test_mcp():
     print("--- Agent: Native MCP Tool Discovery Verification ---")

@@ -9,7 +9,7 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "libs/*"
   ],
   "scripts": {
     "dev": "tsx apps/cli-ts/src/main.tsx",
@@ -19,8 +19,8 @@
     "start:cli": "node apps/cli-ts/dist/cli.js",
     "aja": "node tools/start-aja.mjs",
     "start:aja": "node tools/start-aja.mjs",
-    "dash": "set PYTHONPATH=packages/agentx-core && python -m agentx dash",
-    "status": "set PYTHONPATH=packages/agentx-core && python -m agentx status",
+    "dash": "set PYTHONPATH=libs/agentx-core && python -m agentx dash",
+    "status": "set PYTHONPATH=libs/agentx-core && python -m agentx status",
     "test": "npm run test:ts && npm run test:py",
     "test:py": "pytest",
     "test:ts": "tsx tests/typescript/test_bash.ts && tsx tests/typescript/test_file_safety.ts && tsx tests/typescript/test_query.ts"
