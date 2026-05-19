@@ -32,7 +32,6 @@ def simulate_plan(plan: PlanGraph, strategy: Optional[Dict[str, Any]] = None) ->
     Part B & E — Simulate each plan & Strategy-aware simulation
     """
     model_name = agentx.config.AGENTX_PLANNER_MODEL
-    gw, mapped_model = get_gateway_for_model(model_name)
     
     plan_json = json.dumps(plan.to_dict(), indent=2)
     strategy_info = f"\nApplied Strategy: {json.dumps(strategy, indent=2)}" if strategy else ""
@@ -52,7 +51,8 @@ Return JSON ONLY:
     prompt = f"Plan to simulate: {plan_json}{strategy_info}"
     
     try:
-        raw = gw.chat(model=mapped_model, prompt=prompt, system=system)
+        from agentx.llm import completion
+        raw = completion(prompt=prompt, system_prompt=system, model=model_name)
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw:

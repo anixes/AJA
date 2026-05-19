@@ -34,7 +34,7 @@ async def main():
     # Head: 2 (Protect system + first human)
     # Tail: 1 (Protect the latest request)
     print("\nAnalyzing trajectory for compression...")
-    analysis_raw = tm.analyze(messages_json, limit=2000, head=2, tail=1)
+    analysis_raw = tm.analyze(messages_json, limit=1000, head=2, tail=1)
     analysis = json.loads(analysis_raw)
     
     print(f"Total Tokens: {analysis['total_tokens']}")

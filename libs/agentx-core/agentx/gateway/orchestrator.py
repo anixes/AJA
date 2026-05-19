@@ -36,7 +36,8 @@ class UnifiedGateway:
 
         # DUAL BRAIN: MemoryTree (Structured) + VectorMemory (LanceDB/Semantic)
         self.vector_memory = VectorMemory(table_name="mission_semantic")
-        self.aja_memory = AJAMemory()
+        from agentx.memory.secretary import get_aja_memory
+        self.aja_memory = get_aja_memory()
 
         # ARROW-BACKED HANDOVER (Baton Protocol)
         self.handover = BatonManager()
@@ -172,6 +173,8 @@ class UnifiedGateway:
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
 
+        self.active_sub_agents[agent_id] = None
+
         return code
 
     async def start(self):
@@ -264,7 +267,7 @@ class UnifiedGateway:
             )
         
         # 3. Hybrid Intent Routing
-        intent = self.route_intent(content)
+        intent = await self.route_intent(content)
         
         if intent == "MISSION":
             # Deploy to Terminal Worker via LanceDB Mission Hub
@@ -314,20 +317,63 @@ class UnifiedGateway:
     def _is_telegram_user_authorized(self, event: MessageEvent) -> bool:
         """Returns True when Telegram user_id passes whitelist policy."""
         if not TELEGRAM_ALLOWED_USER_ID:
-            return True
+            logger.critical("Security Configuration Error: TELEGRAM_ALLOWED_USER_ID is empty or missing! Authorization denied.")
+            return False
         return str(event.user_id) == str(TELEGRAM_ALLOWED_USER_ID)
 
-    def route_intent(self, user_input: str) -> str:
+    async def route_intent(self, user_input: str) -> str:
         """
-        Fast-path intent router. Returns 'MISSION', 'STATUS', or 'CHAT'.
+        Two-tiered intent router:
+        Tier 1: High-speed deterministic command-parser. Handles slash commands, exact keywords.
+        Tier 2: High-speed LLM classifier router. Used when deterministic parsing is ambiguous.
         """
         user_input_lower = user_input.lower().strip()
         
-        # System Commands
+        # --- TIER 1: Deterministic Parsing ---
+        # Exact command matches
         if user_input_lower in ["status", "/status", "health", "are you alive"]:
             return "STATUS"
             
-        # Regex/Keywords fast-path
+        # Slash commands
+        if user_input_lower.startswith("/"):
+            cmd = user_input_lower.split()[0]
+            if cmd in ["/status", "/doctor", "/live", "/kanban"]:
+                return "STATUS"
+            elif cmd in ["/run", "/todo", "/doing", "/done", "/failed", "/rmtask"]:
+                return "MISSION"
+            else:
+                return "CHAT"
+                
+        # Strict prefix command checks
+        mission_prefixes = ["run ", "execute ", "install ", "scrape ", "audit "]
+        for prefix in mission_prefixes:
+            if user_input_lower.startswith(prefix):
+                return "MISSION"
+                
+        # --- TIER 2: High-Speed LLM Classifier Router ---
+        # Use LLM classification for ambiguous inputs
+        system_prompt = (
+            "You are a high-speed routing classifier for AgentX.\n"
+            "Analyze the user's input and classify it into exactly one of these categories:\n"
+            "- 'MISSION': The user wants the agent to perform an active task, search, code, write a script, scrape, execute shell commands, delete/create files, or perform background worker tasks.\n"
+            "- 'STATUS': The user is asking about the agent's current state, health, tasks status, progress of active goals, or worker status.\n"
+            "- 'CHAT': The user is just asking a question, greeting, making small talk, or expressing generic thoughts without asking the agent to perform a shell/system task.\n\n"
+            "Response MUST be exactly one word: 'MISSION', 'STATUS', or 'CHAT'."
+        )
+        
+        try:
+            response = await asyncio.to_thread(
+                completion,
+                prompt=f"Classify this input:\n\"{user_input}\"",
+                system_prompt=system_prompt
+            )
+            classification = response.strip().upper()
+            if classification in ["MISSION", "STATUS", "CHAT"]:
+                return classification
+        except Exception as e:
+            logger.error(f"LLM Intent Classifier Router failed: {e}")
+            
+        # Fallback to local heuristic checks if LLM fails
         mission_triggers = [
             "run", "find", "search", "scan", "execute", "delete", "remove", 
             "do ", "make ", "look for", "check", "install", "audit", "monitor",
@@ -337,12 +383,10 @@ class UnifiedGateway:
             if user_input_lower.startswith(trigger):
                 return "MISSION"
         
-        # Action-oriented phrasing (e.g. "could you please search...")
         action_keywords = ["search", "find", "list", "check", "run", "execute", "audit"]
         if any(word in user_input_lower for word in action_keywords) and len(user_input_lower.split()) > 4:
             return "MISSION"
 
-        # Ambiguous check (long instructions are likely missions)
         if len(user_input_lower.split()) > 12: 
              return "MISSION"
              

@@ -9,4 +9,4 @@ if not os.path.exists(db_path):
 else:
     db = lancedb.connect(db_path)
     print("Connected successfully.")
-    print(f"Tables: {db.table_names()}")
+    print(f"Tables: {db.list_tables()}")

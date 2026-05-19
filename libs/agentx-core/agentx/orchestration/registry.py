@@ -2,10 +2,11 @@ import json
 import uuid
 import lancedb
 import pyarrow as pa
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Dict
 from agentx.memory.manager import list_tables_defensive
+from agentx.config import PROJECT_ROOT
 
 class WorkerRegistry:
     """
@@ -39,7 +40,7 @@ class WorkerRegistry:
 
     def register_worker(self, worker_id: str, name: str, specialty: List[str]):
         table = self.db.open_table("worker_registry")
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat()
         
         # Check if exists
         existing = table.search().where(f"worker_id = '{worker_id}'").to_list()
@@ -77,7 +78,7 @@ class WorkerRegistry:
         updates = {
             "reliability": new_reliability,
             "latency": new_latency,
-            "last_seen": datetime.utcnow().isoformat() + "Z"
+            "last_seen": datetime.now(timezone.utc).isoformat()
         }
         
         if telemetry:

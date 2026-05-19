@@ -23,9 +23,6 @@ class CurriculumManager:
             # No major gaps if successful, but could check latency
             return {}
             
-        model_name = agentx.config.AGENTX_PLANNER_MODEL
-        gw, mapped_model = get_gateway_for_model(model_name)
-        
         system = """You are Agent Skill Gap Detector.
 Analyze the failed execution result and detect the core weaknesses.
 Return JSON ONLY:
@@ -36,8 +33,9 @@ Return JSON ONLY:
     "uncertain_decisions": "What choice was incorrect"
 }"""
         try:
+            from agentx.llm import completion
             prompt = f"Failed Result: {json.dumps(result)}"
-            raw = gw.chat(model=mapped_model, prompt=prompt, system=system)
+            raw = completion(prompt=prompt, system_prompt=system)
             if "```json" in raw:
                 raw = raw.split("```json")[1].split("```")[0].strip()
             elif "```" in raw:
@@ -54,9 +52,6 @@ Return JSON ONLY:
         """
         Part B — Task Generator
         """
-        model_name = agentx.config.AGENTX_PLANNER_MODEL
-        gw, mapped_model = get_gateway_for_model(model_name)
-        
         system = f"""You are Agent Curriculum Generator.
 Based on the provided skill gaps and current difficulty level ({self.difficulty_level}), generate a synthetic training task for the agent.
 It must be a safe, simulated task that allows the agent to practice the weak areas.
@@ -68,7 +63,8 @@ Return JSON ONLY:
 }}"""
         prompt = f"Skill Gaps: {json.dumps(skill_gap)}"
         try:
-            raw = gw.chat(model=mapped_model, prompt=prompt, system=system)
+            from agentx.llm import completion
+            raw = completion(prompt=prompt, system_prompt=system)
             if "```json" in raw:
                 raw = raw.split("```json")[1].split("```")[0].strip()
             elif "```" in raw:

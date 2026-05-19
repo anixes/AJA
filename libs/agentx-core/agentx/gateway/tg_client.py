@@ -22,6 +22,7 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from agentx.runtime.event_bus import bus, EVENTS
 
 TELEGRAM_AVAILABLE = True
 
@@ -41,6 +42,7 @@ class TelegramAdapter(BasePlatformAdapter):
         self._app: Optional[Application] = None
         self._bot: Optional[Bot] = None
         self._queue = asyncio.Queue()
+        self.telemetry_queue = asyncio.Queue()
         self._last_telemetry_check = 0
         self.name = "telegram"
         self.metrics: Dict[str, Any] = {
@@ -85,6 +87,10 @@ class TelegramAdapter(BasePlatformAdapter):
         )
         self._app.add_handler(CommandHandler("start", self._handle_start))
         self._app.add_handler(CallbackQueryHandler(self._handle_callback))
+
+        # Subscribe to standard event bus to buffer events in telemetry_queue
+        for event_name in EVENTS.values():
+            bus.subscribe(event_name, self._make_event_handler(event_name))
 
         # Resilient Start
         _max_connect = 5
@@ -150,51 +156,76 @@ class TelegramAdapter(BasePlatformAdapter):
             )
             yield event
 
+    def _make_event_handler(self, event_name: str):
+        loop = asyncio.get_event_loop()
+        def handler(payload: dict):
+            try:
+                event_id = uuid.uuid4().hex[:8]
+                target = payload.get("node_id", payload.get("mission_id", "system"))
+                status = "INFO"
+                if "FAILED" in event_name:
+                    status = "ERROR"
+                elif "SUCCESS" in event_name:
+                    status = "SUCCESS"
+                
+                message = payload.get("message", str(payload))
+                if event_name == EVENTS.get("PLAN_CREATED", "PLAN_CREATED"):
+                    message = payload.get("plan_summary", "Plan created.")
+                
+                ev = {
+                    "event_id": event_id,
+                    "kind": event_name,
+                    "target": target,
+                    "status": status,
+                    "message": message,
+                    "command": payload.get("command", ""),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                # Put in queue thread-safely
+                loop.call_soon_threadsafe(self.telemetry_queue.put_nowait, ev)
+            except Exception as e:
+                logger.error(f"[TelegramAdapter] Failed to queue event {event_name}: {e}")
+        return handler
+
     async def tail_events(self, chat_id: str):
         """
-        Background task to tail LanceDB runtime events and forward to Telegram.
+        Background task to tail in-memory Pub/Sub events and forward to Telegram.
         """
-        from agentx.memory.secretary import AJAMemory
-        memory = AJAMemory()
-        last_check = datetime.now(timezone.utc).isoformat()
-        
+        logger.info(f"Starting event-driven telemetry bridge for chat_id: {chat_id}")
         while self.is_running:
             try:
-                table = memory.db.open_table("aja_runtime_events")
-                # Look for events newer than last check
-                events = table.search().where(f"timestamp > '{last_check}'").to_list()
+                ev = await self.telemetry_queue.get()
                 
-                for ev in events:
-                    if ev['kind'] == "AWAITING_APPROVAL":
-                        keyboard = [
-                            [
-                                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{ev['target']}"),
-                                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{ev['target']}"),
-                            ]
+                if ev['kind'] == "AWAITING_APPROVAL":
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("✅ Approve", callback_data=f"approve_{ev['target']}"),
+                            InlineKeyboardButton("❌ Reject", callback_data=f"reject_{ev['target']}"),
                         ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await self.send_message(chat_id, f"⚠️ APPROVAL REQUIRED: {ev['message']}", reply_markup=reply_markup)
-                    else:
-                        importance = "low"
-                        if ev['status'] == "ERROR":
-                            importance = "high"
-                        elif ev['kind'] in ["MISSION_CREATED", "MISSION_DONE"]:
-                            importance = "normal"
-                            
-                        msg = f"[{ev['status']}] {ev['message']}"
-                        should_emit = True
-                        if importance == "low":
-                            should_emit = self._should_emit_low_priority(chat_id, msg)
-                        if should_emit:
-                            await self.send_notification(chat_id, msg, importance=importance)
-                    last_check = ev['timestamp']
-                    
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await self.send_message(chat_id, f"⚠️ APPROVAL REQUIRED: {ev['message']}", reply_markup=reply_markup)
+                else:
+                    importance = "low"
+                    if ev['status'] == "ERROR":
+                        importance = "high"
+                    elif ev['kind'] in ["MISSION_CREATED", "MISSION_DONE"]:
+                        importance = "normal"
+                        
+                    msg = f"[{ev['status']}] {ev['message']}"
+                    should_emit = True
+                    if importance == "low":
+                        should_emit = self._should_emit_low_priority(chat_id, msg)
+                    if should_emit:
+                        await self.send_notification(chat_id, msg, importance=importance)
+                self.telemetry_queue.task_done()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Telemetry tail error: {e}")
                 self.metrics["last_error"] = str(e)
                 self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
-            
-            await asyncio.sleep(2)
+                await asyncio.sleep(1)
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -205,7 +236,8 @@ class TelegramAdapter(BasePlatformAdapter):
         self.metrics["callback_handled"] += 1
         allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
         callback_user_id = str(query.from_user.id) if query.from_user else ""
-        if allowed_user_id and callback_user_id != str(allowed_user_id):
+        if not allowed_user_id or callback_user_id != str(allowed_user_id):
+            logger.critical(f"Security Alert: Unauthorized Telegram callback attempt by user {callback_user_id}")
             await query.edit_message_text(text="🚫 Unauthorized callback action.")
             return
         

@@ -410,11 +410,13 @@ class Planner:
         prompt = _PLANNER_USER_TEMPLATE.format(goal=goal) + f"\n\nMode: {mode_prompt}{history_text}{config_text}{kb_text}{strat_text}"
         try:
             # LLMGateway.complete(system, user) - str
-            response = gw.complete(system=system_prompt, user=prompt)
+            from agentx.llm import run_async_synchronously
+            response = run_async_synchronously(gw.complete(system=system_prompt, user=prompt))
             return response
         except Exception as exc:
             print(f"[Planner] LLM call failed: {exc}")
             return None
+
 
     def _parse_response(self, raw: str, goal: str) -> PlanGraph:
         print(f"[Planner] Entering _parse_response with raw length: {len(raw) if raw else 0}")

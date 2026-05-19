@@ -4,7 +4,7 @@ import lancedb
 import pyarrow as pa
 from typing import Dict, Any, Optional
 from agentx.config import PROJECT_ROOT
-from agentx.memory.manager import get_memory_manager
+from agentx.memory.manager import get_memory_manager, list_tables_defensive
 
 class GatewayState:
     """
@@ -29,7 +29,7 @@ class GatewayState:
             self.db.create_table(self.table_name, schema=schema, exist_ok=True)
         except Exception:
             # Fallback if exist_ok is not supported or other issue
-            if self.table_name not in self.db.table_names():
+            if self.table_name not in list_tables_defensive(self.db):
                 self.db.create_table(self.table_name, schema=schema)
 
     def get_session(self, chat_id: str) -> Dict[str, Any]:

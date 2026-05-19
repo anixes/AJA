@@ -154,7 +154,7 @@ def extract_strategy(goal: str, plan: Any, result: Dict[str, Any]) -> Dict[str, 
     Extracts 'when and why to do it'
     """
     model_name = agentx.config.AGENTX_PLANNER_MODEL
-    gw, mapped_model = get_gateway_for_model(model_name)
+    # gw is not needed here
     
     plan_desc = ""
     if hasattr(plan, "nodes"):
@@ -179,7 +179,8 @@ Return ONLY JSON:
 """
     prompt = f"Goal: {goal}\nPlan: {plan_desc}\nExecution Trace/Result: {json.dumps(result)}\n\nExtract strategy:"
     try:
-        raw = gw.chat(model=mapped_model, prompt=prompt, system=system)
+        from agentx.llm import completion
+        raw = completion(prompt=prompt, system_prompt=system, model=model_name)
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw:

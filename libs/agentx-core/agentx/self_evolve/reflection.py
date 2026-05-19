@@ -188,8 +188,6 @@ def reflect(goal: str, plan: Any, result: Dict[str, Any]) -> Dict[str, Any]:
             "postconditions": postconditions,
         }
 
-    gw, mapped_model = get_gateway_for_model(model_name)
-
     # Serialize plan for LLM
     plan_desc = ""
     if hasattr(plan, "nodes"):
@@ -212,7 +210,8 @@ Return ONLY JSON:
 """
     prompt = f"Goal: {goal}\nPlan: {plan_desc}\nResult: {json.dumps(result)}\nPostconditions: {json.dumps(postconditions)}\n\nReflect on this execution:"
     try:
-        raw = gw.chat(model=mapped_model, prompt=prompt, system=system)
+        from agentx.llm import completion
+        raw = completion(prompt=prompt, system_prompt=system, model=model_name)
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw:

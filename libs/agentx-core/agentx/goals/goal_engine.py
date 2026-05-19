@@ -68,7 +68,8 @@ class GoalEngine:
         self.is_interrupted = False
         self.paused_mission_ids = set() # Track granular interruptions
         self.max_retries = 3
-        self.memory = AJAMemory()
+        from agentx.memory.secretary import get_aja_memory
+        self.memory = get_aja_memory()
         self._last_poll_time = 0
         self.load_state()
         

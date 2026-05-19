@@ -8,7 +8,7 @@ def parse_intent(message: str, history: List[Dict[str, Any]], system_state: Dict
     Convert natural language -> structured action.
     """
     model_name = agentx.config.AGENTX_PLANNER_MODEL
-    gw, mapped_model = get_gateway_for_model(model_name)
+    # gw is not needed here
     
     system_prompt = """You are AJA (Assistant of Joint Agents), the natural-language secretary and operator for AgentX Core.
 Analyze the user's message and the conversation history.
@@ -41,7 +41,8 @@ If the request is ambiguous (e.g. 'deploy it'), ask a follow-up question via the
     prompt = f"{state_context}\n{chat_context}\n\nUser Message: {message}\n\nExtract the intent in JSON format:"
     
     try:
-        raw = gw.chat(model=mapped_model, prompt=prompt, system=system_prompt)
+        from agentx.llm import completion
+        raw = completion(prompt=prompt, system_prompt=system_prompt, model=model_name)
         if not raw:
             raise ValueError("No response from LLM gateway")
             

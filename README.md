@@ -1,84 +1,111 @@
 # AgentX & AJA
-### *The Local-First Agentic OS*
+### *The High-Performance Local-First Agentic OS*
+
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Apache Arrow](https://img.shields.io/badge/Apache--Arrow-Binary--IPC-red.svg)](https://arrow.apache.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **High-Performance Autonomy for Every Machine.**
 
-AgentX is a high-performance orchestration core designed for autonomous swarm intelligence. While AgentX handles the heavy lifting—native Rust execution and Arrow memory stacks—**AJA** (Assistant of Joint Agents) acts as your personal natural-language secretary, planning missions and managing your workflow via CLI or Telegram.
+AgentX is a high-performance orchestration core designed for autonomous swarm intelligence. While AgentX handles the heavy lifting—native Rust execution, Arrow memory structures, and planning graphs—**AJA** (Assistant of Joint Agents) acts as your personal natural-language secretary, planning missions and managing your workflow via TUI, Telegram, or WebSockets.
+
+```mermaid
+graph TD
+    User([User Input]) -->|CLI / Telegram| AJA[AJA Voice: Secretary & Parser]
+    AJA -->|Cooperative Async Queue| Intent[Intent Engine & Router]
+    Intent -->|Binary Baton IPC| Swarm[AgentX Swarm Engine: The Muscle]
+    Swarm -->|Hybrid Memory Stack| Memory{Memory Layer}
+    Memory -->|In-Memory JSON| TUI[TUI Working Set: MemoryTree]
+    Memory -->|SIMD Vector Store| Lance[LanceDB: Codebase & Trajectories]
+    Swarm -->|Native Rust Acceleration| RustCore[agentx-native: PyO3 GIL-free Core]
+```
 
 ### 🧠 The Logic Flow:
-- **LLM**: The Brain (Reasoning & Logic).
-- **AJA**: The Voice (Interface, Planning, & Manners).
-- **AgentX**: The Muscle (Native Execution & Swarm Performance).
+- **LLM**: The Brain (Reasoning & Action Decisions).
+- **AJA**: The Voice (Cooperative UI, Fail-Secure Telegram Gateway, FastAPI WebSocket Bridge).
+- **AgentX**: The Muscle (Native Execution, High-Speed Serialization, & Swarm Performance).
 
 ---
 
 ## 🎯 Our Mission: Performance Without Compromise
 We believe that high-performance autonomous orchestration should not be a luxury reserved for multi-GPU clusters. AgentX is engineered from the ground up to:
-- **Democratize Autonomy**: Built to run on standard consumer-grade hardware with zero performance degradation.
-- **Local-First Security**: Your state, your memory, and your missions stay local, backed by a high-speed Arrow persistence layer.
-- **Extreme Efficiency**: Utilizing Rust-native acceleration and zero-copy memory patterns to maximize every CPU cycle.
+- **Democratize Autonomy**: Run efficiently on standard consumer-grade hardware with zero performance degradation.
+- **Local-First Security**: Keep your state, memories, and codebase credentials local and auditable.
+- **Extreme Efficiency**: Utilize Rust-native acceleration and columnar binary state structures to maximize every CPU cycle.
 
 ---
 
 ## 🏗️ Project Structure
-AgentX is organized as a modern monorepo to ensure clean separation of concerns and high-performance execution:
-- **`libs/agentx-core`**: The primary Python package (`agentx.*`). Contains the engine, memory, and orchestration logic.
-- **`apps/`**: High-level applications, including the React Dashboard.
-- **`tools/launchers`**: Entry point scripts (.bat/.ps1) for various model configurations (Turbo, Gold, Lightning).
-- **`tests/`**: Centralized test suite (Planning, System, and Hardening tests).
-- **`.agentx/`**: The local-first data directory (LanceDB, Logs, and State).
+AgentX is organized as a clean, modular monorepo:
+- **`libs/agentx-core`**: The primary Python package (`agentx.*`). Contains the engine, memory caching, TUI interface, and planning logic.
+- **`packages/agentx-native`**: High-performance Rust extension compiled via `maturin` and `PyO3` into a binary `.whl` targeting Python 3.12.
+- **`apps/`**: High-level applications, including the React Executive Dashboard.
+- **`tests/`**: Centralized test suite containing 111 high-speed Python unit and system tests.
+- **`.agentx/`**: Local-first storage directory containing LanceDB tables, state logs, and binary mission batons.
 
 ---
 
 ## 🏗️ The Pure AgentX Architecture
 
-### 1. Unified Arrow Memory (LanceDB)
-Legacy database bottlenecks have been purged. AgentX utilizes a 100% **Apache Arrow** memory stack. Both structured activity and semantic context are managed via **LanceDB**, providing:
-- **Zero-Copy Performance**: Data is moved between the engine and storage without expensive serialization.
-- **O(1) Semantic Retrieval**: Instant access to long-term memory via SIMD-accelerated vector search.
-- **Columnar Efficiency**: Drastically reduced memory footprint compared to traditional row-based storage.
-
+### 1. Hybrid Memory Stack (LanceDB + MemoryTree)
+To eliminate latency bottlenecks, AgentX uses a dual-tiered cache-backed data store:
+- **Conversational Working Set (`MemoryTree`)**: Conversational histories and active TUI interactions are kept in-memory for instant read/write performance.
+- **Columnar Semantic Memory (`VectorMemory` & `AJAMemory`)**: Long-term trajectories and indexed codebases are offloaded to **LanceDB**, performing SIMD-accelerated vector lookups via local sentence-transformers.
+- **Real-Time Mirroring**: Synchronizes conversational working sets instantly into a columnar `aja_chat_history` LanceDB table for persistent analytics and immediate RAG access.
+ 
 ### 2. Native Rust Nervous System (`agentx-native`)
-The performance-critical core is accelerated by a native Rust engine. By offloading token analysis, state transitions, and IPC serialization to Rust, AgentX achieves **10x faster response times** than traditional Python-only frameworks.
-
-### 3. Arrow IPC Baton Protocol
-Distributed mission coordination uses **Apache Arrow Tables**. When a task is delegated, the mission state is handed over as a binary "Baton" that is memory-mapped by the sub-agent. This ensures sub-millisecond coordination latency for even the largest swarms.
-
+Performance-critical components are compiled into a native Rust extension using `PyO3`:
+- **GIL-Free Execution**: Token calculations, semantic database directory initializations, and binary serialization bypass the Python Global Interpreter Lock.
+- **Arrow C-Data Integration**: High-speed schema conversions utilize native Arrow structures for massive throughput.
+ 
+### 3. Arrow Binary Baton Protocol
+ Swarm coordination uses a specialized binary **Baton Protocol**. When a sub-agent is spawned or a task is handed over:
+- State dictionaries are serialized into **Apache Arrow Tables** via `pyarrow`.
+- **Zero-Copy Memory-Mapped Handover**: Uses `pyarrow.memory_map` in `BatonManager` to map baton state files directly into physical memory, bypassing slow file read cycles and row-by-row dictionary instantiations for near-instant handover.
+- Includes a compiled, native PyO3 binary fallback to `agentx_native.read_baton` for maximum execution safety across mixed environments.
+ 
 ---
-
+ 
 ## 🤖 Meet AJA (Assistant to the Joint Agents)
 While **AgentX** is the high-performance engine, **AJA** is your interface. She is the conversational operator who:
 - **Plans & Delegates**: Translates your natural language intent into structured missions for the AgentX swarm.
-- **Zero-Latency Handshake**: Communicates with the AgentX core via **Zero-Copy Apache Arrow** memory, ensuring your secretary stays snappy even when the engine is under heavy load.
-- **Guards Your System**: Uses the **AJA Guard** to audit every command for safety before execution.
-- **Simplifies Complexity**: Manages your schedule, obligations, and local-first memory seamlessly via the **AJA Telegram Gateway**.
-- **Real-time Sync**: Keeps your mobile device in sync with your local missions using high-performance WebSockets.
-
+- **Cooperative Async Telemetry**: Leverages an in-memory Pub/Sub event broker and asyncio queues to run non-blocking UI and telemetry tasks.
+- **Fail-Secure System Safeguard**: Features the **AJA Guard** to audit every shell command before execution. If safety thresholds are violated, it triggers an AI risk analysis gate. Remote Telegram controls are strictly fail-secure (deny-by-default).
+- **Real-time Mobile Sync**: Keeps your mobile device in sync with local system states using a FastAPI-powered WebSocket bridge (`/ws/mobile`).
+ 
 ---
-
+ 
 ## ⚡ Autonomous Overdrive (Max Powers)
 AgentX has been upgraded with **AJA Overdrive** capabilities, moving beyond simple task management into true autonomous engineering:
-
+ 
 ### 📂 Deep Territory RAG (Codebase Awareness)
-The engine now features a recursive **TerritoryScanner** that indexes your entire codebase into a LanceDB vector store. Agents perform semantic RAG lookups before planning, ensuring they "know" your architecture before they write a single line of code.
-
+The engine features a recursive `TerritoryScanner` (configured via `agentx.json`) that indexes specified directories into a LanceDB vector store.
+- Indexes code chunks using a **line-aware chunking strategy** to preserve code block syntax integrity.
+- Leverages local `SentenceTransformer` models, falling back to a deterministic 384D SHA-256 hash vector generator if external libraries are missing.
+ 
 ### 🔧 Autonomous Tool Loop
-The swarm no longer just plans—it **acts**. Using the `ToolExecutor`, AgentX can autonomously execute shell commands during its planning phase to verify environment state, list directories, or check logs, providing a "self-correcting" execution loop.
-
+The swarm does not just plan—it acts. Using the `ToolExecutor`, AgentX can autonomously execute shell commands during its planning phase to verify environment state, list directories, check logs, or inspect dependencies, providing a self-correcting execution loop.
+ 
 ### 🧠 Synthetic Skill Library (Reflective Learning)
-The **ReflectionEngine** audits every completed mission. If it identifies a successful pattern, it extracts it as a **Synthetic Skill**. These skills are stored in the `SkillStore` and are automatically hot-swapped into future missions if a similar objective is detected.
-
+The `ReflectionEngine` audits every completed mission. If it identifies a successful pattern:
+- It extracts a reusable **Synthetic Skill** and stores it in the `SkillStore`.
+- If a pattern is repeated 3 times, it triggers a **self-building cycle** to dynamically synthesize and compile a custom tool to automate the workflow.
+ 
 ### 🛡️ Self-Healing HTN (Plan Hardening)
-AgentX now features a **Structural Sanitizer** for its Hierarchical Task Network. If an LLM generates an invalid dependency (e.g., a compound node pointing to another compound node instead of a primitive leaf), the engine automatically "heals" the graph by re-routing dependencies and populating missing effects, ensuring 100% plan validity before execution.
-
+AgentX features a rigorous structural validation layer for its Hierarchical Task Network plan graph inside `dag_validator.py`:
+- **DAG Verification**: Enforces unique node IDs, cycle detection using Kahn's algorithm, and referential integrity of HTN sub-trees.
+- **State-Flow Verification**: Simulates the state transitions of the plan, checking that all preconditions match the effects of upstream nodes, and detecting state assignment contradictions before execution.
+- **Automated HTN Healer**: Dynamically heals malformed LLM plans in-place by breaking cyclic back-edges, stripping invalid primitive children, expanding compound node dependencies into leaf primitives, and automatically injecting preceding write effects to satisfy downstream preconditions.
+ 
 ---
 
 ## 🛠️ Technology Stack
-- **Core Engine**: Python 3.12+ (Modular & Optimized)
-- **Performance Layer**: Rust-native acceleration via `pyo3`
+- **Core Engine**: Python 3.12+ (Modular & Async-First)
+- **Performance Layer**: Rust-native acceleration via `PyO3` & `maturin`
 - **Memory Stack**: Apache Arrow & LanceDB (SIMD-accelerated)
-- **Safety Layer**: AJA Guard (Risk-aware command auditing)
-- **TUI/CLI**: Premium conversational interface using **Rich** & **Textual**
+- **Safety Layer**: AJA Guard (Command auditing & fail-secure filters)
+- **TUI/CLI**: Interactive terminal console utilizing `prompt_toolkit`, `rich`, and virtual Kanban boards.
 - **Dashboard**: React 19 Executive Command Center
 
 ---
@@ -88,22 +115,22 @@ AgentX now features a **Structural Sanitizer** for its Hierarchical Task Network
 ### 1. Launch AJA Chat
 Interact with your assistant and manage the swarm through a premium conversational loop.
 ```bash
-agentx chat
+python -m agentx chat
 ```
 
 ### 2. Dispatch Missions
 Delegate complex objectives directly to the SwarmEngine.
 ```bash
-agentx run "Audit the project security and implement missing guardrails"
+python -m agentx run "Audit the project security and implement missing guardrails"
 ```
 
 ### 3. Monitor Swarm Health
 View real-time metrics and active baton handoffs across the Arrow memory stack.
 ```bash
-agentx status
+python -m agentx status
 ```
 
 ---
 
 ## 📜 Philosophy
-Performance is not a luxury—it is an engineering requirement. AgentX proves that by prioritizing **Memory Efficiency** and **Native Execution**, we can deliver world-class autonomous systems on the hardware you already own.
+Performance is not a luxury—it is an engineering requirement. AgentX proves that by prioritizing **Memory Efficiency**, **Native Execution**, and **Fail-Secure Security**, we can deliver world-class autonomous systems on the hardware you already own.

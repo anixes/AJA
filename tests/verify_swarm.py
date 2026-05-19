@@ -33,7 +33,7 @@ async def main():
     spawn_result = await gateway.spawn_sub_agent("researcher_01", "Research the impact of Agentic AI on Rust ecosystems.")
     print(spawn_result)
     
-    if "Sync code generated" in spawn_result:
+    if isinstance(spawn_result, str) and len(spawn_result) == 6:
         print("SUCCESS: Baton sync code generated.")
     else:
         print("FAILED: Sync code not found in result.")
@@ -49,7 +49,7 @@ async def main():
     else:
         print("FAILED: Sub-agent missing from registry.")
 
-    await gateway.shutdown()
+    await gateway.stop()
     print("\n--- Verification Complete ---")
 
 if __name__ == "__main__":

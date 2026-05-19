@@ -49,10 +49,11 @@ class VectorMemory:
         """Performs a semantic search using vector similarity."""
         import json
         table = self.db.open_table(self.table_name)
-        results = table.search(query_vector).limit(limit).to_pandas()
+        # Use zero-copy pyarrow instead of pandas .iterrows() for speed
+        results = table.search(query_vector).limit(limit).to_arrow()
         
         processed = []
-        for _, row in results.iterrows():
+        for row in results.to_pylist():
             processed.append({
                 "text": row["text"],
                 "metadata": json.loads(row["metadata"]),

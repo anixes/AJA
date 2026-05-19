@@ -79,6 +79,38 @@ def get_gateway_for_model(model_str):
 
     return LLMGateway(provider=provider, api_key=api_key), model_name
 
+import asyncio
+import threading
+from concurrent.futures import Future
+
+def run_async_synchronously(coro):
+    """
+    Runs a coroutine synchronously, handling both cases where an event loop
+    is already running in the current thread or not.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    res_future = Future()
+
+    def thread_target():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(coro)
+            res_future.set_result(result)
+        except Exception as e:
+            res_future.set_exception(e)
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=thread_target)
+    t.start()
+    t.join()
+    return res_future.result()
+
 def completion(prompt, system_prompt="You are a helpful assistant.", model=None):
     """
     Standard completion interface used across AgentX.
@@ -94,4 +126,5 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None)
             model = "google:gemini-2.5-flash"
             
     gw, model_name = get_gateway_for_model(model)
-    return gw.chat(model=model_name, prompt=prompt, system=system_prompt) or ""
+    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt)) or ""
+

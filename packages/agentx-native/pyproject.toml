@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "agentx-native"
+version = "0.1.0"
+description = "Native Rust core for AgentX"
+requires-python = ">=3.11"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "agentx_native"

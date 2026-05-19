@@ -10,6 +10,15 @@ from datetime import datetime, timezone
 from agentx.config import PROJECT_ROOT
 
 from agentx.orchestration.gateway import LLMGateway
+from agentx.orchestration.registry import WorkerRegistry
+from agentx.orchestration.verification_engine import run_verification
+from agentx.utils.health_check import get_resource_telemetry
+
+try:
+    import agentx_native
+except ImportError:
+    print("Warning: agentx_native not found. Fallback not implemented since strict Rust native is required by SPEC.", file=sys.stderr)
+    agentx_native = None
 
 PYTHON = sys.executable
 
@@ -25,11 +34,16 @@ def append_baton_history(baton_data, stage, message):
     baton_data["updated_at"] = now_iso()
 
 def write_baton(path: Path, baton_data):
-    path.write_text(json.dumps(baton_data, indent=2))
+    if agentx_native:
+        agentx_native.write_baton_ipc(str(path), json.dumps(baton_data))
+    else:
+        path.write_text(json.dumps(baton_data, indent=2))
 
-from agentx.orchestration.registry import WorkerRegistry
-from agentx.orchestration.verification_engine import run_verification
-from agentx.utils.health_check import get_resource_telemetry
+def read_baton(path: Path):
+    if agentx_native and str(path).endswith(".arrow"):
+        return json.loads(agentx_native.read_baton_ipc(str(path)))
+    else:
+        return json.loads(path.read_text())
 
 class SwarmEngine:
     """
@@ -37,7 +51,7 @@ class SwarmEngine:
     Orchestrates workers, manages batons, and enforces Phase 6 verification logic.
     """
     def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3"):
-        self.gateway = LLMGateway(model_id=model)
+        self.gateway = LLMGateway(provider=provider, api_key=key)
         self.model = model
         self.provider = provider
         self.workers = {}
@@ -127,7 +141,7 @@ class SwarmEngine:
             knowledge = mem.query_territory(query_vec, limit=5)
             rag_context = "\n".join([f"File: {k['path']}\nContent: {k['content']}" for k in knowledge])
         except Exception as e:
-            logger.error(f"RAG Lookup failed: {e}")
+            print(f"RAG Lookup failed: {e}")
             rag_context = "No additional codebase context available."
 
         # ── Power 5: Hot-Swapping Skills (Synthetic Library) ──
@@ -137,7 +151,7 @@ class SwarmEngine:
             relevant_skills = sk_store.search_skills(objective, limit=3)
             skills_context = "\n".join([f"Skill: {s['name']}\nDescription: {s['description']}\nTools: {s['tool_sequence_json']}" for s in relevant_skills])
         except Exception as e:
-            logger.error(f"Skill search failed: {e}")
+            print(f"Skill search failed: {e}")
             skills_context = "No relevant synthetic skills found."
 
         planning_prompt = (
@@ -149,7 +163,7 @@ class SwarmEngine:
             "Return a JSON list with 'id', 'task', and 'suggested_commands'."
         )
         
-        plan_str = await self.gateway.chat(planning_prompt)
+        plan_str = await self.gateway.chat(model=self.model, prompt=planning_prompt)
         
         # ── Power 2: Autonomous Tool Loop ──
         from agentx.orchestration.tools.executor import ToolExecutor
@@ -175,25 +189,35 @@ class SwarmEngine:
 
         results = []
         for task in plan:
-            print(f"  - Dispatching Worker for Task {task['id']}: {task['task']}")
-            # Use the high-performance Arrow-backed spawn mechanism
-            code = await self.gateway.spawn_sub_agent(f"worker-{task['id']}", task['task'])
-            results.append({"id": task['id'], "status": "dispatched", "baton_code": code})
+            task_worker_id = f"worker-{task['id']}"
+            print(f"  - Dispatching Worker {task_worker_id}: {task['task']}")
+            baton_id = f"baton_{task_worker_id}_{int(time.time())}.arrow"
+            baton_path = self.baton_dir / baton_id
+            baton_data = {
+                "objective": task['task'],
+                "status": "pending",
+                "stage": "init",
+                "delegated_worker": task_worker_id
+            }
+            write_baton(baton_path, baton_data)
+            
+            result_data = await self._execute_baton_worker(baton_path)
+            results.append({"id": task['id'], "status": result_data.get("status"), "baton_path": str(baton_path)})
 
         results_str = json.dumps(results, indent=2)
         
         # MEMORY CHECK: If the results are too large, summarize them first to stay under the 'Latency Wall'
         if len(results_str) > 5000: # Aggressive 5k limit for 4GB VRAM stability
             print("[MEMORY] Context threshold reached. Summarizing task history to maintain reasoning speed...")
-            results_str = await self.gateway.summarize(results_str, objective=objective)
+            results_str = await self.gateway.chat(model=self.model, prompt=f"Summarize these task results concisely: {results_str}")
             
         synthesis_prompt = f"Objective: {objective}\nSub-task results: {results_str}\nSynthesize these results into a final report."
-        final_report = await self.gateway.chat(synthesis_prompt)
+        final_report = await self.gateway.chat(model=self.model, prompt=synthesis_prompt)
 
-        print("\nFinal Synthesis Complete:\n" + final_report)
+        print("\nFinal Synthesis Complete:\n" + str(final_report))
 
     async def _execute_baton_worker(self, baton_path: Path):
-        baton_data = json.loads(baton_path.read_text())
+        baton_data = read_baton(baton_path)
         baton_data["status"] = "executing"
         baton_data["stage"] = "dispatching"
         append_baton_history(baton_data, "dispatching", f"Agent worker dispatched to {baton_path.name}")
@@ -206,7 +230,7 @@ class SwarmEngine:
         )
         latency = time.time() - start_time
 
-        baton_data = json.loads(baton_path.read_text())
+        baton_data = read_baton(baton_path)
         baton_data["worker_stdout"] = process.stdout.strip()
         baton_data["worker_stderr"] = process.stderr.strip()
 

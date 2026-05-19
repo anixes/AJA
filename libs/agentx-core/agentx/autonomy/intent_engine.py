@@ -1,5 +1,5 @@
 import time
-import threading
+import asyncio
 from typing import List, Dict, Any
 
 from agentx.goals.goal_engine import goal_engine
@@ -52,6 +52,10 @@ class IntentEngine:
         self.total_count = 0
         self.success_count = 0
         self.recent_actions = []
+        
+        from agentx.config import PROJECT_ROOT
+        self.COOLDOWN_FILE = PROJECT_ROOT / ".agentx" / "intent_cooldowns.json"
+        self.load_cooldowns()
 
     def generate_intents(self, state: Dict[str, Any]) -> List[Intent]:
         """
@@ -129,6 +133,8 @@ class IntentEngine:
         self.recent_actions.append(intent.objective)
         if len(self.recent_actions) > 10:
             self.recent_actions.pop(0)
+            
+        self.save_cooldowns()
 
     def check_drift_control(self):
         # Part J - Drift Control
@@ -144,10 +150,10 @@ class IntentEngine:
                 print("[IntentEngine] Repeated actions detected. Stopping loop.")
                 self.autonomy_enabled = False
                 
-    def loop(self):
+    async def loop(self):
         while self._running:
             if not self.autonomy_enabled:
-                time.sleep(5)
+                await asyncio.sleep(5)
                 continue
                 
             cycle_start = time.time()
@@ -179,17 +185,42 @@ class IntentEngine:
                     _send_telegram_report(f"Proposed unsafe action required approval: {intent.objective}")
                     
             self.check_drift_control()
-            time.sleep(10)
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                break
             
     def start(self):
         if not self._running:
             self._running = True
-            self._thread = threading.Thread(target=self.loop, daemon=True)
-            self._thread.start()
+            try:
+                loop = asyncio.get_running_loop()
+                self._task = loop.create_task(self.loop())
+            except RuntimeError:
+                pass
             
     def stop(self):
         self._running = False
-        if self._thread:
-            self._thread.join()
+        if hasattr(self, "_task") and self._task:
+            self._task.cancel()
+
+    def load_cooldowns(self):
+        if self.COOLDOWN_FILE.exists():
+            try:
+                with self.COOLDOWN_FILE.open("r") as f:
+                    data = json.load(f)
+                    self.intent_last_run = data.get("last_run", {})
+                    self.intent_failures = data.get("failures", {})
+            except Exception: pass
+
+    def save_cooldowns(self):
+        try:
+            self.COOLDOWN_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with self.COOLDOWN_FILE.open("w") as f:
+                json.dump({
+                    "last_run": self.intent_last_run,
+                    "failures": self.intent_failures
+                }, f)
+        except Exception: pass
 
 intent_engine = IntentEngine()

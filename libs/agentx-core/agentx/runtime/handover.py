@@ -73,8 +73,8 @@ class BatonManager(HandoverManager):
 
     def pickup(self, code: str) -> Optional[Dict[str, Any]]:
         """
-        Picks up a baton and 'thaws' the Arrow Table back into a state via Rust Core.
-        Leverages native memory mapping for extreme speed.
+        Picks up a baton and 'thaws' the Arrow Table back into a state via memory-mapping.
+        Leverages native memory mapping for extreme zero-copy read speed.
         """
         baton_path = self.baton_dir / f"baton_{code}.json"
         if not baton_path.exists():
@@ -84,21 +84,30 @@ class BatonManager(HandoverManager):
             meta = json.load(f)
 
         state = {}
-        # ARROW TABLE DESERIALIZATION (Handled by Rust Core)
+        # ARROW TABLE DESERIALIZATION (Using memory-mapped PyArrow or falling back to Rust Core)
         if "arrow_ref" in meta:
             arrow_path = Path(meta["arrow_ref"])
             if arrow_path.exists():
-                # Call high-performance Rust reader
                 try:
-                    rust_state = agentx_native.read_baton(str(arrow_path))
-
-                    state["objective"] = rust_state["objective"]
-                    state["run_id"] = rust_state["run_id"]
-                    state["history"] = json.loads(rust_state["history_json"])
-                    state["metadata"] = json.loads(rust_state["metadata_json"])
-                except Exception as e:
-                    logger.exception("Failed to read baton Arrow state from %s", arrow_path)
-                    raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
+                    import pyarrow as pa
+                    with pa.memory_map(str(arrow_path), mode="r") as source:
+                        reader = pa.ipc.open_file(source)
+                        batch = reader.read_all().to_batches()[0]
+                        state["objective"] = batch.column(0)[0].as_py()
+                        state["run_id"] = batch.column(1)[0].as_py()
+                        state["history"] = json.loads(batch.column(2)[0].as_py())
+                        state["metadata"] = json.loads(batch.column(3)[0].as_py())
+                except Exception as mmap_err:
+                    logger.warning("Failed zero-copy memory-mapped read, falling back to standard read: %s", mmap_err)
+                    try:
+                        rust_state = agentx_native.read_baton(str(arrow_path))
+                        state["objective"] = rust_state["objective"]
+                        state["run_id"] = rust_state["run_id"]
+                        state["history"] = json.loads(rust_state["history_json"])
+                        state["metadata"] = json.loads(rust_state["metadata_json"])
+                    except Exception as e:
+                        logger.exception("Failed to read baton Arrow state from %s", arrow_path)
+                        raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
 
         return state
 

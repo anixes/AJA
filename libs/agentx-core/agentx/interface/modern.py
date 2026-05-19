@@ -134,8 +134,10 @@ def print_error(msg: str):
 
 
 def print_success(msg: str):
-    console.print(Text(f"✔ {msg}", style="success"))
+    icon = "✔" if os.name != "nt" else "[OK]"
+    console.print(Text(f"{icon} {msg}", style="success"))
 
 
 def print_info(msg: str):
-    console.print(Text(f"ℹ {msg}", style="info"))
+    icon = "ℹ" if os.name != "nt" else "[INFO]"
+    console.print(Text(f"{icon} {msg}", style="info"))

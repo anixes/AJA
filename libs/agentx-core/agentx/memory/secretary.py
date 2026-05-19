@@ -16,7 +16,10 @@ def utc_now() -> str:
 
 def list_tables_defensive(db) -> List[str]:
     try:
-        return db.table_names()
+        tables = db.list_tables()
+        if hasattr(tables, "tables"):
+            return tables.tables
+        return tables
     except Exception:
         return []
 
@@ -134,6 +137,16 @@ TERRITORY_KNOWLEDGE_SCHEMA = pa.schema(
     ]
 )
 
+CHAT_HISTORY_SCHEMA = pa.schema(
+    [
+        ("message_id", pa.string()),
+        ("role", pa.string()),
+        ("content", pa.string()),
+        ("timestamp", pa.float64()),
+        ("metadata_json", pa.string()),
+    ]
+)
+
 
 class AJAMemory:
     """
@@ -178,6 +191,10 @@ class AJAMemory:
         # 7. Missions (AJA Executive Bridge)
         if "aja_missions" not in existing:
             self.db.create_table("aja_missions", schema=MISSIONS_SCHEMA)
+
+        # 8. Chat History (Conversational Working-Set mirroring)
+        if "aja_chat_history" not in existing:
+            self.db.create_table("aja_chat_history", schema=CHAT_HISTORY_SCHEMA)
 
     # --- Worker Management (Heartbeats) ---
     
@@ -497,6 +514,46 @@ class AJAMemory:
         self.record_scheduler_event(
             "approval_audit", entry.get("approval_id", "none"), entry
         )
+
+    # --- Conversational working-set mirroring ---
+
+    def mirror_chat_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Mirror a conversational chat turn directly to LanceDB in real-time.
+        Appends a record batch to the chat_history LanceDB table.
+        """
+        import time
+        table = self.db.open_table("aja_chat_history")
+        row = {
+            "message_id": uuid.uuid4().hex[:8],
+            "role": role,
+            "content": content,
+            "timestamp": float(time.time()),
+            "metadata_json": json.dumps(metadata or {}),
+        }
+        table.add([row])
+
+    def get_chat_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Retrieve conversational chat turns from the LanceDB chat_history table.
+        """
+        table = self.db.open_table("aja_chat_history")
+        results = table.search().to_pandas()
+        if not results.empty:
+            # Get the most recent entries by sorting descending, taking limit, then sorting ascending
+            results = results.sort_values(by="timestamp", ascending=False).head(limit)
+            results = results.sort_values(by="timestamp", ascending=True)
+        
+        history = []
+        for _, row in results.iterrows():
+            history.append({
+                "message_id": row["message_id"],
+                "role": row["role"],
+                "content": row["content"],
+                "timestamp": row["timestamp"],
+                "metadata": json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+            })
+        return history
 
     # --- Runtime Events ---
 

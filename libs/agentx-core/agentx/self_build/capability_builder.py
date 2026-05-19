@@ -107,7 +107,6 @@ def propose_capability(problem: str) -> Capability:
     """
     print(f"[SelfBuild] Proposing capability for problem: {problem}")
     model_name = agentx.config.AGENTX_PLANNER_MODEL
-    gw, mapped_model = get_gateway_for_model(model_name)
     
     system = """You are Agent Capability Builder.
 Your task is to generate a Python tool/function to solve a specific problem.
@@ -124,7 +123,8 @@ Return ONLY JSON:
 }
 """
     try:
-        raw = gw.chat(model=mapped_model, prompt=f"Problem: {problem}", system=system)
+        from agentx.llm import completion
+        raw = completion(prompt=f"Problem: {problem}", system_prompt=system, model=model_name)
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw:
