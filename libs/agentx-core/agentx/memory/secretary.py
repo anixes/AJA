@@ -265,7 +265,7 @@ class AJAMemory:
         table.add([row])
         return row
 
-    # --- Mission Management (Jarvis Executive) ---
+    # --- Mission Management (AJA Mission Executive) ---
 
     def create_mission(self, goal: str, priority: int = 1) -> Dict[str, Any]:
         mid = f"M-{uuid.uuid4().hex[:6].upper()}"

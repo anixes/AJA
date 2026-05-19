@@ -5,8 +5,8 @@ from agentx.gateway.orchestrator import UnifiedGateway
 from agentx.memory.secretary import get_aja_memory
 
 async def run_gateway():
-    """Run the Jarvis Unified Gateway."""
-    print("[*] Starting Jarvis Autonomous Gateway...")
+    """Run the AJA Unified Gateway."""
+    print("[*] Starting AJA Autonomous Gateway...")
     
     # Initialize the Gateway
     gateway = UnifiedGateway()
@@ -14,13 +14,13 @@ async def run_gateway():
     # Start the Gateway (this starts Telegram polling and Telemetry)
     await gateway.start()
     
-    print("[*] Jarvis Gateway is active. Listening for missions...")
+    print("[*] AJA Gateway is active. Listening for missions...")
     
     # Keep alive and handle signals
     stop_event = asyncio.Event()
     
     def handle_exit():
-        print("\n[*] Shutting down Jarvis Gateway...")
+        print("\n[*] Shutting down AJA Gateway...")
         stop_event.set()
 
     # Loop for health checks or just wait
