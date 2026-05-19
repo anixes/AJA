@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add packages to path
-sys.path.append(str(Path(__file__).parent.parent / "packages" / "agentx-core"))
+sys.path.append(str(Path(__file__).parent.parent / "libs" / "agentx-core"))
 
 from agentx.gateway.orchestrator import UnifiedGateway
 from agentx.config import TELEGRAM_TOKEN

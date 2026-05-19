@@ -240,6 +240,16 @@ class UnifiedGateway:
                     "expected_user_id": str(TELEGRAM_ALLOWED_USER_ID),
                 },
             )
+            msg = (
+                "🚫 **AJA Security Notification**\n\n"
+                "Access Denied. Your Telegram account is not authorized.\n\n"
+                f"**Your Telegram User ID**: `{event.user_id}`\n\n"
+                "To authorize your account, please update your `.env` file with:\n"
+                f"`TELEGRAM_ALLOWED_USER_ID={event.user_id}`\n\n"
+                "Then, restart the AJA Gateway process."
+            )
+            print(f"[AJA Security] Unauthorized access attempt by user_id {event.user_id}: '{event.text}'")
+            await self.telegram_adapter.send_message(chat_id, msg)
             return
 
         session = self.gateway_state.get_session(chat_id)

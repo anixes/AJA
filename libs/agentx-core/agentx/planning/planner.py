@@ -378,8 +378,8 @@ class Planner:
             return None
             
         try:
-            from agentx.planning.methods import MethodLibrary
-            methods_str = MethodLibrary.format_for_prompt()
+            from agentx.planning.method_store import MethodStore
+            methods_str = MethodStore.format_for_prompt()
         except Exception:
             methods_str = "{}"
             

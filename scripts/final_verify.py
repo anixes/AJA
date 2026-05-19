@@ -12,8 +12,8 @@ async def verify_system():
     
     # 1. Verify Rust Core
     print("\n[1/5] Verifying Rust Native Core...")
-    v = agentx_native.version()
-    print(f"  - Rust Core Version: {v}")
+    t = agentx_native.count_tokens("Hello World")
+    print(f"  - Rust Core Tokenizer: OK (Tokens for 'Hello World': {t})")
     
     # 2. Verify Memory Tree (LanceDB/Arrow)
     print("\n[2/5] Verifying Memory Tree (LanceDB/Arrow)...")
