@@ -57,7 +57,7 @@ CONFIG_PATH = PROJECT_ROOT / "agentx.json"
 # ---------------------------------------------------------------------------
 
 
-def cmd_run(objective: str, background: bool = False):
+def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
     """
     Primary mission entry point.
     """
@@ -67,8 +67,11 @@ def cmd_run(objective: str, background: bool = False):
 
     if background:
         print_info(f"Dispatching mission to background: {objective}")
+        cmd_args = [PYTHON, "-m", "agentx", "run", objective]
+        if dry_run:
+            cmd_args.append("--dry-run")
         subprocess.Popen(
-            [PYTHON, "-m", "agentx", "run", objective],
+            cmd_args,
             start_new_session=True,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
@@ -77,7 +80,7 @@ def cmd_run(objective: str, background: bool = False):
     with mission_spinner(objective):
         from agentx.orchestration.swarm import SwarmEngine
 
-        engine = SwarmEngine()
+        engine = SwarmEngine(dry_run=dry_run)
         try:
             asyncio.run(engine.plan_and_execute_batons(objective))
         except KeyboardInterrupt:
@@ -179,7 +182,6 @@ def cmd_chat():
             "/status",
             "/doctor",
             "/mode",
-            "/dash",
             "/metrics",
             "/exit",
             "/clear",
@@ -302,10 +304,6 @@ def cmd_chat():
                 elif cmd == "/status":
                     cmd_status()
                     continue
-                elif cmd == "/dash":
-                    from agentx.api.bridge import start_dashboard
-                    start_dashboard()
-                    continue
                 elif cmd == "/metrics":
                     console.print("[yellow]Metrics TUI coming soon in Phase 12.[/]")
                     continue
@@ -354,36 +352,146 @@ def cmd_chat():
             print_error(f"Chat Error: {e}")
 
 
+def cmd_setup():
+    """Guided onboarding setup wizard for AgentX."""
+    from rich.panel import Panel
+    from rich.prompt import Prompt, Confirm
+    
+    console.print(Panel(
+        "[bold cyan]Welcome to the AgentX Setup Wizard[/]\n\n"
+        "This tool will guide you through scaffolding directories, validating config keys, "
+        "and setting up your local database files to ensure enterprise-grade product readiness.",
+        title="AgentX Onboarding",
+        border_style="cyan"
+    ))
+    
+    # Check if config already exists
+    if CONFIG_PATH.exists():
+        recreate = Confirm.ask("[yellow]An agentx.json already exists. Re-configure?[/]", default=False)
+        if not recreate:
+            print_info("Skipping configuration generation. Verifying directories...")
+            # Still initialize folders
+            baton_dir = PROJECT_ROOT / ".agentx" / "batons"
+            baton_dir.mkdir(parents=True, exist_ok=True)
+            handover_dir = PROJECT_ROOT / ".agentx" / "handovers"
+            handover_dir.mkdir(parents=True, exist_ok=True)
+            print_success("Setup and directories verified.")
+            return
+
+    # Prompt for configuration values
+    project_name = Prompt.ask("Enter Project Name", default="AgentX")
+    
+    operating_mode = Prompt.ask(
+        "Choose Operating Mode",
+        choices=["offline", "online", "hybrid"],
+        default="offline"
+    )
+    
+    # Models defaults
+    if operating_mode == "offline":
+        planner_model = "llama_cpp:gemma"
+        worker_model = "llama_cpp:gemma"
+        critic_model = "llama_cpp:gemma"
+    else:
+        planner_model = "google:gemini-2.0-flash"
+        worker_model = "google:gemini-2.0-flash"
+        critic_model = "google:gemini-2.0-flash"
+        
+    planner = Prompt.ask("Planner Model", default=planner_model)
+    worker = Prompt.ask("Worker Model", default=worker_model)
+    critic = Prompt.ask("Critic Model", default=critic_model)
+    
+    # Let's write API Keys to .env if needed
+    if operating_mode in ("online", "hybrid"):
+        api_key = Prompt.ask("Enter GEMINI_API_KEY (leave empty to keep existing or skip)", password=True, default="")
+        if api_key:
+            env_path = PROJECT_ROOT / ".env"
+            existing_lines = []
+            if env_path.exists():
+                existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+            
+            # Remove existing GEMINI_API_KEY / GOOGLE_API_KEY to avoid duplicates
+            new_lines = []
+            for line in existing_lines:
+                if not (line.startswith("GEMINI_API_KEY=") or line.startswith("GOOGLE_API_KEY=")):
+                    new_lines.append(line)
+            new_lines.append(f"GEMINI_API_KEY={api_key}")
+            new_lines.append(f"GOOGLE_API_KEY={api_key}")
+            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            print_success("Saved API keys to .env")
+
+    # Generate config dictionary
+    config_data = {
+        "project_name": project_name,
+        "territories": [
+            {
+                "path": "apps/cli-ts",
+                "health_cmd": "node dist/cli.js",
+                "auto_heal": True
+            },
+            {
+                "path": "libs/agentx-core",
+                "health_cmd": "python -m agentx status",
+                "auto_heal": False
+            }
+        ],
+        "swarm_settings": {
+            "offline_mode": operating_mode == "offline",
+            "max_agents": 5,
+            "check_interval": 30,
+            "models": {
+                "planner": planner,
+                "worker": worker,
+                "critic": critic
+            },
+            "operating_mode": operating_mode
+        }
+    }
+    
+    # Validate with Pydantic
+    try:
+        from agentx.config_schema import AgentXConfig
+        AgentXConfig.model_validate(config_data)
+        
+        # Write to file
+        with CONFIG_PATH.open("w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2)
+            
+        print_success(f"Successfully generated and validated {CONFIG_PATH}")
+    except Exception as e:
+        print_error(f"Failed to validate generated configuration: {e}")
+        return
+
+    # Scaffold directories
+    baton_dir = PROJECT_ROOT / ".agentx" / "batons"
+    baton_dir.mkdir(parents=True, exist_ok=True)
+    handover_dir = PROJECT_ROOT / ".agentx" / "handovers"
+    handover_dir.mkdir(parents=True, exist_ok=True)
+    print_success("Vector store database directories successfully initialized.")
+
+
 def cmd_doctor():
     """System health checks and diagnostics."""
-    checks = [
-        ("Config", CONFIG_PATH.exists(), str(CONFIG_PATH)),
-        (
-            "Native Engine",
-            (PROJECT_ROOT / "libs" / "agentx-native").exists(),
-            "Rust/Simd Core",
-        ),
-        ("Runtime Dir", (PROJECT_ROOT / ".agentx").exists(), ".agentx/"),
-        ("Memory Manager", True, "LanceDB/Arrow Active"),
-    ]
+    from agentx.utils.diagnostics import run_diagnostics
+    checks = run_diagnostics()
     print_doctor(checks)
 
 
 def show_help():
     """Displays the AgentX Command Suite."""
     from rich.panel import Panel
-    from rich.columns import Columns
 
     help_text = """
 [bold cyan]Core Mission Commands[/]
-[green]run[/] <objective>    → Start a mission
+[green]run[/] <objective> [--dry-run] → Start a mission (with optional simulation)
 [green]chat[/]              → Interactive conversational loop
 [green]status[/]            → Show swarm health
 [green]pickup[/] <code>      → Resume a mission
+[green]tui[/] [--dry-run]     → Run premium live HTN dashboard
 
 [bold cyan]System Commands[/]
+[yellow]setup[/]              → Onboarding setup wizard
 [yellow]mode[/] <mode>        → Set mode (offline/online/hybrid)
-[yellow]dash[/]               → Start Dashboard
 [yellow]doctor[/]             → Run diagnostics
 [yellow]metrics[/]            → View performance
     """
@@ -405,15 +513,16 @@ def main():
 
     if cmd == "run":
         bg = "--bg" in args
-        objective = " ".join([a for a in args[1:] if a != "--bg"])
-        cmd_run(objective, background=bg)
+        dry_run = "--dry-run" in args
+        objective_parts = [a for a in args[1:] if a not in ("--bg", "--dry-run")]
+        objective = " ".join(objective_parts)
+        cmd_run(objective, background=bg, dry_run=dry_run)
     elif cmd == "chat":
         cmd_chat()
     elif cmd == "status":
         cmd_status()
-    elif cmd == "dash":
-        from agentx.api.bridge import start_dashboard
-        start_dashboard()
+    elif cmd == "setup":
+        cmd_setup()
     elif cmd == "doctor":
         cmd_doctor()
     elif cmd == "live":
@@ -427,6 +536,10 @@ def main():
             print_error("Usage: agentx pickup <code>")
         else:
             cmd_pickup(args[1])
+    elif cmd == "tui":
+        dry_run = "--dry-run" in args
+        from agentx.tui.curses_tui import run_curses_tui_main
+        asyncio.run(run_curses_tui_main(dry_run=dry_run))
     elif cmd == "help" or cmd == "--help" or cmd == "-h":
         show_help()
     else:

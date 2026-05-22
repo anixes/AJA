@@ -2,6 +2,7 @@ import time
 import json
 import uuid
 import os
+import re
 from typing import List, Dict, Any
 
 from agentx.planning.planner import Planner
@@ -22,6 +23,7 @@ class Goal:
         self.is_sandbox = is_sandbox
         self.subgoals = []
         self.status = "PENDING"
+        self.metadata = {}
         
         self.progress = {
             "completed_steps": [],
@@ -41,7 +43,8 @@ class Goal:
             "status": self.status,
             "progress": self.progress,
             "failures": self.failures,
-            "retries": self.retries
+            "retries": self.retries,
+            "metadata": getattr(self, "metadata", {})
         }
 
     @classmethod
@@ -52,6 +55,7 @@ class Goal:
         g.progress = data.get("progress", {"completed_steps": [], "failed_steps": [], "current_state": ""})
         g.failures = data.get("failures", 0)
         g.retries = data.get("retries", 0)
+        g.metadata = data.get("metadata", {})
         return g
 
 class GoalEngine:
@@ -91,7 +95,32 @@ class GoalEngine:
         # Sort by priority descending, then deadline ascending
         return sorted(goals, key=lambda g: (-g.priority, g.deadline))
         
+    def _is_safe_read_only(self, objective: str) -> bool:
+        obj = objective.strip().lower()
+        if obj.startswith("/run "):
+            obj = obj[5:].strip()
+        elif obj.startswith("/"):
+            obj = obj[1:].strip()
+            
+        obj = re.sub(r'^[\'"\\(]+|[\'"\\)]+$', '', obj).strip()
+            
+        for char in [";", "&&", "||", "|", "`", "$", ">", "<"]:
+            if char in obj:
+                return False
+        safe_prefixes = ("dir", "ls", "type", "cat", "echo", "pwd", "whoami")
+        words = obj.split()
+        if not words:
+            return False
+        return words[0] in safe_prefixes
+
     def expand_goal(self, goal: Goal):
+        from agentx.planning.scorer import estimate_complexity, COMPLEXITY_LOW
+        force_swarm = getattr(goal, "metadata", {}).get("force_swarm", False)
+        if not force_swarm and estimate_complexity(goal.objective) == COMPLEXITY_LOW:
+            print(f"[GoalEngine] Goal complexity is LOW: {goal.objective}. Bypassing LLM decomposition.")
+            from agentx.planning.planner import _fallback_graph
+            return _fallback_graph(goal.objective)
+
         try:
             from agentx.learning.strategy_store import strategy_store
             similar_strategies = strategy_store.search(goal.objective)
@@ -185,18 +214,30 @@ class GoalEngine:
         for m in missions:
             # Try to restore from metadata_json if exists, else raw mission data
             try:
-                data = json.loads(m.get("metadata_json", "{}"))
-                if not data:
+                meta_str = m.get("metadata_json", "{}")
+                data = json.loads(meta_str)
+                # If metadata_json is just a custom dict or empty
+                if not data or not isinstance(data, dict) or "objective" not in data:
                     data = {
                         "id": m["mission_id"],
                         "objective": m["goal"],
                         "priority": m["priority"],
                         "status": m["status"],
                     }
-                g = Goal.from_dict(data)
+                    g = Goal.from_dict(data)
+                    # Try to parse the custom dict as metadata directly
+                    try:
+                        parsed = json.loads(meta_str)
+                        if isinstance(parsed, dict):
+                            g.metadata = parsed
+                    except Exception:
+                        g.metadata = {}
+                else:
+                    g = Goal.from_dict(data)
+                    
                 self.goals.append(g)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[GoalEngine] Error loading state for mission: {e}")
 
     def sync_external_missions(self):
         """Polls LanceDB for missions added by AJA/Gateway"""
@@ -207,6 +248,21 @@ class GoalEngine:
                 print(f"[GoalEngine] Picked up new external mission: {m['goal']}")
                 g = Goal(m["goal"], m["priority"])
                 g.id = m["mission_id"]
+                
+                # Parse metadata if present
+                meta_json = m.get("metadata_json")
+                g.metadata = {}
+                if meta_json:
+                    try:
+                        parsed = json.loads(meta_json)
+                        if isinstance(parsed, dict):
+                            if "metadata" in parsed and isinstance(parsed["metadata"], dict):
+                                g.metadata = parsed["metadata"]
+                            else:
+                                g.metadata = parsed
+                    except Exception as e:
+                        print(f"[GoalEngine] Failed to parse metadata_json for new mission: {e}")
+                        
                 self.goals.append(g)
                 self.memory.update_mission(m["mission_id"], {"status": "ACTIVE", "assigned_worker": "local-terminal"})
 
@@ -254,6 +310,57 @@ class GoalEngine:
         if goal.failures > 2 and goal.retries > 0:
             self.modify_goal_strategy(goal)
             
+        force_swarm = getattr(goal, "metadata", {}).get("force_swarm", False)
+        if not force_swarm and self._is_safe_read_only(goal.objective):
+            print(f"[GoalEngine] Safe read-only command detected: {goal.objective}. Bypassing planner.")
+            try:
+                import subprocess
+                res = subprocess.run(goal.objective, shell=True, capture_output=True, text=True, timeout=10)
+                output = res.stdout + res.stderr
+                goal.progress["completed_steps"].append("fast_path_read_only")
+                goal.progress["current_state"] = f"Success (Fast-path): {goal.objective}"
+                goal.status = "DONE"
+                self.save_state()
+                
+                # Emit events and record to LanceDB
+                self.memory.record_scheduler_event(
+                    kind="MISSION_RESULT",
+                    target=goal.id,
+                    metadata={"message": f"Result for '{goal.objective}':\n{output}", "output": output},
+                    status=True
+                )
+                bus.publish(EVENTS["MISSION_RESULT"], {
+                    "mission_id": goal.id,
+                    "message": f"Result for '{goal.objective}':\n{output}"
+                })
+                # Signal mission done
+                self.memory.record_scheduler_event(
+                    kind="MISSION_DONE",
+                    target=goal.id,
+                    metadata={"message": f"Goal completed successfully: {goal.objective}"},
+                    status=True
+                )
+                bus.publish(EVENTS["NODE_SUCCESS"], {
+                    "mission_id": goal.id,
+                    "message": f"Goal completed successfully: {goal.objective}"
+                })
+                return
+            except Exception as e:
+                print(f"[GoalEngine] Safe command fast-path failed: {e}")
+                self.memory.record_scheduler_event(
+                    kind="NODE_FAILED",
+                    target=goal.id,
+                    metadata={"message": f"Safe command fast-path failed: {e}"},
+                    status=False
+                )
+                bus.publish(EVENTS["NODE_FAILED"], {
+                    "mission_id": goal.id,
+                    "message": f"Safe command fast-path failed: {e}"
+                })
+                goal.status = "FAILED"
+                self.save_state()
+                return
+
         print(f"\n[GoalEngine] Executing next step for goal: {goal.objective}")
         try:
             plan = self.expand_goal(goal)
@@ -268,6 +375,12 @@ class GoalEngine:
                     plan_summary += f"\n  ...and {len(plan.nodes)-3} more"
             
             bus.publish(EVENTS["PLAN_CREATED"], {"plan_summary": plan_summary})
+            self.memory.record_scheduler_event(
+                kind="PLAN_CREATED",
+                target=goal.id,
+                metadata={"plan_summary": plan_summary, "message": plan_summary},
+                status=True
+            )
             
             # Simple simulation of execution
             if hasattr(plan, "nodes") and plan.nodes:
@@ -291,6 +404,10 @@ class GoalEngine:
             c_score = critic_score(plan, critique_plan(plan, {}))
             confidence = getattr(plan, "confidence", max(0.0, c_score * (1.0 - risk)))
             
+            if c_score == 0 and risk == 0.5 and self._is_safe_read_only(goal.objective):
+                print(f"[GoalEngine] Risk Gate Correction: safe/read-only fallback plan detected. Correcting confidence to 0.75.")
+                confidence = 0.75
+
             if risk > 0.7 or confidence < 0.6:
                 print(f"[GoalEngine] Node requires approval! Risk: {risk:.2f}, Confidence: {confidence:.2f}")
                 self.escalate_to_user("High risk / low confidence task requires approval.", mission_id=goal.id)
@@ -324,10 +441,22 @@ class GoalEngine:
             # Mark done if all done
             goal.status = "DONE"
             self.save_state()
+            self.memory.record_scheduler_event(
+                kind="MISSION_DONE",
+                target=goal.id,
+                metadata={"message": f"Goal completed successfully: {goal.objective}"},
+                status=True
+            )
             
         except Exception as e:
             print(f"[GoalEngine] Execution failed for {goal.objective}: {str(e)}")
             self.update_goal_state(goal, {"success": False, "error": str(e)}, "expansion_step")
+            self.memory.record_scheduler_event(
+                kind="NODE_FAILED",
+                target=goal.id,
+                metadata={"message": f"Execution failed: {str(e)}"},
+                status=False
+            )
             
             # Phase 26: RL-lite Policy Update
             try:

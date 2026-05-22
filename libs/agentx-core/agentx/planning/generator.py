@@ -91,24 +91,18 @@ def filter_diverse(plans: List[PlanGraph], sim_threshold: float = 0.95) -> List[
     
     for plan in plans:
         is_dup = False
-        plan_nodes_set = {n.id for n in plan.primitive_nodes()}
-        plan_edges_set = set(plan.edges)
+        plan_tasks_set = {n.task.strip().lower() for n in plan.primitive_nodes()}
         
         for kept in diverse_plans:
-            kept_nodes_set = {n.id for n in kept.primitive_nodes()}
-            kept_edges_set = set(kept.edges)
+            kept_tasks_set = {n.task.strip().lower() for n in kept.primitive_nodes()}
             
-            # Simple Jaccard similarity for structure
-            node_intersection = len(plan_nodes_set.intersection(kept_nodes_set))
-            node_union = len(plan_nodes_set.union(kept_nodes_set))
+            # Simple Jaccard similarity for structure (comparing actual tasks rather than template placeholder IDs)
+            node_intersection = len(plan_tasks_set.intersection(kept_tasks_set))
+            node_union = len(plan_tasks_set.union(kept_tasks_set))
             node_sim = node_intersection / node_union if node_union > 0 else 0.0
             
-            edge_intersection = len(plan_edges_set.intersection(kept_edges_set))
-            edge_union = len(plan_edges_set.union(kept_edges_set))
-            edge_sim = edge_intersection / edge_union if edge_union > 0 else 1.0 # If both 0 edges, it's 1.0
-            
-            # If structure is highly similar, consider it a duplicate
-            if node_sim > sim_threshold and edge_sim > sim_threshold:
+            # If tasks are highly similar, consider it a duplicate
+            if node_sim > sim_threshold:
                 is_dup = True
                 break
                 

@@ -49,7 +49,11 @@ class BatonManager(HandoverManager):
 
         history = orchestrator_state.get("history", [])
         run_id = orchestrator_state.get("run_id", "unknown")
-        metadata = orchestrator_state.get("metadata", {})
+        
+        # Trace propagation: inject the active trace_id into baton metadata
+        from agentx.observability.telemetry import get_trace_id
+        metadata = dict(orchestrator_state.get("metadata", {}))
+        metadata["trace_id"] = get_trace_id()
 
         # Call the high-performance Rust function
         try:
@@ -109,7 +113,85 @@ class BatonManager(HandoverManager):
                         logger.exception("Failed to read baton Arrow state from %s", arrow_path)
                         raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
 
+        # Thaw and restore trace_id from the loaded metadata
+        if state and "metadata" in state:
+            trace_id = state["metadata"].get("trace_id")
+            if trace_id:
+                from agentx.observability.telemetry import set_trace_id
+                set_trace_id(trace_id)
+
         return state
+
+    def transmit_baton(self, code: str, endpoint_url: str) -> bool:
+        """
+        Transmits a captured baton's metadata and binary Arrow state to a remote worker network endpoint
+        using standard HTTP POST. Follows standard safety and retry rules.
+        """
+        baton_path = self.baton_dir / f"baton_{code}.json"
+        arrow_path = self.baton_dir / f"baton_{code}.arrow"
+        
+        if not baton_path.exists() or not arrow_path.exists():
+            logger.error(f"Cannot transmit baton: file for code {code} does not exist.")
+            return False
+            
+        try:
+            with open(baton_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            with open(arrow_path, "rb") as f:
+                arrow_data = f.read()
+                
+            import base64
+            payload = {
+                "code": code,
+                "meta": meta,
+                "arrow_data_b64": base64.b64encode(arrow_data).decode("utf-8")
+            }
+            
+            import urllib.request
+            import urllib.error
+            
+            req_data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                endpoint_url,
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            
+            with urllib.request.urlopen(req, timeout=10.0) as response:
+                if response.status in (200, 201):
+                    logger.info(f"Baton {code} successfully transmitted to remote worker: {endpoint_url}")
+                    return True
+                else:
+                    logger.warning(f"Failed to transmit baton to {endpoint_url}. Status code: {response.status}")
+                    return False
+        except Exception as e:
+            logger.error(f"Error transmitting baton {code} to {endpoint_url}: {e}")
+            return False
+
+    def receive_baton(self, payload_dict: Dict[str, Any]) -> str:
+        """
+        Receives a remote baton payload, deserializes it, and saves it locally.
+        Returns the saved baton code.
+        """
+        code = payload_dict["code"]
+        meta = payload_dict["meta"]
+        arrow_data_b64 = payload_dict["arrow_data_b64"]
+        
+        import base64
+        arrow_data = base64.b64decode(arrow_data_b64.encode("utf-8"))
+        
+        baton_path = self.baton_dir / f"baton_{code}.json"
+        arrow_path = self.baton_dir / f"baton_{code}.arrow"
+        
+        # Save local files
+        with open(baton_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+        with open(arrow_path, "wb") as f:
+            f.write(arrow_data)
+            
+        logger.info(f"Baton {code} received and persisted locally in {self.baton_dir}")
+        return code
 
     def cleanup_expired(self):
         """Removes batons and their associated Arrow Tables past TTL."""
@@ -125,3 +207,4 @@ class BatonManager(HandoverManager):
                             arrow_path.unlink()
             except Exception:
                 logger.exception("Failed to clean up baton %s", baton_path)
+

@@ -82,6 +82,6 @@ class TaskManager:
         if len(arrow_table) == 0:
             return 0, 0
         status_col = arrow_table["status"]
-        pending = pc.sum(pc.equal(status_col, STATUS_PENDING)).as_py() or 0
-        running = pc.sum(pc.equal(status_col, STATUS_RUNNING)).as_py() or 0
+        pending = pc.sum(pc.cast(pc.equal(status_col, STATUS_PENDING), pa.int64())).as_py() or 0
+        running = pc.sum(pc.cast(pc.equal(status_col, STATUS_RUNNING), pa.int64())).as_py() or 0
         return pending, running

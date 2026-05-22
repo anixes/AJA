@@ -19,6 +19,7 @@ import logging
 import math
 from typing import Dict, Any, List, Tuple
 import os
+from agentx.llm import get_gateway, run_async_synchronously
 
 logger = logging.getLogger("agent.decision.evaluator")
 
@@ -94,8 +95,7 @@ def evaluate_semantic(objective: str, result: str, context: Dict[str, Any] = Non
         print("[Evaluator] EVALUATOR_MODEL_OVERLAP: same model used for execution and evaluation.")
 
     try:
-        from agentx.orchestration.gateway import LLMGateway
-        gateway = LLMGateway()
+        gateway = get_gateway()
         
         prompt = f"Objective:\n{objective}\n\nExecution Result:\n{result}\n\nDoes the execution result successfully fulfill the objective?"
         system = (
@@ -109,11 +109,11 @@ def evaluate_semantic(objective: str, result: str, context: Dict[str, Any] = Non
             system += "\nBE EXTREMELY STRICT. Verify all implicit requirements are met. Do NOT return CORRECT if there is any ambiguity."
         
         eval_model = model or EVALUATION_MODEL
-        response = gateway.chat(
+        response = run_async_synchronously(gateway.chat(
             model=eval_model,
             prompt=prompt,
             system=system
-        )
+        ))
         
         cleaned = response.strip().upper()
         if "INCORRECT" in cleaned:
@@ -147,8 +147,7 @@ def evaluate_semantic_with_reasoning(
     """
     context = context or {}
     try:
-        from agentx.orchestration.gateway import LLMGateway
-        gateway = LLMGateway()
+        gateway = get_gateway()
 
         prompt = (
             f"Objective:\n{objective}\n\n"
@@ -167,7 +166,7 @@ def evaluate_semantic_with_reasoning(
             system += " Be EXTREMELY strict — any ambiguity = INCORRECT."
 
         eval_model = model or EVALUATION_MODEL
-        raw = gateway.chat(model=eval_model, prompt=prompt, system=system)
+        raw = run_async_synchronously(gateway.chat(model=eval_model, prompt=prompt, system=system))
 
         verdict = "CORRECT"
         reasoning = ""
@@ -272,8 +271,7 @@ def meta_validate(
     "CONFIRMED" | "DOUBTFUL"
     """
     try:
-        from agentx.orchestration.gateway import LLMGateway
-        gateway = LLMGateway()
+        gateway = get_gateway()
 
         panel_summary = "\n".join(
             f"- {e['evaluator']}: {e['verdict']} "
@@ -294,7 +292,7 @@ def meta_validate(
         )
         # Use a different model family for meta-evaluation
         meta_model = os.environ.get("AGENTX_META_EVALUATOR_MODEL", "claude-3-5-sonnet-20241022")
-        raw = gateway.chat(model=meta_model, prompt=prompt, system=system)
+        raw = run_async_synchronously(gateway.chat(model=meta_model, prompt=prompt, system=system))
         if "DOUBTFUL" in raw.strip().upper():
             logger.warning("[Evaluator] META_EVALUATION: Panel flagged as DOUBTFUL")
             return "DOUBTFUL"

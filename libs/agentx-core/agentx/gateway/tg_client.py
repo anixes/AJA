@@ -41,6 +41,7 @@ class TelegramAdapter(BasePlatformAdapter):
         self.token = config.get("token")
         self._app: Optional[Application] = None
         self._bot: Optional[Bot] = None
+        self._poll_task: Optional[asyncio.Task] = None
         self._queue = asyncio.Queue()
         self.telemetry_queue = asyncio.Queue()
         self._last_telemetry_check = 0
@@ -67,6 +68,7 @@ class TelegramAdapter(BasePlatformAdapter):
         )
 
     async def start(self, gateway):
+        self.gateway = gateway
         if not TELEGRAM_AVAILABLE:
             print("AJA Error: python-telegram-bot not installed.")
             return
@@ -80,12 +82,13 @@ class TelegramAdapter(BasePlatformAdapter):
         self._bot = self._app.bot
 
         # Register Handlers
+        # Specific command handlers must be registered before the catch-all text MessageHandler
+        self._app.add_handler(CommandHandler("start", self._handle_start))
         self._app.add_handler(
             MessageHandler(
-                filters.TEXT & ~filters.COMMAND, self._handle_text_message
+                filters.TEXT, self._handle_text_message
             )
         )
-        self._app.add_handler(CommandHandler("start", self._handle_start))
         self._app.add_handler(CallbackQueryHandler(self._handle_callback))
 
         # Subscribe to standard event bus to buffer events in telemetry_queue
@@ -103,6 +106,8 @@ class TelegramAdapter(BasePlatformAdapter):
                 print("Telegram: Calling start_polling()...")
                 await self._app.updater.start_polling(drop_pending_updates=True)
                 self.is_running = True
+                # Start background polling of LanceDB events
+                self._poll_task = asyncio.create_task(self._poll_lancedb_events())
                 print("AJA Telegram Gateway started successfully.")
                 break
             except Exception as e:
@@ -116,6 +121,13 @@ class TelegramAdapter(BasePlatformAdapter):
                 await asyncio.sleep(wait)
 
     async def stop(self):
+        if self._poll_task:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+            self._poll_task = None
         if self._app:
             await self._app.updater.stop()
             await self._app.stop()
@@ -192,10 +204,26 @@ class TelegramAdapter(BasePlatformAdapter):
         Background task to tail in-memory Pub/Sub events and forward to Telegram.
         """
         logger.info(f"Starting event-driven telemetry bridge for chat_id: {chat_id}")
+        import time
         while self.is_running:
             try:
                 ev = await self.telemetry_queue.get()
                 
+                # Dynamic History Update: Inject significant events into conversational session history
+                if hasattr(self, "gateway") and self.gateway:
+                    try:
+                        session = self.gateway.gateway_state.get_session(chat_id)
+                        if ev['kind'] in ["PLAN_CREATED", "MISSION_RESULT", "MISSION_DONE", "MISSION_FAILED", "NODE_FAILED", "NODE_REJECTED", "NODE_APPROVED"]:
+                            system_note = f"[System Note: {ev['message']}]"
+                            session["history"].append({
+                                "role": "system",
+                                "text": system_note,
+                                "time": time.time()
+                            })
+                            self.gateway.gateway_state.update_session(chat_id, session)
+                    except Exception as he:
+                        logger.error(f"Failed to update session history from event: {he}")
+
                 if ev['kind'] == "AWAITING_APPROVAL":
                     keyboard = [
                         [
@@ -209,7 +237,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     importance = "low"
                     if ev['status'] == "ERROR":
                         importance = "high"
-                    elif ev['kind'] in ["MISSION_CREATED", "MISSION_DONE"]:
+                    elif ev['kind'] in ["MISSION_CREATED", "MISSION_DONE", "PLAN_CREATED", "MISSION_RESULT"]:
                         importance = "normal"
                         
                     msg = f"[{ev['status']}] {ev['message']}"
@@ -226,6 +254,86 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.metrics["last_error"] = str(e)
                 self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
                 await asyncio.sleep(1)
+
+    async def _poll_lancedb_events(self):
+        """
+        Polls the LanceDB aja_runtime_events table for new events in a non-blocking background loop.
+        Deduplicates via a local set of recently processed event IDs.
+        """
+        logger.info("Starting background LanceDB event polling task.")
+        seen_event_ids = set()
+        
+        # Pre-populate seen event IDs with existing ones so we don't dump historical events on startup
+        try:
+            from agentx.memory.secretary import get_aja_memory
+            memory = get_aja_memory()
+            table = memory.db.open_table("aja_runtime_events")
+            # Get recent 200 event IDs to pre-populate seen_event_ids
+            existing_events = table.search().limit(200).to_list()
+            for ev in existing_events:
+                eid = ev.get("event_id")
+                if eid:
+                    seen_event_ids.add(eid)
+            logger.info(f"Pre-populated {len(seen_event_ids)} existing event IDs.")
+        except Exception as e:
+            logger.error(f"Failed to pre-populate seen event IDs: {e}")
+
+        while self.is_running:
+            try:
+                from agentx.memory.secretary import get_aja_memory
+                memory = get_aja_memory()
+                table = memory.db.open_table("aja_runtime_events")
+                
+                # Fetch recent events (limiting to last 100 rows)
+                events = table.search().limit(100).to_list()
+                
+                for ev in events:
+                    eid = ev.get("event_id")
+                    if not eid or eid in seen_event_ids:
+                        continue
+                    
+                    seen_event_ids.add(eid)
+                    # Keep seen_event_ids bounded in size
+                    if len(seen_event_ids) > 5000:
+                        seen_event_ids = set(list(seen_event_ids)[-4000:])
+                        
+                    # Format as event payload
+                    kind = ev.get("kind")
+                    target = ev.get("target")
+                    status = ev.get("status", "success").upper()
+                    if status == "FAILED":
+                        status = "ERROR"
+                    elif status == "SUCCESS":
+                        status = "SUCCESS"
+                    
+                    metadata_raw = ev.get("metadata_json") or "{}"
+                    try:
+                        metadata = json.loads(metadata_raw)
+                    except Exception:
+                        metadata = {}
+                        
+                    message = metadata.get("message") or metadata.get("plan_summary") or ev.get("message")
+                    if not message:
+                        message = f"Event: {kind} on target {target}"
+                        
+                    payload = {
+                        "event_id": eid,
+                        "kind": kind,
+                        "target": target,
+                        "status": status,
+                        "message": message,
+                        "command": ev.get("command", ""),
+                        "timestamp": ev.get("timestamp") or datetime.now(timezone.utc).isoformat()
+                    }
+                    
+                    await self.telemetry_queue.put(payload)
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error polling LanceDB events: {e}")
+                
+            await asyncio.sleep(1)
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -327,12 +435,13 @@ class TelegramAdapter(BasePlatformAdapter):
             return None
 
         processed_text = self._prepare_text_for_mobile(text)
+        parse_mode = kwargs.pop("parse_mode", None)
 
         try:
             result = await self._bot.send_message(
                 chat_id=chat_id,
                 text=processed_text,
-                parse_mode=None, 
+                parse_mode=parse_mode, 
                 **kwargs,
             )
             self.metrics["messages_sent"] += 1

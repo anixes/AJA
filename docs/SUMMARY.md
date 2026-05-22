@@ -203,7 +203,7 @@ Interfaces:
 
 ## Phase 7 (AJA Gateway): Premium Secretary Integration
 
-Porting the resilient messaging architecture from Hermes into the AJA persona.
+Porting a resilient messaging architecture into the AJA persona.
 
 - **Resilient Connectivity**: `TelegramAdapter` with exponential back-off and 1-hour "freshness" gates.
 - **Mobile UX Enrichment**: `MobileMDRenderer` converts Markdown tables into bulleted lists for phone readability.

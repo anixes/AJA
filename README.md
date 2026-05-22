@@ -1,9 +1,10 @@
 # AgentX & AJA
 ### *The High-Performance Local-First Agentic OS*
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12.10-blue.svg)](https://www.python.org/)
 [![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![Apache Arrow](https://img.shields.io/badge/Apache--Arrow-Binary--IPC-red.svg)](https://arrow.apache.org/)
+[![Tests](https://img.shields.io/badge/Tests-119%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **High-Performance Autonomy for Every Machine.**
@@ -41,8 +42,9 @@ AgentX is organized as a clean, modular monorepo:
 - **`libs/agentx-core`**: The primary Python package (`agentx.*`). Contains the engine, memory caching, TUI interface, and planning logic.
 - **`packages/agentx-native`**: High-performance Rust extension compiled via `maturin` and `PyO3` into a binary `.whl` targeting Python 3.12.
 - **`apps/`**: High-level applications, including the React Executive Dashboard.
-- **`tests/`**: Centralized test suite containing 111 high-speed Python unit and system tests.
+- **`tests/`**: Centralized test suite — 119 high-speed Python unit and system tests, all passing under Python 3.12.10.
 - **`.agentx/`**: Local-first storage directory containing LanceDB tables, state logs, and binary mission batons.
+- **`docs/`**: Comprehensive technical documentation covering all architectural phases.
 
 ---
 
@@ -63,12 +65,14 @@ Performance-critical components are compiled into a native Rust extension using 
  Swarm coordination uses a specialized binary **Baton Protocol**. When a sub-agent is spawned or a task is handed over:
 - State dictionaries are serialized into **Apache Arrow Tables** via `pyarrow`.
 - **Zero-Copy Memory-Mapped Handover**: Uses `pyarrow.memory_map` in `BatonManager` to map baton state files directly into physical memory, bypassing slow file read cycles and row-by-row dictionary instantiations for near-instant handover.
+- **Trace ID Propagation**: Active `trace_id` values are automatically serialized into Arrow metadata headers during capture and restored during pickup, enabling full end-to-end observability across baton handovers.
 - Includes a compiled, native PyO3 binary fallback to `agentx_native.read_baton` for maximum execution safety across mixed environments.
  
 ---
  
-## 🤖 Meet AJA (Assistant to the Joint Agents)
-While **AgentX** is the high-performance engine, **AJA** is your interface. She is the conversational operator who:
+## 🤖 Meet AJA (The Hacker Butler)
+While **AgentX** is the high-performance engine, **AJA** is your elite, local-first conversational interface. Styled with a highly natural, developer-fluent **Hacker Butler / Secretary** persona, AJA is your personal coordinator who:
+- **Polite & Proactive Executive Assistant**: Delivers structured developer briefings, plans meetings, schedules tasks, and coordinates obligations with elegant, concise, and witty communication.
 - **Plans & Delegates**: Translates your natural language intent into structured missions for the AgentX swarm.
 - **Cooperative Async Telemetry**: Leverages an in-memory Pub/Sub event broker and asyncio queues to run non-blocking UI and telemetry tasks.
 - **Fail-Secure System Safeguard**: Features the **AJA Guard** to audit every shell command before execution. If safety thresholds are violated, it triggers an AI risk analysis gate. Remote Telegram controls are strictly fail-secure (deny-by-default).
@@ -97,14 +101,46 @@ AgentX features a rigorous structural validation layer for its Hierarchical Task
 - **DAG Verification**: Enforces unique node IDs, cycle detection using Kahn's algorithm, and referential integrity of HTN sub-trees.
 - **State-Flow Verification**: Simulates the state transitions of the plan, checking that all preconditions match the effects of upstream nodes, and detecting state assignment contradictions before execution.
 - **Automated HTN Healer**: Dynamically heals malformed LLM plans in-place by breaking cyclic back-edges, stripping invalid primitive children, expanding compound node dependencies into leaf primitives, and automatically injecting preceding write effects to satisfy downstream preconditions.
- 
+
 ---
 
+## 🆕 Product-Readiness Upgrades (Latest)
+
+These six core enterprise enhancements were implemented to bring AgentX to full product-readiness:
+
+### ✅ 1. Pydantic Configuration Validation
+- [config_schema.py](libs/agentx-core/agentx/config_schema.py) defines strict models for all `agentx.json` keys.
+- [config.py](libs/agentx-core/agentx/config.py) validates on every import. Invalid configs produce clean warnings and fall back to safe defaults — no silent failures.
+
+### ✅ 2. Trace-Aware Observability
+- `TraceContextManager` in [telemetry.py](libs/agentx-core/agentx/observability/telemetry.py) tracks trace IDs across threads and async tasks using Python `contextvars`.
+- `BatonManager` in [handover.py](libs/agentx-core/agentx/runtime/handover.py) auto-serializes `trace_id` into Arrow metadata headers during capture, and restores them during pickup.
+
+### ✅ 3. Resilient Systems Diagnostics (`agentx doctor`)
+- [diagnostics.py](libs/agentx-core/agentx/utils/diagnostics.py) checks config schema validity, native Rust engine, LanceDB tables, API credentials, and system resources.
+- `psutil` is a **soft dependency** — falls back gracefully to `os.cpu_count()` and `shutil.disk_usage()` if not installed.
+
+### ✅ 4. Guided Setup Wizard (`agentx setup`)
+- Interactive `rich`-prompt onboarding inside [main.py](libs/agentx-core/agentx/main.py) scaffolds `agentx.json`, `.env` keys, and LanceDB folder layout.
+
+### ✅ 5. Safe Dry-Run Simulation (`--dry-run`)
+- Full plan simulation without executing shell commands or mutating state.
+- Every command is audited through `AJAGuard` safety classification.
+- Falls back to a safe simulated plan if LLM is offline or unauthenticated.
+
+### ✅ 6. Premium Hacker-Butler Conversational Persona
+- Refactored prompt layouts in the chat gateway (`bridge.py`), intent parser (`intent_parser.py`), and swarm orchestrator (`orchestrator.py`) to form a polite, natural **Hacker Butler & Secretary** persona.
+- Acts as a proactive task executive: coordinates schedules and calendars, summarizes code status/obligations, and presents clean structural developer briefings.
+
+---
+ 
 ## 🛠️ Technology Stack
-- **Core Engine**: Python 3.12+ (Modular & Async-First)
+- **Core Engine**: Python 3.12.10 (Global Install — `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`)
 - **Performance Layer**: Rust-native acceleration via `PyO3` & `maturin`
 - **Memory Stack**: Apache Arrow & LanceDB (SIMD-accelerated)
-- **Safety Layer**: AJA Guard (Command auditing & fail-secure filters)
+- **Configuration**: Pydantic v2 schema validation
+- **Safety Layer**: AJA Guard (Command auditing & fail-secure filters) + Security audit logs
+- **Observability**: `TraceContextManager` with Arrow Baton trace propagation
 - **TUI/CLI**: Interactive terminal console utilizing `prompt_toolkit`, `rich`, and virtual Kanban boards.
 - **Dashboard**: React 19 Executive Command Center
 
@@ -112,25 +148,53 @@ AgentX features a rigorous structural validation layer for its Hierarchical Task
 
 ## 🚀 Getting Started
 
-### 1. Launch AJA Chat
+> **⚠️ Important**: Always use the project's **global Python 3.12.10** installation.  
+> Path: `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`  
+> Do **not** use Anaconda Python or any virtual environment Python.
+
+### 1. Run Setup Wizard (First Time)
+Scaffold your configuration, API keys, and workspace folders interactively.
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx setup
+```
+
+### 2. Run System Diagnostics
+Verify your environment is fully configured and all subsystems are healthy.
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx doctor
+```
+
+### 3. Launch AJA Chat
 Interact with your assistant and manage the swarm through a premium conversational loop.
-```bash
-python -m agentx chat
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx chat
 ```
 
-### 2. Dispatch Missions
+### 4. Dispatch Missions
 Delegate complex objectives directly to the SwarmEngine.
-```bash
-python -m agentx run "Audit the project security and implement missing guardrails"
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx run "Audit the project security and implement missing guardrails"
 ```
 
-### 3. Monitor Swarm Health
-View real-time metrics and active baton handoffs across the Arrow memory stack.
-```bash
-python -m agentx status
+### 5. Safe Dry-Run Simulation
+Preview what the swarm would do without executing any commands.
+```powershell
+$env:PYTHONIOENCODING="utf-8"; $env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx run "Perform project analysis" --dry-run
 ```
+
+### 6. Monitor Swarm Health
+View real-time metrics and active baton handoffs across the Arrow memory stack.
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m agentx status
+```
+
+### 7. Run Unit Tests
+```powershell
+$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
+```
+**Expected result**: `119 passed, 1 warning`
 
 ---
 
 ## 📜 Philosophy
-Performance is not a luxury—it is an engineering requirement. AgentX proves that by prioritizing **Memory Efficiency**, **Native Execution**, and **Fail-Secure Security**, we can deliver world-class autonomous systems on the hardware you already own.
+Performance is not a luxury—it is an engineering requirement. AgentX proves that by prioritizing **Memory Efficiency**, **Native Execution**, **Fail-Secure Security**, and **Trace-Aware Observability**, we can deliver world-class autonomous systems on the hardware you already own.

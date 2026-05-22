@@ -19,7 +19,6 @@
     "start:cli": "node apps/cli-ts/dist/cli.js",
     "aja": "node tools/start-aja.mjs",
     "start:aja": "node tools/start-aja.mjs",
-    "dash": "set PYTHONPATH=libs/agentx-core && python -m agentx dash",
     "status": "set PYTHONPATH=libs/agentx-core && python -m agentx status",
     "test": "npm run test:ts && npm run test:py",
     "test:py": "pytest",

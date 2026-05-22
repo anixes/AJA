@@ -5,7 +5,6 @@ import path from 'node:path';
 import process from 'node:process';
 
 const root = process.cwd();
-const dashboardDir = path.join(root, 'apps', 'dashboard');
 const pythonPath = path.join(root, 'libs', 'agentx-core');
 const isWindows = process.platform === 'win32';
 
@@ -117,7 +116,7 @@ function hasAnyEnvFrom(env, names) {
 
 function printHeader() {
   console.log('\n        AJA (Assistant of Joint Agents)');
-  console.log('        Starting API bridge, dashboard, and Telegram gateway.\n');
+  console.log('        Starting API bridge and Telegram gateway.\n');
 }
 
 function printReadiness() {
@@ -130,7 +129,6 @@ function printReadiness() {
   ]);
   const telegramReady = Boolean((process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN) && process.env.TELEGRAM_ALLOWED_USER_ID);
 
-  console.log('[AJA] Dashboard: http://localhost:5173');
   console.log('[AJA] API bridge: http://localhost:8000');
   console.log(
     `[AJA] Model key: ${modelReady ? 'configured' : 'missing (set GEMINI_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY or run local llama.cpp)'}`
@@ -158,11 +156,6 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 printHeader();
-
-if (!existsSync(dashboardDir)) {
-  console.error(`[AJA] Dashboard directory not found: ${dashboardDir}`);
-  process.exit(1);
-}
 
 const dotenvVars = loadDotEnv();
 
@@ -207,10 +200,5 @@ children.push(
 );
 
 await sleep(5000);
-
-// 3. Launch the Dashboard
-children.push(
-  spawnService('Dashboard', 'npm', ['run', 'dev', '-w', '@agent/dashboard'], { env }),
-);
 
 printReadiness();

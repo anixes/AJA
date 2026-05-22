@@ -73,8 +73,10 @@ def semantic_similarity(plan_a: PlanGraph, plan_b: PlanGraph) -> float:
         from agentx.embeddings.service import EmbeddingService
         from agentx.embeddings.similarity import cosine_similarity
         embedding_service = EmbeddingService()
-        emb_a = embedding_service.embed(json.dumps(plan_a.to_dict()))
-        emb_b = embedding_service.embed(json.dumps(plan_b.to_dict()))
+        tasks_a = " | ".join([n.task for n in plan_a.nodes])
+        tasks_b = " | ".join([n.task for n in plan_b.nodes])
+        emb_a = embedding_service.embed(tasks_a)
+        emb_b = embedding_service.embed(tasks_b)
         return cosine_similarity(emb_a, emb_b)
     except Exception:
         # Fallback if embeddings fail
@@ -366,8 +368,8 @@ class Planner:
         if self._gateway is not None:
             return self._gateway
         try:
-            from agentx.orchestration.gateway import LLMGateway
-            self._gateway = LLMGateway()
+            from agentx.llm import get_gateway
+            self._gateway = get_gateway()
         except Exception:
             self._gateway = None
         return self._gateway
@@ -409,9 +411,10 @@ class Planner:
             
         prompt = _PLANNER_USER_TEMPLATE.format(goal=goal) + f"\n\nMode: {mode_prompt}{history_text}{config_text}{kb_text}{strat_text}"
         try:
-            # LLMGateway.complete(system, user) - str
+            temp = config.get("temperature") if config else None
+            # LLMGateway.complete(system, user, temperature) - str
             from agentx.llm import run_async_synchronously
-            response = run_async_synchronously(gw.complete(system=system_prompt, user=prompt))
+            response = run_async_synchronously(gw.complete(system=system_prompt, user=prompt, temperature=temp))
             return response
         except Exception as exc:
             print(f"[Planner] LLM call failed: {exc}")

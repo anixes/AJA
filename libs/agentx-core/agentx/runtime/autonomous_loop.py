@@ -9,6 +9,15 @@ sys.path.append(os.getcwd())
 from agentx.runtime.lancedb_logger import lancedb_logger
 from agentx.memory.secretary import AJAMemory
 
+async def publish_heartbeats(memory, worker_id):
+    """Periodically publishes the heartbeat to LanceDB in a background async loop."""
+    while True:
+        try:
+            memory.publish_heartbeat(worker_id, name="AJA Worker")
+        except Exception as e:
+            print(f"[!] Heartbeat publish error: {e}")
+        await asyncio.sleep(10)
+
 async def main_loop():
     print("[*] Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
     memory = AJAMemory()
@@ -18,6 +27,9 @@ async def main_loop():
     from agentx.autonomy.intent_engine import intent_engine
     intent_engine.start()
     print("[*] Intent Engine started.")
+    
+    # Start the async background heartbeat task
+    heartbeat_task = asyncio.create_task(publish_heartbeats(memory, worker_id))
     
     # 2. Setup telemetry (LanceDB backed)
     # lancedb_logger initializes via singleton on import.
@@ -29,9 +41,6 @@ async def main_loop():
     
     while True:
         try:
-            # Publish Heartbeat
-            memory.publish_heartbeat(worker_id, name="AJA Worker")
-            
             active_goals = goal_engine.get_active_goals()
             # if not active_goals:
             #     # Part C - Self-Practice Loop
@@ -46,9 +55,9 @@ async def main_loop():
             #         # Part F - Safe Sandbox Only
             #         goal_engine.add_goal(f"SANDBOX TRAINING: {obj}", priority=0, is_sandbox=True)
             #         print(f"[AutonomousLoop] Added training task: {obj}")
-
-            # 4. Run next step in the goal queue
-            goal_engine.run_step()
+ 
+            # 4. Run next step in the goal queue in a separate worker thread
+            await asyncio.to_thread(goal_engine.run_step)
             
             # 5. Sleep / Cooldown
             await asyncio.sleep(2) # 2 second tick rate
@@ -56,6 +65,7 @@ async def main_loop():
         except KeyboardInterrupt:
             print("[!] Autonomous loop stopped by user.")
             intent_engine.stop()
+            heartbeat_task.cancel()
             break
         except Exception as e:
             print(f"[!] Error in autonomous loop: {e}")

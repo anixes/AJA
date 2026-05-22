@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List
-from agentx.orchestration.gateway import LLMGateway
+from agentx.llm import get_gateway
 
 logger = logging.getLogger("agent.decision")
 
@@ -41,7 +41,7 @@ class DecisionEngine:
 
     def __init__(self):
         try:
-            self.gateway = LLMGateway()
+            self.gateway = get_gateway()
         except Exception:
             self.gateway = None
 
@@ -49,7 +49,7 @@ class DecisionEngine:
         """
         Decide the execution path based on objective and context.
         """
-        if not self.gateway or not self.gateway.api_key:
+        if not self.gateway or (not self.gateway.api_key and self.gateway.provider != "llama_cpp"):
             logger.warning("No LLM gateway available. Falling back to NEW.")
             return {"type": "NEW", "confidence": 1.0, "reason": "No LLM gateway configured."}
 

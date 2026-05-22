@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List
 from agentx.config import PROJECT_ROOT
-from agentx.orchestration.gateway import LLMGateway
+from agentx.llm import get_gateway
 from agentx.skills.skill_store import SkillStore
 
 logger = logging.getLogger("agent.autonomy.reflection")
@@ -14,7 +14,7 @@ class ReflectionEngine:
     Analyzes completed tasks to extract reusable skills.
     """
     def __init__(self):
-        self.gateway = LLMGateway()
+        self.gateway = get_gateway()
         self.skill_store = SkillStore()
         self.baton_dir = PROJECT_ROOT / ".agentx" / "batons"
 

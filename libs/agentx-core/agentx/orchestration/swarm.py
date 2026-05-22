@@ -43,17 +43,26 @@ def read_baton(path: Path):
     if agentx_native and str(path).endswith(".arrow"):
         return json.loads(agentx_native.read_baton_ipc(str(path)))
     else:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
 class SwarmEngine:
     """
     Unified Swarm Engine for AgentX.
     Orchestrates workers, manages batons, and enforces Phase 6 verification logic.
     """
-    def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3"):
-        self.gateway = LLMGateway(provider=provider, api_key=key)
-        self.model = model
-        self.provider = provider
+    def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3", dry_run: bool = False):
+        import os
+        from agentx.config import AGENTX_PLANNER_MODEL
+        
+        self.provider = provider if provider != "nvidia" else os.getenv("AI_PROVIDER", "google")
+        self.api_key = key if key != "dummy" else (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "dummy")
+        self.model = model if model != "llama-3" else (AGENTX_PLANNER_MODEL or "google:gemini-2.0-flash")
+        self.dry_run = dry_run
+
+        from agentx.llm import get_gateway_for_model
+        model_query = f"{self.provider}:{self.model}" if ":" not in self.model else self.model
+        self.gateway, self.model = get_gateway_for_model(model_query)
+        self.provider = self.gateway.provider
         self.workers = {}
         self.registry = WorkerRegistry()
         # Using the unified BatonManager location
@@ -163,16 +172,54 @@ class SwarmEngine:
             "Return a JSON list with 'id', 'task', and 'suggested_commands'."
         )
         
-        plan_str = await self.gateway.chat(model=self.model, prompt=planning_prompt)
+        try:
+            plan_str = await self.gateway.chat(model=self.model, prompt=planning_prompt)
+        except Exception as e:
+            if self.dry_run:
+                print(f"[DRY-RUN] LLM Planning failed or is unauthenticated ({e}). Simulating a default safe plan.")
+                plan_str = json.dumps([
+                    {"id": 1, "task": f"Mock analysis: {objective}", "suggested_commands": ["grep -rn \"TODO\" ."]}
+                ])
+            else:
+                raise e
+
+        if not plan_str:
+            if self.dry_run:
+                print("[DRY-RUN] LLM returned empty plan. Simulating a default safe plan.")
+                plan_str = json.dumps([
+                    {"id": 1, "task": f"Mock analysis: {objective}", "suggested_commands": ["grep -rn \"TODO\" ."]}
+                ])
+            else:
+                plan_str = ""
         
         # ── Power 2: Autonomous Tool Loop ──
-        from agentx.orchestration.tools.executor import ToolExecutor
-        executor = ToolExecutor()
-        
-        # Parse suggested commands from the planning stage
-        tool_results = executor.parse_and_run(plan_str)
-        if tool_results:
-            print(f"🔧 Executed {len(tool_results)} autonomous prep-tools.")
+        if self.dry_run:
+            print("[DRY-RUN] Simulating tool planning and verification. No physical system changes will be made.")
+            commands = []
+            if "```bash" in plan_str:
+                parts = plan_str.split("```bash")
+                for part in parts[1:]:
+                    cmd = part.split("```")[0].strip()
+                    if cmd:
+                        commands.append(cmd)
+            elif "```sh" in plan_str:
+                parts = plan_str.split("```sh")
+                for part in parts[1:]:
+                    cmd = part.split("```")[0].strip()
+                    if cmd:
+                        commands.append(cmd)
+            for cmd in commands:
+                from agentx.security.command_guard import classify_command
+                classification = classify_command(cmd)
+                print(f"[DRY-RUN SIMULATION] Auditing command: '{cmd}' | Safety: {classification['decision'].upper()} (Risk: {classification['risk_level']})")
+            tool_results = []
+        else:
+            from agentx.orchestration.tools.executor import ToolExecutor
+            executor = ToolExecutor()
+            # Parse suggested commands from the planning stage
+            tool_results = executor.parse_and_run(plan_str)
+            if tool_results:
+                print(f"🔧 Executed {len(tool_results)} autonomous prep-tools.")
 
         try:
             plan_str = plan_str.strip().replace("```json", "").replace("```", "")
@@ -222,6 +269,20 @@ class SwarmEngine:
         baton_data["stage"] = "dispatching"
         append_baton_history(baton_data, "dispatching", f"Agent worker dispatched to {baton_path.name}")
         write_baton(baton_path, baton_data)
+
+        if self.dry_run:
+            print(f"  [DRY-RUN SIMULATION] Simulating worker execution for baton: '{baton_path.name}'")
+            latency = 0.05
+            baton_data = read_baton(baton_path)
+            baton_data["worker_stdout"] = f"[DRY-RUN MOCK STDOUT] Swarm worker successfully processed objective: {baton_data['objective']}"
+            baton_data["worker_stderr"] = ""
+            baton_data["status"] = "completed"
+            baton_data["stage"] = "done"
+            append_baton_history(baton_data, "done", "[DRY-RUN] Simulated worker completed successfully.")
+            telemetry = get_resource_telemetry()
+            self.registry.update_metrics(baton_data.get("delegated_worker", "unknown"), True, latency, telemetry)
+            write_baton(baton_path, baton_data)
+            return baton_data
 
         start_time = time.time()
         process = subprocess.run(
@@ -275,6 +336,7 @@ if __name__ == "__main__":
     parser.add_argument("--providers", type=str, default="nvidia,groq", help="Comma-separated providers (for parallel)")
     parser.add_argument("--worker", type=str, help="Assigned worker ID", default="swarm-maintenance")
     parser.add_argument("--run-id", type=str, help="Run ID for idempotency")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate execution without real system changes")
     args = parser.parse_args()
 
     task_input = args.task or args.objective
@@ -283,7 +345,7 @@ if __name__ == "__main__":
     key = os.getenv("AI_KEY", "dummy")
     model = os.getenv("AI_MODEL", "llama-3")
 
-    engine = SwarmEngine(provider, key, model)
+    engine = SwarmEngine(provider, key, model, dry_run=args.dry_run)
 
     if args.mode == "background":
         engine.deploy_background_swarm()

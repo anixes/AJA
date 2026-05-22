@@ -1,4 +1,5 @@
 import os
+import pyarrow as pa
 import pyarrow.compute as pc
 from datetime import datetime, timezone, timedelta
 from agentx.memory.manager import MemoryManager, get_memory_manager
@@ -32,12 +33,12 @@ def get_system_state() -> dict:
         arrow = tasks_table.to_arrow()
         if len(arrow) > 0:
             status_col = arrow["status"]
-            state["active_tasks"] = pc.sum(pc.equal(status_col, "RUNNING")).as_py() or 0
+            state["active_tasks"] = pc.sum(pc.cast(pc.equal(status_col, "RUNNING"), pa.int64())).as_py() or 0
             state["pending_tasks"] = (
-                pc.sum(pc.equal(status_col, "PENDING")).as_py() or 0
+                pc.sum(pc.cast(pc.equal(status_col, "PENDING"), pa.int64())).as_py() or 0
             )
-            state["failed_tasks"] = pc.sum(pc.equal(status_col, "FAILED")).as_py() or 0
-            stalled = pc.sum(pc.equal(status_col, "FAILED_PERMANENT")).as_py() or 0
+            state["failed_tasks"] = pc.sum(pc.cast(pc.equal(status_col, "FAILED"), pa.int64())).as_py() or 0
+            stalled = pc.sum(pc.cast(pc.equal(status_col, "FAILED_PERMANENT"), pa.int64())).as_py() or 0
             state["stalled_tasks_exist"] = stalled > 0
 
         # ── Trigger count ────────────────────────────────────────────────────

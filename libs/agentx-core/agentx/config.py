@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from agentx.config_schema import AgentXConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,16 +32,31 @@ def find_project_root():
 PROJECT_ROOT = find_project_root()
 AGENTX_DIVERSITY_BETA = True
 
+# Load and validate configuration with Pydantic
+def load_and_validate_config() -> AgentXConfig:
+    config_path = PROJECT_ROOT / "agentx.json"
+    if config_path.exists():
+        try:
+            with config_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            return AgentXConfig.model_validate(data)
+        except Exception as e:
+            logger.error("Configuration validation failed for %s: %s", config_path, e)
+            print(f"\n[red]Configuration Validation Error:[/] Malformed config in {config_path}")
+            print(f"[red]{e}[/]\n")
+            return AgentXConfig()
+    return AgentXConfig()
+
+# Loaded configuration object
+CONFIG = load_and_validate_config()
+
 # Model Selection
 def _get_default_model(key, default):
     try:
-        config_path = PROJECT_ROOT / "agentx.json"
-        if config_path.exists():
-            with config_path.open("r", encoding="utf-8") as f:
-                cfg = json.load(f)
-                return cfg.get("swarm_settings", {}).get("models", {}).get(key, default)
+        val = getattr(CONFIG.swarm_settings.models, key, default)
+        return val if val else default
     except Exception:
-        logger.exception("Failed to load model default %s from %s", key, PROJECT_ROOT / "agentx.json")
+        logger.exception("Failed to load model default %s", key)
     return default
 
 AGENTX_PLANNER_MODEL = os.getenv("AGENTX_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash"))

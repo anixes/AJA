@@ -39,7 +39,10 @@ def test_baton_mmap_serialization(tmp_path):
         assert batch.column(0)[0].as_py() == objective
         assert batch.column(1)[0].as_py() == state["run_id"]
         assert json.loads(batch.column(2)[0].as_py()) == state["history"]
-        assert json.loads(batch.column(3)[0].as_py()) == state["metadata"]
+        meta = json.loads(batch.column(3)[0].as_py())
+        assert meta["source"] == state["metadata"]["source"]
+        assert meta["iterations"] == state["metadata"]["iterations"]
+        assert "trace_id" in meta
 
     # 4. Pickup using BatonManager (which uses memory_map)
     thawed = manager.pickup(code)
@@ -47,4 +50,6 @@ def test_baton_mmap_serialization(tmp_path):
     assert thawed["objective"] == objective
     assert thawed["run_id"] == state["run_id"]
     assert thawed["history"] == state["history"]
-    assert thawed["metadata"] == state["metadata"]
+    assert thawed["metadata"]["source"] == state["metadata"]["source"]
+    assert thawed["metadata"]["iterations"] == state["metadata"]["iterations"]
+    assert "trace_id" in thawed["metadata"]

@@ -159,7 +159,7 @@ def classify_command(command: str) -> Dict[str, Any]:
         level = "LOW"
         reasons = []
 
-    return {
+    res = {
         "decision": decision,
         "level": level,
         "risk_level": level,
@@ -171,6 +171,15 @@ def classify_command(command: str) -> Dict[str, Any]:
         "analysis": analysis,
         "stripper_report": analysis,
     }
+
+    try:
+        from agentx.observability.telemetry import log_security_event
+        log_security_event(command, res)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("Telemetry log failed during command audit: %s", e)
+
+    return res
 
 
 def command_allowed(command: str) -> bool:

@@ -119,3 +119,53 @@ def test_send_message_handles_reply_markup_once():
     assert result == {"ok": True}
     assert sent.get("reply_markup") == "rm"
     assert adapter.metrics["messages_sent"] == 1
+
+
+def test_command_and_text_message_routing_to_queue():
+    from telegram import User, Chat
+    from telegram.constants import ChatType
+
+    adapter = TelegramAdapter({"token": "test-token"})
+
+    # Mock python-telegram-bot structures
+    user = User(id=123, first_name="TestUser", is_bot=False)
+    chat = Chat(id=456, type=ChatType.PRIVATE)
+    
+    # Mock the Update object
+    class FakeMessage:
+        def __init__(self, text, message_id):
+            self.text = text
+            self.chat_id = 456
+            self.from_user = user
+            self.message_id = message_id
+
+    class FakeUpdate:
+        def __init__(self, text, message_id):
+            self.message = FakeMessage(text, message_id)
+            self.callback_query = None
+
+    import asyncio
+
+    # Send a plain text message
+    update_text = FakeUpdate("Hello there", 1)
+    asyncio.run(adapter._handle_text_message(update_text, None))
+
+    # Send a command message (starts with slash)
+    update_cmd = FakeUpdate("/run do something", 2)
+    asyncio.run(adapter._handle_text_message(update_cmd, None))
+
+    # Dequeue and verify
+    assert adapter._queue.qsize() == 2
+    
+    # Verify the plain text message
+    event1 = asyncio.run(adapter._queue.get())
+    assert event1.text == "Hello there"
+    assert event1.user_id == "123"
+    assert event1.chat_id == "456"
+
+    # Verify the command message
+    event2 = asyncio.run(adapter._queue.get())
+    assert event2.text == "/run do something"
+    assert event2.user_id == "123"
+    assert event2.chat_id == "456"
+

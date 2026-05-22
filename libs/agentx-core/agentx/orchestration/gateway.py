@@ -5,7 +5,7 @@ import asyncio
 import aiohttp
 from pathlib import Path
 from openai import AsyncOpenAI
-from typing import Optional
+from typing import Optional, Any, List, Dict
 
 
 def find_project_root() -> Path:
@@ -111,42 +111,54 @@ class LLMGateway:
                 f"Unknown provider '{self.provider}'. Please provide a base_url for custom endpoints."
             )
 
-        self.client = None
-        if self.provider != "google":
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                default_headers={
-                    "HTTP-Referer": "https://github.com/agentx",
-                    "X-Title": "AgentX Swarm Toolkit",
-                },
-            )
-
-    async def complete(self, system: str, user: str, model: str = None, retries: int = 3):
+    async def complete(self, system: str, user: str, model: str = None, retries: int = 3, temperature: Optional[float] = None):
         """
         Convenience method for deterministic completions.
         """
         if model is None:
             model = "gemini-2.5-flash"
 
-        return await self.chat(model=model, prompt=user, system=system, retries=retries)
+        return await self.chat(model=model, prompt=user, system=system, retries=retries, temperature=temperature)
 
     async def chat(
-        self, model: str, prompt: str, system: str = "You are a helpful assistant.", retries: int = 3
+        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None
     ):
         """Simple chat completion with backoff retries."""
         for attempt in range(1, retries + 1):
             try:
                 if self.provider == "google":
-                    return await self._google_generate_content(model, prompt, system)
+                    return await self._google_generate_content(model, prompt, system, temperature)
 
-                response = await self.client.chat.completions.create(
-                    model=model,
-                    messages=[
+                if isinstance(prompt, list):
+                    prompt_messages = []
+                    for m in prompt:
+                        prompt_messages.append({
+                            "role": m.get("role", "user"),
+                            "content": m.get("content", m.get("text", ""))
+                        })
+                    messages = [{"role": "system", "content": system}] + prompt_messages
+                else:
+                    messages = [
                         {"role": "system", "content": system},
                         {"role": "user", "content": prompt},
-                    ],
-                )
+                    ]
+
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                }
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+
+                async with AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    default_headers={
+                        "HTTP-Referer": "https://github.com/agentx",
+                        "X-Title": "AgentX Swarm Toolkit",
+                    },
+                ) as client:
+                    response = await client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content
             except Exception as e:
                 print(f"[Gateway] Error on attempt {attempt}: {e}")
@@ -154,7 +166,7 @@ class LLMGateway:
                     return None
                 await asyncio.sleep(2 ** attempt)
 
-    async def _google_generate_content(self, model: str, prompt: str, system: str):
+    async def _google_generate_content(self, model: str, prompt: Any, system: str, temperature: Optional[float] = None):
         model_name = normalize_google_model(model)
         api_key = google_api_key(self.api_key)
         if not api_key:
@@ -166,17 +178,31 @@ class LLMGateway:
             base_url = base_url[:-7]
         url = f"{base_url}/models/{model_name}:generateContent?key={api_key}"
         
-        payload = {
-            "systemInstruction": {
-                "parts": [{"text": system or "You are a helpful assistant."}]
-            },
-            "contents": [
+        if isinstance(prompt, list):
+            contents = []
+            for m in prompt:
+                role = "user" if m.get("role") == "user" else "model"
+                text = m.get("content", m.get("text", ""))
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": text}],
+                })
+        else:
+            contents = [
                 {
                     "role": "user",
                     "parts": [{"text": prompt}],
                 }
-            ],
+            ]
+
+        payload = {
+            "systemInstruction": {
+                "parts": [{"text": system or "You are a helpful assistant."}]
+            },
+            "contents": contents,
         }
+        if temperature is not None:
+            payload["generationConfig"] = {"temperature": temperature}
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -201,8 +227,16 @@ class LLMGateway:
             return []
 
         try:
-            response = await self.client.embeddings.create(input=text, model=model)
-            return response.data[0].embedding
+            async with AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/agentx",
+                    "X-Title": "AgentX Swarm Toolkit",
+                },
+            ) as client:
+                response = await client.embeddings.create(input=text, model=model)
+                return response.data[0].embedding
         except Exception as e:
             print(f"[Gateway] Embedding Error: {e}")
             return []

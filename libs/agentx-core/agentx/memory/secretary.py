@@ -231,7 +231,7 @@ class AJAMemory:
 
     def get_active_workers(self, timeout_seconds: int = 30):
         table = self.db.open_table("aja_workers")
-        workers = table.to_list()
+        workers = table.search().to_list()
         active = []
         now = datetime.now(timezone.utc)
         for w in workers:

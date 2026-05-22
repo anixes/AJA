@@ -36,7 +36,10 @@ async def work(baton_path: str):
         print(f"Error: Baton file {baton_path} not found.")
         return
 
-    baton = json.loads(path.read_text())
+    if agentx_native and str(path).endswith(".arrow"):
+        baton = json.loads(agentx_native.read_baton_ipc(str(path)))
+    else:
+        baton = json.loads(path.read_text(encoding="utf-8"))
     print(f"Worker {baton['id']} started. Task: {baton['task']}")
 
     from agentx.orchestration.adapters import dispatch_worker

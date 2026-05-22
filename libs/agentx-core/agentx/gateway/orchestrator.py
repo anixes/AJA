@@ -78,7 +78,9 @@ class UnifiedGateway:
             },
         }
 
-    async def chat(self, user_input: str) -> str:
+    async def chat(
+        self, user_input: str, chat_history: Optional[List[Dict[str, Any]]] = None
+    ) -> str:
         """
         Main AgentX reasoning entry point.
         Implements Trajectory Compression to maintain performance.
@@ -87,14 +89,30 @@ class UnifiedGateway:
         self.memory.add_activity(user_input, {"role": "user", "model": self.model_id})
 
         # 2. Native Context Optimization (AgentX Native Core)
-        history = self.memory.get_recent_history(limit=50)
-        messages = [
-            {
-                "role": "user" if h["type"] == "activity" else "assistant",
-                "content": h["content"],
-            }
-            for h in history
-        ]
+        if chat_history is not None:
+            messages = []
+            for h in chat_history:
+                role = h.get("role", "user")
+                # Handle different key names: "content" or "text"
+                content = h.get("content", h.get("text", ""))
+                messages.append({
+                    "role": role,
+                    "content": content,
+                })
+            # Ensure the latest user_input is also included if not already at the end
+            if not messages or messages[-1]["content"] != user_input or messages[-1]["role"] != "user":
+                messages.append({"role": "user", "content": user_input})
+        else:
+            history = self.memory.get_recent_history(limit=50)
+            # Sort history chronologically (oldest first, newest last)
+            history_sorted = sorted(history, key=lambda h: h["timestamp"])
+            messages = [
+                {
+                    "role": "user" if h["type"] == "activity" else "assistant",
+                    "content": h["content"],
+                }
+                for h in history_sorted
+            ]
 
         # Analyze trajectory with Rust core
         analysis_json = self.trajectory_manager.analyze(
@@ -113,10 +131,14 @@ class UnifiedGateway:
         # 3. Perform the actual chat call
         # AJA persona is used for the conversational layer
         response_text = completion(
-            prompt=user_input,
+            prompt=messages,
             system_prompt=(
-                "You are AJA (Assistant of Joint Agents), a premium natural-language secretary powered by the AgentX orchestration core. "
-                "Your role is to plan missions, manage obligations, and coordinate the AgentX swarm. "
+                "You are AJA (Assistant of Joint Agents), a highly capable, premium hacker-butler and personal secretary "
+                "powered by the AgentX orchestration core. Your role is to plan missions, manage obligations, "
+                "and organize the AgentX swarm. Adopt a tone that is exceptionally helpful, polite, deeply loyal, and refined "
+                "(using polite address like 'Sir', 'My friend', 'Operator', or 'Indeed'), while remaining casual, "
+                "highly developer-fluent, concise, and possessing a sharp, 'hacker-elite' conversational intelligence. "
+                "Always present clean briefs, summarize tasks, manage meetings/obligations, and coordinate swarms proactively. "
                 f"Context length analysis: {analysis_json}"
             ),
             model=self.model_id,
@@ -206,10 +228,23 @@ class UnifiedGateway:
 
         self.telegram_adapter = TelegramAdapter(token)
         print("AJA Gateway: Initializing Telegram connection...")
-        await self.telegram_adapter.start(self)
+        try:
+            await self.telegram_adapter.start(self)
+        except Exception as e:
+            logger.exception("Failed to start Telegram adapter: %s", e)
+            print(f"[-] AJA Gateway Error: Failed to start Telegram adapter: {e}")
+            return
 
-        async for event in self.telegram_adapter.poll():
-            await self.handle_gateway_event(event)
+        try:
+            async for event in self.telegram_adapter.poll():
+                try:
+                    await self.handle_gateway_event(event)
+                except Exception as e:
+                    logger.exception("Error processing Telegram event: %s", e)
+                    print(f"[-] AJA Gateway Error: Exception handling event: {e}")
+        except Exception as e:
+            logger.exception("Telegram polling loop crashed: %s", e)
+            print(f"[-] AJA Gateway Error: Telegram polling crashed: {e}")
 
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
@@ -269,20 +304,50 @@ class UnifiedGateway:
 
         # 3. AJA Reasoning
         # 2.5 Worker Health Check
-        active_workers = self.aja_memory.get_active_workers()
+        active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
         if not active_workers and content.lower() != "status":
             await self.telegram_adapter.send_message(
                 chat_id, 
                 "⚠️ **AJA Warning**: The Terminal Worker appears to be offline. I can chat, but I won't be able to execute terminal missions until it is restarted."
             )
         
+        # Parse /swarm override
+        force_swarm = False
+        content_stripped = content.strip()
+        content_lower = content_stripped.lower()
+        if content_lower.startswith("/swarm"):
+            force_swarm = True
+            content_stripped = content_stripped[6:].strip()
+        elif content_lower.endswith("/swarm"):
+            force_swarm = True
+            content_stripped = content_stripped[:-6].strip()
+            
+        if not content_stripped:
+            content_stripped = content
+            
         # 3. Hybrid Intent Routing
-        intent = await self.route_intent(content)
+        if force_swarm:
+            intent = "MISSION"
+        else:
+            intent = await self.route_intent(content_stripped)
         
         if intent == "MISSION":
             # Deploy to Terminal Worker via LanceDB Mission Hub
-            mission = self.aja_memory.create_mission(content)
-            response = f"Mission Accepted ({mission['mission_id']}). I'm deploying a worker to the terminal to handle this: '{content}'. I'll live-report any progress here."
+            actual_goal = content_stripped if force_swarm else content
+            mission = self.aja_memory.create_mission(actual_goal)
+            
+            if force_swarm:
+                self.aja_memory.update_mission(
+                    mission["mission_id"],
+                    {"metadata_json": json.dumps({"force_swarm": True})}
+                )
+                response = (
+                    f"🚀 **AJA Swarm Mode Activated** ({mission['mission_id']}). "
+                    f"I'm bypassing low-complexity paths and safe overrides to deploy the full **Planner-Worker-Critic swarm** for this task: '{actual_goal}'. "
+                    f"Deploying terminal workers now..."
+                )
+            else:
+                response = f"Mission Accepted ({mission['mission_id']}). I'm deploying a worker to the terminal to handle this: '{actual_goal}'. I'll live-report any progress here."
             
             # Start telemetry bridge for this chat
             if chat_id not in self.active_telemetry_bridges:
@@ -303,7 +368,7 @@ class UnifiedGateway:
             response = status_report
         else:
             # Simple Chat Reasoning
-            response = await self.chat(content)
+            response = await self.chat(content_stripped, chat_history=session["history"])
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
@@ -339,23 +404,33 @@ class UnifiedGateway:
         """
         user_input_lower = user_input.lower().strip()
         
+        # If input has /swarm tag, it's definitely a mission
+        if "/swarm" in user_input_lower:
+            return "MISSION"
+        
         # --- TIER 1: Deterministic Parsing ---
         # Exact command matches
         if user_input_lower in ["status", "/status", "health", "are you alive"]:
             return "STATUS"
+        if user_input_lower in ["dir", "ls"]:
+            return "MISSION"
             
         # Slash commands
         if user_input_lower.startswith("/"):
             cmd = user_input_lower.split()[0]
             if cmd in ["/status", "/doctor", "/live", "/kanban"]:
                 return "STATUS"
-            elif cmd in ["/run", "/todo", "/doing", "/done", "/failed", "/rmtask"]:
+            elif cmd in ["/run", "/todo", "/doing", "/done", "/failed", "/rmtask", "/swarm"]:
                 return "MISSION"
             else:
                 return "CHAT"
                 
         # Strict prefix command checks
-        mission_prefixes = ["run ", "execute ", "install ", "scrape ", "audit "]
+        mission_prefixes = [
+            "run ", "execute ", "install ", "scrape ", "audit ",
+            "go ", "open ", "show ", "list ", "navigate ", "find ", "read ",
+            "dir ", "ls "
+        ]
         for prefix in mission_prefixes:
             if user_input_lower.startswith(prefix):
                 return "MISSION"
