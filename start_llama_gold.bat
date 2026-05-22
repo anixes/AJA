@@ -11,7 +11,7 @@ if exist "%~dp0.env" (
 )
 
 :: Set defaults if not provided in .env
-if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=C:\Users\Asus\.gemini\antigravity\scratch\llama-bin\llama-server.exe"
+if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=%USERPROFILE%\.gemini\antigravity\scratch\llama-bin\llama-server.exe"
 if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=E:\llama_models\gemma-4-E2B-it-Q4_K_M.gguf"
 
 echo [GOLD] Optimizing GPU clocks (if available)...
