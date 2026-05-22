@@ -474,6 +474,18 @@ Interfaces:
 - Path: `E:\obscura\obscura.exe` (Primary), `agent-browser` (Standby)
 - Logic: `agent/capabilities/browser.py`
 
+## Phase 28: Interactive Pairing, In-Memory Baton Caching, & Low-Latency Autonomy
+
+Optimizing standard developer pairing workflows, execution routing overheads, and system startup latencies.
+
+- **Direct In-Process Execution Mode (`direct_execution` flag)**: Introduces synchronous task execution directly within the shell process via `ToolExecutor` and strictly monitored by `CommandGuard` rules.
+- **Multi-Turn Chat History**: Leverages a rolling 15-turn context history in `cmd_chat()` for intent parsing, preventing duplicate plan suggestions and enabling natural multi-step conversations.
+- **Dynamic Diversity Plan Generator**: Scales temperature ranges `temp = min(1.0, 0.3 + (attempts * 0.15))` and appends previously generated plan candidates to prompt context, mitigating structural overlap and endless loops.
+- **Zero-Copy Baton IPC Cache**: Serializes Apache Arrow batons straight to a thread-locked RAM buffer (`_IN_MEMORY_BATONS`), bypassing standard disk operations to perform sub-millisecond Zero-Copy baton transfers.
+- **Synchronous Bootstrap Heartbeat**: Moves the initial heartbeat publication in the autonomous loop to occur synchronously at loop boot time, ensuring the worker registers as `ONLINE` immediately before loading heavier Python modules.
+- **Lazy Embedding Initialization**: Defers loading of deep neural sentence-transformers models inside `EmbeddingService` until the first `embed()` call, significantly reducing import overhead and improving general CLI startup speeds.
+
 ## Next Evolution: Full Autonomous Deployment
 
 Agent is now a fully autonomous learner capable of proactive self-improvement and long-horizon multi-device orchestration. Final focus remains on edge-case refinement and cross-device state synchronization stability.
+

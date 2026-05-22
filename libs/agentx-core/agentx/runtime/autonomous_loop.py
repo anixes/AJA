@@ -23,13 +23,22 @@ async def main_loop():
     memory = AJAMemory()
     worker_id = "local-terminal-worker"
     
+    # Publish initial heartbeat synchronously to mark worker ONLINE immediately
+    try:
+        memory.publish_heartbeat(worker_id, name="AJA Worker")
+        print("[*] Initial heartbeat published.")
+    except Exception as e:
+        print(f"[!] Initial heartbeat publish error: {e}")
+        
+    # Start the async background heartbeat task
+    heartbeat_task = asyncio.create_task(publish_heartbeats(memory, worker_id))
+    # Yield control briefly to let the task initialize in the event loop
+    await asyncio.sleep(0.1)
+    
     # 1. Start the Intent Engine (runs in a background thread)
     from agentx.autonomy.intent_engine import intent_engine
     intent_engine.start()
     print("[*] Intent Engine started.")
-    
-    # Start the async background heartbeat task
-    heartbeat_task = asyncio.create_task(publish_heartbeats(memory, worker_id))
     
     # 2. Setup telemetry (LanceDB backed)
     # lancedb_logger initializes via singleton on import.

@@ -105,15 +105,19 @@ def cmd_pickup(code: str):
     state = mgr.pickup(code)
 
     if not state:
-        print_error(f"Failed to pick up baton: {code}. It may have expired or does not exist.")
+        print_error(
+            f"Failed to pick up baton: {code}. It may have expired or does not exist."
+        )
         return
 
     print_success(f"Baton verified. Resuming objective: {state['objective']}")
-    
+
     # In a real swarm, this would re-initialize the engine with the picked-up state
     engine = SwarmEngine()
     # For now, we simulate the resumption
-    console.print(f"[bold cyan]AJA:[/] Resuming mission logic for: [italic]{state['objective']}[/italic]")
+    console.print(
+        f"[bold cyan]AJA:[/] Resuming mission logic for: [italic]{state['objective']}[/italic]"
+    )
     # asyncio.run(engine.resume_from_state(state))
 
 
@@ -160,6 +164,104 @@ def cmd_status():
         pass
 
     print_status(mode, batons, tasks)
+
+
+def run_gpu_check():
+    """
+    Check active GPU diagnostics using nvidia-smi, falling back to CPU/RAM/Disk resources.
+    """
+    console.print("\n Telemetry & Hardware Diagnostics")
+    try:
+        # Try running nvidia-smi
+        res = subprocess.run(["nvidia-smi"], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            console.print("[green]Active GPU Diagnostics (nvidia-smi):[/]")
+            console.print(res.stdout)
+            return
+    except Exception:
+        pass
+
+    # Fallback to general system resource diagnostics
+    console.print(
+        "[yellow]⚠ Specialized GPU diagnostics (nvidia-smi) unavailable or not found.[/]"
+    )
+    console.print("[bold cyan]System Resources Fallback Diagnostics:[/]")
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+
+    if psutil is not None:
+        try:
+            cpu_count = psutil.cpu_count(logical=True)
+            cpu_percent = psutil.cpu_percent(interval=0.5)
+            ram = psutil.virtual_memory()
+            total_ram_gb = ram.total / (1024**3)
+            used_ram_gb = ram.used / (1024**3)
+            free_ram_gb = ram.available / (1024**3)
+            import shutil
+
+            disk = shutil.disk_usage(str(PROJECT_ROOT))
+            free_disk_gb = disk.free / (1024**3)
+            total_disk_gb = disk.total / (1024**3)
+
+            console.print(
+                f"  [bold]Logical CPUs:[/] {cpu_count} (Current Usage: {cpu_percent}%)"
+            )
+            console.print(
+                f"  [bold]System Memory (RAM):[/] {used_ram_gb:.1f} GB used / {total_ram_gb:.1f} GB total ({free_ram_gb:.1f} GB free)"
+            )
+            console.print(
+                f"  [bold]Disk Space:[/] {free_disk_gb:.1f} GB free / {total_disk_gb:.1f} GB total"
+            )
+        except Exception as e:
+            console.print(f"[red]Error querying psutil metrics: {e}[/]")
+    else:
+        cpu_count = os.cpu_count() or 1
+        import shutil
+
+        try:
+            disk = shutil.disk_usage(str(PROJECT_ROOT))
+            free_disk_gb = disk.free / (1024**3)
+            total_disk_gb = disk.total / (1024**3)
+            console.print(f"  [bold]Logical CPUs:[/] {cpu_count}")
+            console.print(
+                f"  [bold]System Memory (RAM):[/] N/A (psutil module missing)"
+            )
+            console.print(
+                f"  [bold]Disk Space:[/] {free_disk_gb:.1f} GB free / {total_disk_gb:.1f} GB total"
+            )
+        except Exception as e:
+            console.print(f"[red]Error querying system resources: {e}[/]")
+    console.print("[bold cyan]───────────────────────────────────────[/]\n")
+
+
+def run_logs_check():
+    """
+    Tail the last 15 lines of aja_output.log, autonomous_loop.log, and gateway.log.
+    """
+    log_files = ["aja_output.log", "autonomous_loop.log", "gateway.log"]
+    console.print("\n Active Swarm & Gateway Logs (Last 15 Lines)")
+
+    for filename in log_files:
+        path = PROJECT_ROOT / filename
+        console.print(f"\n📖 Log file: {filename}")
+        if not path.exists():
+            console.print("  (File does not exist yet or has no entries)")
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            if not lines:
+                console.print("  ](Log is empty)")
+                continue
+            tail = lines[-15:]
+            for line in tail:
+                console.print(line.rstrip())
+        except Exception as e:
+            console.print(f"  [red]Error reading log: {e}[/]")
+
+    console.print("──────────────────────────────────────────────────\n")
 
 
 def cmd_chat():
@@ -220,6 +322,7 @@ def cmd_chat():
 
     # Initialize Kanban Task Manager
     task_manager = TaskManager()
+    history = []
 
     while True:
         try:
@@ -308,7 +411,9 @@ def cmd_chat():
                     console.print("[yellow]Metrics TUI coming soon in Phase 12.[/]")
                     continue
                 elif cmd == "/mode":
-                    console.print(f"[bold cyan]AJA:[/] Current mode is set via agentx.json. Use '/mode <type>' (offline/online/hybrid). [dim](Manual switch coming soon)[/]")
+                    console.print(
+                        f"[bold cyan]AJA:[/] Current mode is set via agentx.json. Use '/mode <type>' (offline/online/hybrid). [dim](Manual switch coming soon)[/]"
+                    )
                     continue
                 elif cmd == "/run":
                     console.print(
@@ -325,9 +430,16 @@ def cmd_chat():
 
             with console.status("[bold cyan]AJA is thinking...[/]"):
                 state = get_system_state()
-                intent = parse_intent(user_input, [], system_state=state)
+                intent = parse_intent(user_input, history, system_state=state)
 
                 console.print(f"[bold cyan]AJA:[/] {intent['response']}")
+
+                # Update conversation history
+                history.append({"role": "user", "content": user_input})
+                history.append(
+                    {"role": "assistant", "content": intent.get("response", "")}
+                )
+                history = history[-15:]
 
                 if intent["type"] == "goal" and intent["goal"]:
                     if Confirm.ask(
@@ -340,6 +452,12 @@ def cmd_chat():
                     )
                     if intent["command"] == "status":
                         cmd_status()
+                    elif intent["command"] == "doctor":
+                        cmd_doctor()
+                    elif intent["command"] == "gpu":
+                        run_gpu_check()
+                    elif intent["command"] == "logs":
+                        run_logs_check()
 
         except KeyboardInterrupt:
             continue
@@ -356,18 +474,22 @@ def cmd_setup():
     """Guided onboarding setup wizard for AgentX."""
     from rich.panel import Panel
     from rich.prompt import Prompt, Confirm
-    
-    console.print(Panel(
-        "[bold cyan]Welcome to the AgentX Setup Wizard[/]\n\n"
-        "This tool will guide you through scaffolding directories, validating config keys, "
-        "and setting up your local database files to ensure enterprise-grade product readiness.",
-        title="AgentX Onboarding",
-        border_style="cyan"
-    ))
-    
+
+    console.print(
+        Panel(
+            "[bold cyan]Welcome to the AgentX Setup Wizard[/]\n\n"
+            "This tool will guide you through scaffolding directories, validating config keys, "
+            "and setting up your local database files to ensure enterprise-grade product readiness.",
+            title="AgentX Onboarding",
+            border_style="cyan",
+        )
+    )
+
     # Check if config already exists
     if CONFIG_PATH.exists():
-        recreate = Confirm.ask("[yellow]An agentx.json already exists. Re-configure?[/]", default=False)
+        recreate = Confirm.ask(
+            "[yellow]An agentx.json already exists. Re-configure?[/]", default=False
+        )
         if not recreate:
             print_info("Skipping configuration generation. Verifying directories...")
             # Still initialize folders
@@ -380,13 +502,13 @@ def cmd_setup():
 
     # Prompt for configuration values
     project_name = Prompt.ask("Enter Project Name", default="AgentX")
-    
+
     operating_mode = Prompt.ask(
         "Choose Operating Mode",
         choices=["offline", "online", "hybrid"],
-        default="offline"
+        default="offline",
     )
-    
+
     # Models defaults
     if operating_mode == "offline":
         planner_model = "llama_cpp:gemma"
@@ -396,24 +518,31 @@ def cmd_setup():
         planner_model = "google:gemini-2.0-flash"
         worker_model = "google:gemini-2.0-flash"
         critic_model = "google:gemini-2.0-flash"
-        
+
     planner = Prompt.ask("Planner Model", default=planner_model)
     worker = Prompt.ask("Worker Model", default=worker_model)
     critic = Prompt.ask("Critic Model", default=critic_model)
-    
+
     # Let's write API Keys to .env if needed
     if operating_mode in ("online", "hybrid"):
-        api_key = Prompt.ask("Enter GEMINI_API_KEY (leave empty to keep existing or skip)", password=True, default="")
+        api_key = Prompt.ask(
+            "Enter GEMINI_API_KEY (leave empty to keep existing or skip)",
+            password=True,
+            default="",
+        )
         if api_key:
             env_path = PROJECT_ROOT / ".env"
             existing_lines = []
             if env_path.exists():
                 existing_lines = env_path.read_text(encoding="utf-8").splitlines()
-            
+
             # Remove existing GEMINI_API_KEY / GOOGLE_API_KEY to avoid duplicates
             new_lines = []
             for line in existing_lines:
-                if not (line.startswith("GEMINI_API_KEY=") or line.startswith("GOOGLE_API_KEY=")):
+                if not (
+                    line.startswith("GEMINI_API_KEY=")
+                    or line.startswith("GOOGLE_API_KEY=")
+                ):
                     new_lines.append(line)
             new_lines.append(f"GEMINI_API_KEY={api_key}")
             new_lines.append(f"GOOGLE_API_KEY={api_key}")
@@ -427,36 +556,33 @@ def cmd_setup():
             {
                 "path": "apps/cli-ts",
                 "health_cmd": "node dist/cli.js",
-                "auto_heal": True
+                "auto_heal": True,
             },
             {
                 "path": "libs/agentx-core",
                 "health_cmd": "python -m agentx status",
-                "auto_heal": False
-            }
+                "auto_heal": False,
+            },
         ],
         "swarm_settings": {
             "offline_mode": operating_mode == "offline",
             "max_agents": 5,
             "check_interval": 30,
-            "models": {
-                "planner": planner,
-                "worker": worker,
-                "critic": critic
-            },
-            "operating_mode": operating_mode
-        }
+            "models": {"planner": planner, "worker": worker, "critic": critic},
+            "operating_mode": operating_mode,
+        },
     }
-    
+
     # Validate with Pydantic
     try:
         from agentx.config_schema import AgentXConfig
+
         AgentXConfig.model_validate(config_data)
-        
+
         # Write to file
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2)
-            
+
         print_success(f"Successfully generated and validated {CONFIG_PATH}")
     except Exception as e:
         print_error(f"Failed to validate generated configuration: {e}")
@@ -473,6 +599,7 @@ def cmd_setup():
 def cmd_doctor():
     """System health checks and diagnostics."""
     from agentx.utils.diagnostics import run_diagnostics
+
     checks = run_diagnostics()
     print_doctor(checks)
 
@@ -539,6 +666,7 @@ def main():
     elif cmd == "tui":
         dry_run = "--dry-run" in args
         from agentx.tui.curses_tui import run_curses_tui_main
+
         asyncio.run(run_curses_tui_main(dry_run=dry_run))
     elif cmd == "help" or cmd == "--help" or cmd == "-h":
         show_help()

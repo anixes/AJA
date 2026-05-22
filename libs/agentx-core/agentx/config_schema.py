@@ -17,6 +17,7 @@ class SwarmSettings(BaseModel):
     check_interval: int = Field(default=30, ge=1)
     models: SwarmModels = Field(default_factory=SwarmModels)
     operating_mode: str = "offline"
+    direct_execution: bool = True
 
     @field_validator("operating_mode")
     @classmethod

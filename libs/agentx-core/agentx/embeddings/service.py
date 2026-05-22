@@ -35,7 +35,10 @@ class EmbeddingService:
         `dim` is used primarily for the mock fallback if the model is missing.
         """
         self.dim = dim
-        self._load_model()
+
+    def embed_text(self, text: str) -> List[float]:
+        """Alias for compatibility with planning modules."""
+        return self.embed(text)
 
     def _load_model(self) -> None:
         global _SENTENCE_MODEL, _MODEL_LOADED
@@ -66,6 +69,8 @@ class EmbeddingService:
         """
         if not text or not text.strip():
             return [0.0] * self.dim
+
+        self._load_model()
 
         global _SENTENCE_MODEL
         if _SENTENCE_MODEL is not None:

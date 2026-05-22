@@ -6,6 +6,11 @@ from pathlib import Path
 
 from agentx.config import PROJECT_ROOT
 
+try:
+    import agentx_native
+except ImportError:
+    agentx_native = None
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()

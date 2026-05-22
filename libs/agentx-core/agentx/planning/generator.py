@@ -56,9 +56,31 @@ def generate_candidate_plans(goal: str, state: Dict, k: int, mode: str = "defaul
     attempts = 0
     while len(candidates) < k and attempts < k * 3:
         # Increase temperature slightly for subsequent attempts to ensure diversity
-        temp = 0.2 + (attempts * 0.15)
+        temp = min(1.0, 0.3 + (attempts * 0.15))
+        
+        # Build current history to supply already generated plans to LLM to prevent duplicates
+        current_history = list(history) if history else []
+        for c in candidates:
+            summary = " -> ".join([n.task for n in c.nodes])
+            current_history.append(summary)
+            
+        # Build configuration with diversity prompt bias and active temperature
+        current_config = dict(config) if config else {}
+        current_config["temperature"] = temp
+        if attempts > 0:
+            current_config["diversity_bias"] = (
+                "Ensure this plan uses a structurally and tactically different approach/different steps "
+                "than previously generated plans to explore alternative ways to achieve the goal."
+            )
+            
         try:
-            raw = temp_planner._call_llm(goal, retrieved_context=state.get("retrieved_context", ""), mode=mode, config=config, history=history)
+            raw = temp_planner._call_llm(
+                goal, 
+                retrieved_context=state.get("retrieved_context", ""), 
+                mode=mode, 
+                config=current_config, 
+                history=current_history
+            )
             if raw:
                 new_plan = temp_planner._parse_response(raw, goal)
                 

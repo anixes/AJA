@@ -396,7 +396,16 @@ class Planner:
                 
         config_text = ""
         if config:
-            config_text = f"\n\nGeneration Constraints: {config}"
+            constraints = []
+            for k, v in config.items():
+                if k == "temperature":
+                    continue
+                if k == "diversity_bias":
+                    constraints.append(f"DIVERSITY BIAS: {v}")
+                else:
+                    constraints.append(f"{k}: {v}")
+            if constraints:
+                config_text = "\n\nGeneration Constraints:\n" + "\n".join(f"- {c}" for c in constraints)
             
         kb_text = ""
         if hasattr(self, "knowledge_base") and self.knowledge_base:

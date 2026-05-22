@@ -211,11 +211,15 @@ class CronScheduler:
         })
         
         from agentx.orchestration.swarm import SwarmEngine
+        from agentx.config import CONFIG
         engine = SwarmEngine()
         
         try:
             # Enforce the 3-minute hard interrupt limit
-            await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=180.0)
+            if CONFIG.swarm_settings.direct_execution:
+                await asyncio.wait_for(engine.execute_direct(goal), timeout=180.0)
+            else:
+                await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=180.0)
             
             logger.info(f"Successfully completed scheduled task: '{goal}'")
             self.memory.add_runtime_event({

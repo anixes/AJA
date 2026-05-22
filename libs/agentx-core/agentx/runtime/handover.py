@@ -3,10 +3,15 @@ import logging
 import random
 import string
 import time
+import threading
 import agentx_native
 from pathlib import Path
 from typing import Dict, Any, Optional
 from agentx.config import PROJECT_ROOT
+
+_IN_MEMORY_BATONS = {}
+_BATON_LOCK = threading.Lock()
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,32 @@ class BatonManager(HandoverManager):
             logger.exception("Failed to write baton Arrow state to %s", arrow_path)
             raise RuntimeError(f"Failed to write baton Arrow state: {arrow_path}") from e
 
+        # Optimize Baton: Serialize to a pyarrow.Buffer and store in RAM cache
+        try:
+            import pyarrow as pa
+            schema = pa.schema([
+                ("objective", pa.string()),
+                ("run_id", pa.string()),
+                ("history_json", pa.string()),
+                ("metadata_json", pa.string()),
+            ])
+            batch = pa.RecordBatch.from_arrays([
+                pa.array([objective], type=pa.string()),
+                pa.array([run_id], type=pa.string()),
+                pa.array([json.dumps(history)], type=pa.string()),
+                pa.array([json.dumps(metadata)], type=pa.string()),
+            ], schema=schema)
+
+            sink = pa.BufferOutputStream()
+            with pa.ipc.new_file(sink, schema) as writer:
+                writer.write_batch(batch)
+            buffer = sink.getvalue()
+
+            with _BATON_LOCK:
+                _IN_MEMORY_BATONS[code] = buffer
+        except Exception as pyarrow_err:
+            logger.warning("Failed in-memory Arrow serialization: %s", pyarrow_err)
+
         baton_meta["arrow_ref"] = str(arrow_path)
 
         with baton_path.open("w", encoding="utf-8") as f:
@@ -80,6 +111,34 @@ class BatonManager(HandoverManager):
         Picks up a baton and 'thaws' the Arrow Table back into a state via memory-mapping.
         Leverages native memory mapping for extreme zero-copy read speed.
         """
+        # Check in-memory baton cache first for sub-millisecond zero-copy retrieval
+        buffer = None
+        with _BATON_LOCK:
+            buffer = _IN_MEMORY_BATONS.get(code)
+
+        if buffer is not None:
+            try:
+                import pyarrow as pa
+                state = {}
+                with pa.BufferReader(buffer) as source:
+                    reader = pa.ipc.open_file(source)
+                    batch = reader.read_all().to_batches()[0]
+                    state["objective"] = batch.column(0)[0].as_py()
+                    state["run_id"] = batch.column(1)[0].as_py()
+                    state["history"] = json.loads(batch.column(2)[0].as_py())
+                    state["metadata"] = json.loads(batch.column(3)[0].as_py())
+
+                # Thaw and restore trace_id from the loaded metadata
+                if "metadata" in state:
+                    trace_id = state["metadata"].get("trace_id")
+                    if trace_id:
+                        from agentx.observability.telemetry import set_trace_id
+                        set_trace_id(trace_id)
+
+                return state
+            except Exception as in_mem_err:
+                logger.warning("Failed in-memory baton read for code %s: %s", code, in_mem_err)
+
         baton_path = self.baton_dir / f"baton_{code}.json"
         if not baton_path.exists():
             return None
@@ -189,6 +248,15 @@ class BatonManager(HandoverManager):
             json.dump(meta, f)
         with open(arrow_path, "wb") as f:
             f.write(arrow_data)
+
+        # Cache in memory
+        try:
+            import pyarrow as pa
+            buffer = pa.py_buffer(arrow_data)
+            with _BATON_LOCK:
+                _IN_MEMORY_BATONS[code] = buffer
+        except Exception as e:
+            logger.warning("Failed to cache received baton in memory: %s", e)
             
         logger.info(f"Baton {code} received and persisted locally in {self.baton_dir}")
         return code

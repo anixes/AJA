@@ -69,6 +69,132 @@ class SwarmEngine:
         self.baton_dir = PROJECT_ROOT / ".agentx" / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
+    async def execute_direct(self, objective: str):
+        """
+        Direct Tooling and In-Process Execution (Interactive Pairing Assistant).
+        Executes commands synchronously in-process using ToolExecutor.
+        Bypasses planning graphs, Arrow batons, and subprocesses entirely.
+        """
+        from agentx.interface.modern import console
+        console.print(f"\n[bold cyan]🔧 [Direct Mode] Starting In-Process Execution for:[/] [italic]{objective}[/]")
+        
+        # 1. Initialize Direct Tool Executor
+        from agentx.orchestration.tools.executor import ToolExecutor
+        executor = ToolExecutor()
+        
+        # 2. Build AJA Assistant Prompt
+        system_prompt = (
+            "You are AJA (Assistant of Joint Agents), an elite hacker-butler, personal secretary, "
+            "and operator operating directly in-process on the user's terminal.\n"
+            "You have direct execution access to local filesystem and shell commands.\n"
+            "Your objective is to accomplish the user's task using direct tooling execution.\n\n"
+            "CONVERSATIONAL PERSONA:\n"
+            "- Speak like a premium hacker-butler. Be extremely polite, refined, loyal, wittingly concise, "
+            "and speak with absolute developer fluency (use terms like 'Sir', 'My friend', 'Operator').\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Output your thought process and suggest standard shell/terminal commands inside ```bash or ```sh blocks to run next.\n"
+            "2. If you suggest a command, it will be executed immediately, and the results (stdout, stderr) will be fed back to you.\n"
+            "3. If you have completed the task or no further commands are needed, write your final response/synthesis and do not output any more commands.\n"
+            "4. NEVER output raw forbidden words or reference deprecated components."
+        )
+
+        history = [
+            {"role": "user", "content": f"Please execute this task directly: {objective}"}
+        ]
+
+        iteration = 0
+        max_iterations = 10 # Prevent runaway loops
+        
+        while iteration < max_iterations:
+            iteration += 1
+            
+            # Request LLM response
+            try:
+                response = await self.gateway.chat(
+                    model=self.model,
+                    prompt=history,
+                    system=system_prompt
+                )
+            except Exception as e:
+                console.print(f"[red][Direct Mode] LLM Chat Error: {e}[/red]")
+                if self.dry_run:
+                    response = "I have simulated the direct task completion successfully, Sir."
+                else:
+                    raise e
+            
+            if not response:
+                console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
+                break
+
+            # Print AJA's thought process/message
+            console.print(f"\n[bold cyan]AJA:[/] {response.strip()}")
+            
+            # Record LLM's response to history
+            history.append({"role": "assistant", "content": response})
+
+            # Check for bash/sh command blocks
+            commands = []
+            if "```bash" in response:
+                parts = response.split("```bash")
+                for part in parts[1:]:
+                    cmd = part.split("```")[0].strip()
+                    if cmd:
+                        commands.append(cmd)
+            elif "```sh" in response:
+                parts = response.split("```sh")
+                for part in parts[1:]:
+                    cmd = part.split("```")[0].strip()
+                    if cmd:
+                        commands.append(cmd)
+            
+            if not commands:
+                # No more commands suggested, AJA has finished!
+                console.print(f"\n[bold green][+] Direct In-Process task completed successfully.[/bold green]")
+                break
+            
+            # Execute each suggested command
+            all_completed_successfully = True
+            for cmd in commands:
+                console.print(f"\n[bold cyan][*] [Direct Execution] Running command:[/] [yellow]{cmd}[/]")
+                
+                # Check dry-run
+                if self.dry_run:
+                    from agentx.security.command_guard import classify_command
+                    classification = classify_command(cmd)
+                    console.print(f"[bold yellow][DRY-RUN AUDIT][/bold yellow] Command: '{cmd}' | Safety: {classification['decision'].upper()} (Risk: {classification['risk_level']})")
+                    sim_stdout = f"[DRY-RUN SIMULATION OUTPUT] Successfully simulated command: {cmd}"
+                    result = {
+                        "status": "success",
+                        "stdout": sim_stdout,
+                        "stderr": "",
+                        "code": 0
+                    }
+                else:
+                    # Execute in-process
+                    result = executor.execute(cmd)
+                
+                # Format output message
+                if result.get("status") == "success":
+                    console.print(f"[bold green]✔ Command succeeded with code {result.get('code', 0)}[/bold green]")
+                    if result.get("stdout"):
+                        console.print(f"[dim]{result['stdout']}[/dim]")
+                else:
+                    console.print(f"[bold red]✘ Command failed: {result.get('message', 'Unknown failure') or result.get('stderr')}[/bold red]")
+                    all_completed_successfully = False
+                
+                # Feed result back into the history
+                result_str = (
+                    f"Command executed: {cmd}\n"
+                    f"Status: {result.get('status')}\n"
+                    f"Exit Code: {result.get('code', -1)}\n"
+                    f"Stdout:\n{result.get('stdout', '')}\n"
+                    f"Stderr:\n{result.get('stderr', '') or result.get('message', '')}"
+                )
+                history.append({"role": "user", "content": result_str})
+
+            if not all_completed_successfully:
+                pass
+        
     # --- MODE 1: BACKGROUND TERRITORY MONITORING (Swarm Controller) ---
     def load_config(self):
         config_path = PROJECT_ROOT / "agentx.json"

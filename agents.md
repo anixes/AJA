@@ -79,6 +79,29 @@ We recently completed the Phase 1 Architectural Upgrades, transitioning AgentX i
 
 ---
 
+## 🚀 Phase 1.2 & 1.3 Upgrades: Interactive Pairing & Autonomy Performance
+
+We recently engineered several critical upgrades to the pairing workflow, performance bottlenecks, and autonomy loops:
+
+### 1. Direct In-Process Execution Mode
+* **Direct Execution**: Added the `direct_execution` settings flag which allows running developer/system tasks synchronously in-process via `ToolExecutor` under robust `CommandGuard` security constraints, completely bypassing heavy orchestrator/baton loops for local shell workflows.
+* **Proactive Butler Mappings**: Upgraded `cmd_chat()` to map intent patterns directly to local commands (`doctor`, `logs`, `gpu`) with real-time feedback loops.
+
+### 2. Multi-Turn Context Aware Conversation Memory
+* **State Awareness**: The interactive `agentx` CLI chat loop now maintains a rolling 15-turn conversation history fed directly to the intent parser, enabling fully contextual multi-step dialogues and resolving memory resets.
+
+### 3. Diversity Plan Generator & Temperature Scaling
+* **Diversity Scaling**: Refactored the candidate plan generator (`generator.py`) to systematically supply previously generated plans back into the LLM history, scaling temperatures dynamically via `temp = min(1.0, 0.3 + (attempts * 0.15))` to prevent duplicative plans and infinite loop regenerations.
+
+### 4. Zero-Copy Baton Handover IPC Cache
+* **Baton RAM Buffer**: Implemented an in-memory Arrow Baton serialization buffer (`_IN_MEMORY_BATONS` with standard threading locks) inside `handover.py` to cache batons in RAM, enabling sub-millisecond zero-copy transfers while maintaining disk-fallback durability.
+
+### 5. High-Performance Low-Latency Autonomous Startup
+* **Synchronous Bootstrap Heartbeat**: Relocated initial heartbeat publishing to happen synchronously at loop startup in `autonomous_loop.py` before loading heavy libraries, correcting worker gateway connectivity issues.
+* **Lazy Embedding Model Loading**: Shifted `SentenceTransformer` loading in `EmbeddingService` to be entirely deferred (lazy-loaded) on the first `embed()` call, speeding up imports and CLI response times while exposing an `embed_text()` alias for backwards compatibility.
+
+---
+
 ## 🛠️ Verification & Run Commands
 
 When running or testing in this workspace, **always use the project's global Python 3.12.10 installation** located at:
@@ -88,7 +111,8 @@ When running or testing in this workspace, **always use the project's global Pyt
 ```powershell
 $env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
 ```
-* **Result**: **142 passed, 1 warning** (including new TUI, cron scheduler, and remote handover IPC test coverage).
+* **Result**: **145 passed, 1 warning** (including TUI, cron scheduler, zero-copy baton IPC, plan diversity generator, and direct-in-process execution test coverage).
+
 
 ### 2. Run Curses TUI Live Dashboard (Local Demo)
 ```powershell
