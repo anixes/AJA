@@ -13,7 +13,7 @@ Instead of treating agents as transient chat loops, AJA treats agentic workflows
 ## 2. What AJA Runtime is NOT
 
 - **Not a chatbot or "Jarvis clone":** AJA is the runtime infrastructure *underneath* the assistant, not the conversational interface itself.
-- **Not "fully autonomous AGI":** We do not make speculative claims about superintelligence. This is a systems-engineering project focused on deterministic execution.
+
 - **Not a prompt-engineering framework:** AJA does not compete with LangChain or LlamaIndex. It focuses on the execution environment, not the LLM chain.
 
 ## 3. Why AJA Exists
