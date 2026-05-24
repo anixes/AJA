@@ -6,7 +6,7 @@ from pathlib import Path
 # Add the packages directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-from agentx.capabilities.obsidian import ObsidianCapability
+from aja.capabilities.obsidian import ObsidianCapability
 
 async def main():
     print("--- Agent Phase 5 Verification: Obsidian Vault Sync ---")

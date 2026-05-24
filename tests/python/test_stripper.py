@@ -1,4 +1,4 @@
-from agentx.security.stripper import CommandStripper
+from aja.security.stripper import CommandStripper
 import json
 
 def test_stripper():

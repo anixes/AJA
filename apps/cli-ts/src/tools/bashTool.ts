@@ -94,7 +94,7 @@ function summarizeReasons(reasons: string[]): string {
 }
 
 async function analyzeCommand(command: string): Promise<StripperAnalysis> {
-  const stripperPath = path.join(process.cwd(), 'packages', 'agent-core', 'agent', 'security', 'stripper.py');
+  const stripperPath = path.join(process.cwd(), 'libs', 'aja-core', 'aja', 'security', 'stripper.py');
   const { stdout } = await execFileAsync(resolvePythonExecutable(), [stripperPath, command], {
     windowsHide: true,
   });
@@ -103,7 +103,7 @@ async function analyzeCommand(command: string): Promise<StripperAnalysis> {
 
 function resolvePythonExecutable(): string {
   const candidates = [
-    process.env.AGENTX_PYTHON,
+    process.env.AJA_PYTHON,
     process.env.PYTHON,
     'D:\\ANACONDA py\\python.exe',
     'python',

@@ -3,7 +3,7 @@ import sys
 import psutil
 import lancedb
 import pyarrow as pa
-import agentx_native
+import aja_native
 
 def diag():
     print(f"Python: {sys.version}")
@@ -27,15 +27,15 @@ def diag():
     print(f"\n--- Memory Usage ---")
     print(f"RSS: {mem:.2f} MB")
     
-    # Check agentx_native
-    print(f"\n--- agentx_native ---")
-    print(f"Version: {agentx_native.version()}")
-    print(f"File: {agentx_native.__file__}")
+    # Check aja_native
+    print(f"\n--- aja_native ---")
+    print(f"Version: {aja_native.version()}")
+    print(f"File: {aja_native.__file__}")
     
     # Check LanceDB
     print(f"\n--- LanceDB ---")
     try:
-        db = lancedb.connect("./.agentx/memory.lancedb")
+        db = lancedb.connect("./.aja/memory.lancedb")
         print(f"Connected to LanceDB. Tables: {db.table_names()}")
     except Exception as e:
         print(f"LanceDB Error: {e}")

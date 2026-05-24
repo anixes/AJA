@@ -5,7 +5,7 @@ def test_lancedb():
     os.environ["OPENBLAS_MAIN_FREE"] = "1"
     import lancedb
     print("Connecting to lancedb...")
-    db_path = "./.agentx/lancedb"
+    db_path = "./.aja/lancedb"
     if not os.path.exists(db_path):
         print(f"Path {db_path} does not exist!")
     else:

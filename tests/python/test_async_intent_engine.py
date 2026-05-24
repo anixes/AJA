@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from agentx.autonomy.intent_engine import IntentEngine, Intent
+from aja.autonomy.intent_engine import IntentEngine, Intent
 
 def test_async_intent_engine_lifecycle():
     async def run_test():

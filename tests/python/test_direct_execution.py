@@ -1,9 +1,9 @@
 import pytest
 import asyncio
 from unittest.mock import patch, AsyncMock
-from agentx.config import CONFIG
-from agentx.config_schema import SwarmSettings
-from agentx.orchestration.swarm import SwarmEngine
+from aja.config import CONFIG
+from aja.config_schema import SwarmSettings
+from aja.orchestration.swarm import SwarmEngine
 
 def test_direct_execution_config_default():
     """

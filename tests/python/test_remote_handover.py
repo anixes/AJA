@@ -2,7 +2,7 @@ import pytest
 import json
 import base64
 from unittest.mock import patch, MagicMock
-from agentx.runtime.handover import BatonManager
+from aja.runtime.handover import BatonManager
 
 def test_local_arrow_baton_flow():
     mgr = BatonManager()

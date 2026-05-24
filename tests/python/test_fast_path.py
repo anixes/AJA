@@ -1,10 +1,10 @@
 import pytest
 import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
-from agentx.goals.goal_engine import GoalEngine, Goal
-from agentx.gateway.tg_client import TelegramAdapter
-from agentx.gateway.orchestrator import UnifiedGateway
-from agentx.runtime.event_bus import EVENTS
+from aja.goals.goal_engine import GoalEngine, Goal
+from aja.gateway.tg_client import TelegramAdapter
+from aja.gateway.orchestrator import UnifiedGateway
+from aja.runtime.event_bus import EVENTS
 
 def test_safe_read_only_command_detection():
     engine = GoalEngine()
@@ -31,7 +31,7 @@ def test_complexity_aware_bypass():
     engine = GoalEngine()
     goal = Goal("dir", 1)
     
-    with patch('agentx.planning.scorer.estimate_complexity') as mock_estimate:
+    with patch('aja.planning.scorer.estimate_complexity') as mock_estimate:
         mock_estimate.return_value = "LOW"
         plan = engine.expand_goal(goal)
         assert plan is not None
@@ -119,7 +119,7 @@ async def test_intent_router_safe_verbs():
 
 @pytest.mark.anyio
 async def test_llm_gateway_conversation_memory():
-    from agentx.orchestration.gateway import LLMGateway
+    from aja.orchestration.gateway import LLMGateway
     
     messages = [
         {"role": "user", "content": "hello"},
@@ -137,7 +137,7 @@ async def test_llm_gateway_conversation_memory():
     mock_async_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
     mock_async_context_manager.__aexit__ = AsyncMock()
     
-    with patch("agentx.orchestration.gateway.AsyncOpenAI", return_value=mock_async_context_manager):
+    with patch("aja.orchestration.gateway.AsyncOpenAI", return_value=mock_async_context_manager):
         gw = LLMGateway(provider="openrouter", api_key="test-key")
         response = await gw.chat(model="gpt-4", prompt=messages, system="You are helpful")
         
@@ -150,7 +150,7 @@ async def test_llm_gateway_conversation_memory():
 
 @pytest.mark.anyio
 async def test_unified_gateway_chat_history():
-    from agentx.gateway.orchestrator import UnifiedGateway
+    from aja.gateway.orchestrator import UnifiedGateway
     gw = UnifiedGateway()
     gw.trajectory_manager = MagicMock()
     gw.trajectory_manager.analyze.return_value = '{"should_compress": false, "compress_start": 0, "compress_end": 0}'
@@ -160,7 +160,7 @@ async def test_unified_gateway_chat_history():
         {"role": "assistant", "text": "hello user"}
     ]
     
-    with patch('agentx.gateway.orchestrator.completion') as mock_completion:
+    with patch('aja.gateway.orchestrator.completion') as mock_completion:
         mock_completion.return_value = "response text"
         
         response = await gw.chat("how are you?", chat_history=chat_history)
@@ -174,8 +174,8 @@ async def test_unified_gateway_chat_history():
 
 @pytest.mark.anyio
 async def test_manual_swarm_override_routing():
-    from agentx.gateway.orchestrator import UnifiedGateway
-    from agentx.gateway.base import MessageEvent, MessageType
+    from aja.gateway.orchestrator import UnifiedGateway
+    from aja.gateway.base import MessageEvent, MessageType
     import json
     
     gw = UnifiedGateway()
@@ -211,7 +211,7 @@ async def test_manual_swarm_override_routing():
         )
 
 def test_goal_engine_honors_force_swarm():
-    from agentx.goals.goal_engine import GoalEngine, Goal
+    from aja.goals.goal_engine import GoalEngine, Goal
     from unittest.mock import patch, MagicMock
     
     engine = GoalEngine()
@@ -224,7 +224,7 @@ def test_goal_engine_honors_force_swarm():
     goal.metadata = {"force_swarm": True}
     
     # Check that expand_goal does NOT bypass to low-complexity low-level graph when force_swarm is True
-    with patch('agentx.planning.scorer.estimate_complexity') as mock_complexity:
+    with patch('aja.planning.scorer.estimate_complexity') as mock_complexity:
         mock_complexity.return_value = "LOW"
         # We patch planner.decompose so it returns a dummy plan instead of trying to run actual LLM
         mock_plan = MagicMock()

@@ -286,7 +286,7 @@ export class QueryEngine {
   }
 
   private resolveInitialCostMode(): CostMode {
-    const raw = (process.env['AGENTX_COST_MODE'] || process.env['COST_MODE'] || 'balanced').toLowerCase();
+    const raw = (process.env['AJA_COST_MODE'] || process.env['COST_MODE'] || 'balanced').toLowerCase();
     if (raw === 'eco' || raw === 'balanced' || raw === 'premium') {
       return raw;
     }

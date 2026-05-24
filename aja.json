@@ -1,0 +1,26 @@
+{
+  "project_name": "AJA",
+  "territories": [
+    {
+      "path": "apps/cli-ts",
+      "health_cmd": "node dist/cli.js",
+      "auto_heal": true
+    },
+    {
+      "path": "libs/aja-core",
+      "health_cmd": "python -m aja status",
+      "auto_heal": false
+    }
+  ],
+  "swarm_settings": {
+    "offline_mode": true,
+    "max_agents": 5,
+    "check_interval": 30,
+    "models": {
+      "planner": "llama_cpp:gemma",
+      "worker": "llama_cpp:gemma",
+      "critic": "llama_cpp:gemma"
+    },
+    "operating_mode": "offline"
+  }
+}

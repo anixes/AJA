@@ -31,6 +31,6 @@ If the `disagreement_score` or `diversity_collapse_score` exceeds 0.75, the syst
 ---
 
 ## Technical Details
-- **Configuration**: `AGENTX_DIVERSITY_BETA = True` in `config.py`.
+- **Configuration**: `AJA_DIVERSITY_BETA = True` in `config.py`.
 - **Logic Location**: `agent/planning/generator.py` and `agent/planning/planner.py`.
 - **Interaction**: Integrated into the Generate-Verify-Select pipeline.

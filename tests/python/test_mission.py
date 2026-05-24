@@ -1,7 +1,7 @@
 import asyncio
 import os
 import logging
-from agentx.orchestration.swarm import SwarmEngine
+from aja.orchestration.swarm import SwarmEngine
 
 logging.basicConfig(level=logging.INFO)
 

@@ -10,12 +10,12 @@ import path from 'path';
 import { isFileSafeForAutoEdit } from './executionModes.js';
 
 const SENSITIVE_FILES = [
-  'agent.json',
+  'aja.json',
   'vault_data.json',
   '.env',
   '.env.local',
   '.env.production',
-  'packages/agent-core/agent/security/stripper.py',
+  'libs/aja-core/aja/security/stripper.py',
   'src/tools/bashTool.ts'
 ];
 
@@ -26,11 +26,11 @@ function isSensitivePath(filePath: string): boolean {
 }
 
 /**
- * Load custom safe paths from .agent/safe-paths.json if it exists.
+ * Load custom safe paths from .aja/safe-paths.json if it exists.
  */
 function loadCustomSafePaths(cwd: string): string[] {
   try {
-    const safePath = path.join(cwd, '.agent', 'safe-paths.json');
+    const safePath = path.join(cwd, '.aja', 'safe-paths.json');
     if (existsSync(safePath)) {
       const data = JSON.parse(readFileSync(safePath, 'utf8'));
       return Array.isArray(data) ? data : [];
@@ -64,7 +64,7 @@ export async function validateFileOperation(
 
 /**
  * Enhanced check: is this file safe for autonomous editing?
- * Combines built-in rules with custom .agent/safe-paths.json.
+ * Combines built-in rules with custom .aja/safe-paths.json.
  */
 export function isFileAutonomousSafe(filePath: string, cwd: string = process.cwd()): boolean {
   // Never auto-edit sensitive files

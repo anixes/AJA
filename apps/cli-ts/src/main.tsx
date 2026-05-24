@@ -14,7 +14,7 @@ const App = () => {
   const [status, setStatus] = useState<'idle' | 'thinking' | 'executing'>('idle');
   const [toolManager] = useState(new ToolManager());
   
-  const isMock = process.env['AGENTX_MOCK'] === 'true';
+  const isMock = process.env['AJA_MOCK'] === 'true';
   const [engine] = useState(() => isMock ? new MockQueryEngine(toolManager) : new QueryEngine(toolManager));
 
   const [costSummary, setCostSummary] = useState('');
@@ -35,7 +35,7 @@ const App = () => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box borderStyle="round" borderColor="cyan" paddingX={2}>
-        <Text bold color="blue">Agentic AI Workflow Engine (Agent)</Text>
+        <Text bold color="blue">AJA Swarm Orchestrator</Text>
       </Box>
       
       <Box flexDirection="column" marginY={1}>

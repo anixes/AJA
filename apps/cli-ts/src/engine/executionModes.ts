@@ -97,7 +97,7 @@ const NEVER_AUTO_EDIT = [
   'tsconfig.json', 'webpack.config.js', 'vite.config.ts',
   '.gitignore', '.npmrc', '.nvmrc',
   'Dockerfile', 'docker-compose.yml',
-  'agent.json', 'providers.json',
+  'aja.json', 'providers.json',
 ];
 
 /**
@@ -167,7 +167,7 @@ export function checkModePermission(
  * Get the default execution mode.
  */
 export function getDefaultMode(): ExecutionMode {
-  const envMode = process.env.AGENTX_MODE as ExecutionMode;
+  const envMode = process.env.AJA_MODE as ExecutionMode;
   if (envMode && MODE_POLICIES[envMode]) return envMode;
   return 'ask-before-edit';
 }

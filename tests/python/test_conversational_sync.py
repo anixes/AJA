@@ -1,5 +1,5 @@
 import pytest
-from agentx.memory.secretary import AJAMemory, get_aja_memory
+from aja.memory.secretary import AJAMemory, get_aja_memory
 
 def test_conversational_sync_mirroring():
     """

@@ -62,7 +62,7 @@ export interface ExecutiveReview {
 export class MemoryService {
   constructor(
     private readonly apiBase = 'http://localhost:8000',
-    private readonly token = process.env.AGENTX_API_TOKEN || 'dev-token-123',
+    private readonly token = process.env.AJA_API_TOKEN || 'dev-token-123',
   ) {}
 
   async listTasks(status?: SecretaryTaskStatus[]): Promise<SecretaryTask[]> {

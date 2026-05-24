@@ -1,7 +1,7 @@
 @echo off
 REM =======================================================
-REM AgentX Master Start Script
+REM AJA Master Start Script
 REM =======================================================
 
-echo [START] Launching AgentX Master Orchestrator...
-call "tools/launchers/AgentX Launcher.bat"
+echo [START] Launching AJA Master Orchestrator...
+call "tools/launchers/AJA Launcher.bat"

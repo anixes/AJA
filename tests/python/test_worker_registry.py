@@ -2,7 +2,7 @@ import unittest
 import os
 import json
 from pathlib import Path
-from agentx.orchestration.registry import WorkerRegistry
+from aja.orchestration.registry import WorkerRegistry
 
 class TestWorkerRegistry(unittest.TestCase):
     def setUp(self):

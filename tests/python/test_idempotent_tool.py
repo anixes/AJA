@@ -2,7 +2,7 @@ import sys
 import os
 import time
 import json
-from agentx.persistence.tools import ToolGuard, PermanentError, RetryableError
+from aja.persistence.tools import ToolGuard, PermanentError, RetryableError
 
 def main():
     if len(sys.argv) < 3:

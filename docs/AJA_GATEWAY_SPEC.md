@@ -1,7 +1,7 @@
 # AJA Gateway Specification (Assistant of Joint Agents)
 
 ## 1. Overview [IMPLEMENTED]
-The **AJA Gateway** is a high-fidelity communication bridge between the AgentX core and messaging platforms (primarily Telegram). It is designed to provide a "Premium Secretary" experience, ensuring interactions are resilient, professional, and non-intrusive.
+The **AJA Gateway** is a high-fidelity communication bridge between the AJA core and messaging platforms (primarily Telegram). It is designed to provide a "Premium Secretary" experience, ensuring interactions are resilient, professional, and non-intrusive.
 
 ## 2. Core Architectural Pillars
 
@@ -38,5 +38,5 @@ The **AJA Gateway** is a high-fidelity communication bridge between the AgentX c
 
 ## 4. Branding & Persona [DONE]
 - [x] **Rebranding**: All modules use `aja_` or `agentx_` naming conventions.
-- [x] **Persona**: AgentX core responds as the "Assistant of Joint Agents".
+- [x] **Persona**: AJA core responds as the "Assistant of Joint Agents".
 - [x] **Config Integration**: Automatically loads `TELEGRAM_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` from `.env`.

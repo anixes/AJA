@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# AgentX & AJA - Unified Gitignore
+# AJA - Unified Gitignore
 # ──────────────────────────────────────────────────────────────────────────────
 
 # --- System & IDEs ---
@@ -11,11 +11,11 @@
 Thumbs.db
 desktop.ini
 
-# --- AgentX Runtime Data (DO NOT COMMIT) ---
-.agentx/
-.agentx_history
+# --- AJA Runtime Data (DO NOT COMMIT) ---
+.aja/
+.aja_history
 .understand-anything/
-.pytest-agentx/
+.pytest-aja/
 .pytest-tmp/
 .gsd/
 temp_batons/
@@ -31,9 +31,9 @@ path.txt
 *.bak
 
 # Exception: Allow the directory structure if needed (optional)
-# !.agentx/
-# .agentx/*
-# !.agentx/config.json.example
+# !.aja/
+# .aja/*
+# !.aja/config.json.example
 
 # --- Python ---
 __pycache__/
@@ -90,7 +90,7 @@ vendor/
 
 # --- Project Specific Overrides ---
 # Allow specific config files that should be shared
-!agentx.json
+!aja.json
 !providers.json
 !SPEC.md
 !README.md

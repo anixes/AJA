@@ -63,7 +63,7 @@ def _make_method(
 
 def _make_plan_graph(goal="deploy a web service", success_rate_uncertainty=0.1):
     """Create a minimal PlanGraph with 2 primitive nodes."""
-    from agentx.planning.models import PlanGraph, PlanNode, DoD
+    from aja.planning.models import PlanGraph, PlanNode, DoD
     n1 = PlanNode(
         id="step1", task="prepare",
         effects={"prepared": True},
@@ -90,7 +90,7 @@ def isolated_method_store(tmp_path, monkeypatch):
     """Redirect MethodStore file path to a temp dir for each test."""
     methods_path = str(tmp_path / "methods.json")
     monkeypatch.setattr(
-        "agentx.planning.method_store.METHODS_FILE", methods_path
+        "aja.planning.method_store.METHODS_FILE", methods_path
     )
     yield methods_path
 
@@ -100,21 +100,21 @@ def isolated_method_store(tmp_path, monkeypatch):
 class TestScoreMethod:
     def test_score_method_baseline(self):
         """Perfect method (success=1, uncertainty=0, many reuses) should score > 0.7."""
-        from agentx.planning.method_scorer import score_method
+        from aja.planning.method_scorer import score_method
         m = _make_method(success_rate=1.0, avg_uncertainty=0.0, reuse_count=50, stability=1.0)
         score = score_method(m)
         assert score > 0.7, f"Expected score > 0.7, got {score}"
 
     def test_score_method_bad(self):
         """Failed method (success=0, uncertainty=0.9) should score < 0.3."""
-        from agentx.planning.method_scorer import score_method
+        from aja.planning.method_scorer import score_method
         m = _make_method(success_rate=0.0, avg_uncertainty=0.9, reuse_count=0, stability=0.0)
         score = score_method(m)
         assert score < 0.3, f"Expected score < 0.3, got {score}"
 
     def test_score_missing_metrics(self):
         """Method with no metrics dict returns neutral 0.4."""
-        from agentx.planning.method_scorer import score_method
+        from aja.planning.method_scorer import score_method
         m = {"id": "x", "plan_template": {}}
         assert score_method(m) == pytest.approx(0.4)
 
@@ -122,7 +122,7 @@ class TestScoreMethod:
 class TestUpdateMetrics:
     def test_update_metrics_success(self):
         """After a success, reuse_count increases and success_rate stays high."""
-        from agentx.planning.method_scorer import update_metrics
+        from aja.planning.method_scorer import update_metrics
         m = _make_method(success_rate=1.0, reuse_count=5, stability=0.9)
         updated = update_metrics(m, success=True, latency=1.0, uncertainty=0.1)
         assert updated["metrics"]["reuse_count"] == 6
@@ -131,7 +131,7 @@ class TestUpdateMetrics:
 
     def test_update_metrics_failure(self):
         """After a failure, stability decreases by ~0.10."""
-        from agentx.planning.method_scorer import update_metrics
+        from aja.planning.method_scorer import update_metrics
         m = _make_method(stability=0.8, reuse_count=3)
         before_stability = m["metrics"]["stability"]
         updated = update_metrics(m, success=False, latency=5.0, uncertainty=0.7)
@@ -141,7 +141,7 @@ class TestUpdateMetrics:
 
     def test_score_recomputed_after_update(self):
         """Score is recomputed after update_metrics call."""
-        from agentx.planning.method_scorer import update_metrics, score_method
+        from aja.planning.method_scorer import update_metrics, score_method
         m = _make_method(success_rate=0.5, reuse_count=1)
         original_score = m["score"]
         # Force score to stale value
@@ -158,8 +158,8 @@ class TestRetrieveMethods:
 
     def test_retrieve_top_n(self, isolated_method_store):
         """Correct top method is returned from 3 candidates."""
-        from agentx.planning.method_scorer import score_method
-        from agentx.planning.method_retriever import retrieve_methods
+        from aja.planning.method_scorer import score_method
+        from aja.planning.method_retriever import retrieve_methods
 
         m1 = _make_method("m1", "deploy a kubernetes service", score=0.8)
         m2 = _make_method("m2", "bake a chocolate cake", score=0.9)
@@ -176,7 +176,7 @@ class TestRetrieveMethods:
 
     def test_retrieve_returns_empty_on_no_match(self, isolated_method_store):
         """Returns empty list when no method matches above similarity threshold."""
-        from agentx.planning.method_retriever import retrieve_methods
+        from aja.planning.method_retriever import retrieve_methods
 
         m = _make_method("m1", "bake a chocolate cake")
         self._seed_store(isolated_method_store, [m])
@@ -186,7 +186,7 @@ class TestRetrieveMethods:
 
     def test_method_fit_score(self, isolated_method_store):
         """method_fit returns higher score for semantically matching method."""
-        from agentx.planning.method_retriever import method_fit
+        from aja.planning.method_retriever import method_fit
 
         m_deploy = _make_method("m1", "deploy a web service", success_rate=0.9)
         m_unrelated = _make_method("m2", "bake a chocolate cake", success_rate=0.9)
@@ -199,8 +199,8 @@ class TestRetrieveMethods:
 class TestMethodLearner:
     def test_learn_method_stores(self, isolated_method_store):
         """Eligible plan creates an entry in MethodStore."""
-        from agentx.planning.method_store import MethodStore
-        from agentx.planning.method_learner import learn_method
+        from aja.planning.method_store import MethodStore
+        from aja.planning.method_learner import learn_method
 
         plan = _make_plan_graph(goal="deploy a web service", success_rate_uncertainty=0.1)
         result = learn_method(plan, goal="deploy a web service", success=True, score=0.80)
@@ -212,8 +212,8 @@ class TestMethodLearner:
 
     def test_learn_method_dedup(self, isolated_method_store):
         """Second call with same-pattern goal merges, not duplicates."""
-        from agentx.planning.method_store import MethodStore
-        from agentx.planning.method_learner import learn_method
+        from aja.planning.method_store import MethodStore
+        from aja.planning.method_learner import learn_method
 
         plan1 = _make_plan_graph("deploy a web service")
         plan2 = _make_plan_graph("deploy a web service")
@@ -227,8 +227,8 @@ class TestMethodLearner:
 
     def test_learn_method_ineligible_failed(self, isolated_method_store):
         """Failed plan does NOT create a method entry."""
-        from agentx.planning.method_store import MethodStore
-        from agentx.planning.method_learner import learn_method
+        from aja.planning.method_store import MethodStore
+        from aja.planning.method_learner import learn_method
 
         plan = _make_plan_graph("deploy a web service")
         result = learn_method(plan, goal="deploy a web service", success=False, score=0.0)
@@ -238,8 +238,8 @@ class TestMethodLearner:
 
     def test_learn_method_ineligible_low_score(self, isolated_method_store):
         """Plan with score below LEARNING_THRESHOLD is not stored."""
-        from agentx.planning.method_store import MethodStore
-        from agentx.planning.method_learner import learn_method, LEARNING_THRESHOLD
+        from aja.planning.method_store import MethodStore
+        from aja.planning.method_learner import learn_method, LEARNING_THRESHOLD
 
         plan = _make_plan_graph("deploy a web service")
         result = learn_method(plan, goal="deploy a web service", success=True, score=LEARNING_THRESHOLD - 0.01)
@@ -255,7 +255,7 @@ class TestMethodPruner:
 
     def test_prune_low_score(self, isolated_method_store):
         """Method with score < 0.2 and reuse_count > 2 is pruned."""
-        from agentx.planning.method_pruner import prune_methods
+        from aja.planning.method_pruner import prune_methods
 
         bad = _make_method("bad", score=0.10)
         bad["metrics"]["reuse_count"] = 5
@@ -266,14 +266,14 @@ class TestMethodPruner:
         removed = prune_methods(min_score=0.2)
         assert removed == 1
 
-        from agentx.planning.method_store import MethodStore
+        from aja.planning.method_store import MethodStore
         remaining = MethodStore.load()
         assert len(remaining) == 1
         assert remaining[0]["id"] == "good"
 
     def test_prune_dedup_identical_patterns(self, isolated_method_store):
         """Two methods with identical patterns are merged into one."""
-        from agentx.planning.method_pruner import prune_methods
+        from aja.planning.method_pruner import prune_methods
 
         m1 = _make_method("m1", pattern="deploy a web service to production", score=0.8)
         m1["metrics"]["reuse_count"] = 10
@@ -284,7 +284,7 @@ class TestMethodPruner:
         removed = prune_methods(similarity_threshold=0.99)
         assert removed == 1
 
-        from agentx.planning.method_store import MethodStore
+        from aja.planning.method_store import MethodStore
         remaining = MethodStore.load()
         assert len(remaining) == 1
         # Winner should be m1 (higher score)

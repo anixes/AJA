@@ -1,7 +1,7 @@
-# SPEC.md: AgentX Architecture & Performance Core
+# SPEC.md: AJA Architecture & Performance Core
 
 ## 1. Objective
-Upgrade AgentX into a "premium" high-performance orchestration framework—complemented by the **AJA (Assistant of Joint Agents)** natural-language secretary—by applying cutting-edge data engineering (Arrow) and native execution (Rust) to the swarm architecture.
+Upgrade AJA into a "premium" high-performance orchestration framework—complemented by the **AJA (Assistant of Joint Agents)** natural-language secretary—by applying cutting-edge data engineering (Arrow) and native execution (Rust) to the swarm architecture.
 
 ## 2. Core Features (The "Upgrade")
 
@@ -27,7 +27,7 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 
 ### Phase 6: Native Performance Core [DONE]
 - **Tech**: Rust, PyO3, Arrow-IPC
-- **Action**: Offloaded performance bottlenecks (Token Analysis, Baton Serialization) to a native Rust module (`agentx-native`). Bypasses Python's GIL for 10x faster swarm state transitions.
+- **Action**: Offloaded performance bottlenecks (Token Analysis, Baton Serialization) to a native Rust module (`aja-native`). Bypasses Python's GIL for 10x faster swarm state transitions.
 
 ### Phase 7: AJA Gateway (Premium Telegram Secretary) [DONE]
 - **Tech**: asyncio, python-telegram-bot, WebSockets, Secretary Memory
@@ -47,7 +47,7 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 
 ### Phase 11: Monorepo Infrastructure & Hardening [DONE]
 - **Tech**: Pytest, Monorepo Architecture, Deterministic Mocking
-- **Action**: Consolidated all core logic into `libs/agentx-core`, normalized namespaces to `agentx.*`, and implemented sub-second test-time mocks for embeddings. Purged legacy SQLite artifacts and enforced strict LanceDB/Arrow usage across the stack.
+- **Action**: Consolidated all core logic into `libs/aja-core`, normalized namespaces to `aja.*`, and implemented sub-second test-time mocks for embeddings. Purged legacy SQLite artifacts and enforced strict LanceDB/Arrow usage across the stack.
 
 ### Phase 12: Self-Healing HTN & Consensus Planning [DONE]
 - **Tech**: HTN Sanitizer, Multi-Run Consensus, Semantic Healing
@@ -57,7 +57,7 @@ Upgrade AgentX into a "premium" high-performance orchestration framework—compl
 - [x] Pytest suite returns 100% success with Pydantic models.
 - [x] Dashboard passes a visual "premium" audit.
 - [x] Baton handovers occur in < 200ms using Arrow IPC.
-- [x] Context optimization (Pure AgentX) successfully protects local model limits.
+- [x] Context optimization (Pure AJA) successfully protects local model limits.
 - [x] AJA Telegram Gateway maintains 100% uptime through local network blips.
 - [x] Intent-aware parsing correctly identifies tasks vs natural chat.
 - [x] Real-time Mobile Sync operational via /ws/mobile.
@@ -74,6 +74,6 @@ The architecture is specifically tuned for resource-constrained environments. By
 To ensure maximum scalability and user experience, the system is decoupled into three distinct layers:
 1. **The Brain (LLM)**: Reasoning & Decision logic.
 2. **The Voice (AJA)**: Conversational Secretary & Planning Gateway. Handles I/O and user interaction.
-3. **The Muscle (AgentX)**: High-performance Native Core. Handles execution and state management.
+3. **The Muscle (AJA)**: High-performance Native Core. Handles execution and state management.
 
-**Performance Impact**: This separation allows the "Voice" (AJA) to remain responsive during heavy "Muscle" (AgentX) operations, while both share a **Zero-Copy Memory Layer (LanceDB/Arrow)** to eliminate communication latency.
+**Performance Impact**: This separation allows the "Voice" (AJA) to remain responsive during heavy "Muscle" (AJA) operations, while both share a **Zero-Copy Memory Layer (LanceDB/Arrow)** to eliminate communication latency.

@@ -12,10 +12,10 @@ async function testFileSafety() {
 
   console.log("--- TEST 1: Restricted File Block (Deny) ---");
   const denyResult = await manager.executeTool('edit_file', { 
-    path: 'agent.json', 
+    path: 'aja.json', 
     content: '{"hacked": true}' 
   }, context);
-  console.log("File: agent.json");
+  console.log("File: aja.json");
   console.log("Decision:", denyResult.isError ? "DENIED (Correct)" : "ALLOWED (Incorrect)");
   console.log("Message:", denyResult.output);
 

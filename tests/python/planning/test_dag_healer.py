@@ -1,6 +1,6 @@
 import pytest
-from agentx.planning.models import PlanGraph, PlanNode, DoD
-from agentx.planning.dag_validator import DAGValidator
+from aja.planning.models import PlanGraph, PlanNode, DoD
+from aja.planning.dag_validator import DAGValidator
 
 def test_dag_healer_empty_compound_node():
     """

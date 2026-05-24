@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from agentx.planning.models import PlanGraph, PlanNode, DoD
-from agentx.planning.generator import generate_candidate_plans
+from aja.planning.models import PlanGraph, PlanNode, DoD
+from aja.planning.generator import generate_candidate_plans
 
 def _make_dummy_graph(goal: str, tasks: list[str]) -> PlanGraph:
     nodes = []
@@ -35,8 +35,8 @@ def test_generate_candidate_plans_diversity():
     diverse_raw = "{\"goal\": \"Test Goal\", \"nodes\": [{\"id\": \"P1\", \"task\": \"Task B\", \"type\": \"primitive\", \"dod\": {\"success_criteria\": \"done\", \"validation_type\": \"deterministic\"}}]}"
     
     # We patch retrieve_methods to return nothing, so it forces LLM generation
-    with patch("agentx.planning.generator.retrieve_methods", return_value=[]), \
-         patch("agentx.planning.planner.Planner._call_llm") as mock_call_llm:
+    with patch("aja.planning.generator.retrieve_methods", return_value=[]), \
+         patch("aja.planning.planner.Planner._call_llm") as mock_call_llm:
         
         # 1st call: returns duplicate_raw
         # 2nd call: returns duplicate_raw (triggers similar to existing warning)

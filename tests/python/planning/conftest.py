@@ -5,9 +5,9 @@ from unittest.mock import patch
 def mock_infrastructure():
     """Mock embedding service and replanner to ensure deterministic, fast testing."""
     # Prevent model loading during initialization
-    with patch("agentx.embeddings.service.EmbeddingService._load_model", return_value=None):
+    with patch("aja.embeddings.service.EmbeddingService._load_model", return_value=None):
         # Patch the single text embedding method
-        with patch("agentx.embeddings.service.EmbeddingService.embed") as mock_embed:
+        with patch("aja.embeddings.service.EmbeddingService.embed") as mock_embed:
             def dummy_embed(text):
                 import hashlib
                 import numpy as np
@@ -36,11 +36,11 @@ def mock_infrastructure():
             
             mock_embed.side_effect = dummy_embed
             
-            with patch("agentx.embeddings.service.EmbeddingService.embed_batch", create=True) as mock_batch:
+            with patch("aja.embeddings.service.EmbeddingService.embed_batch", create=True) as mock_batch:
                 def dummy_embed_batch(texts):
                     return [dummy_embed(t) for t in texts]
                 mock_batch.side_effect = dummy_embed_batch
                 
                 # Mock Replanner.repair_subtree to prevent LLM calls during verification tests
-                with patch("agentx.planning.replanner.Replanner.repair_subtree", return_value=False):
+                with patch("aja.planning.replanner.Replanner.repair_subtree", return_value=False):
                     yield mock_embed

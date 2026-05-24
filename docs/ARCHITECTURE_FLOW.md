@@ -1,5 +1,5 @@
 # Architecture Flow: High-Performance Local Autonomy
-**AgentX Core & AJA: Built to run on standard hardware with maximum performance.**
+**AJA Core & AJA: Built to run on standard hardware with maximum performance.**
 
 ```mermaid
 graph TD
@@ -29,7 +29,7 @@ graph TD
     Code -->|Events| Watcher[Live Watcher]
     Watcher -->|Update| Graph[Knowledge Graph]
     
-    Worker -->|Runtime State| State[.agentx/runtime-state.json]
+    Worker -->|Runtime State| State[.aja/runtime-state.json]
     Worker -->|Execution History + Idempotency| Recovery[(Authoritative Recovery Memory)]
     AJA -->|Obligations + Follow-ups| Secretary[(LanceDB Secretary Memory)]
     AJA -->|Outbound Drafts| Comms[(LanceDB Communication Records)]
@@ -43,14 +43,14 @@ graph TD
     Scheduler -->|Read Followups| Comms
     Scheduler -->|Telegram Delivery| Phone
     Approval -->|Pending Approval| State
-    Approval -->|Immutable JSONL| ApprovalAudit[.agentx/approval-audit.jsonl]
+    Approval -->|Immutable JSONL| ApprovalAudit[.aja/approval-audit.jsonl]
     Batons -->|Bridge Read + Snapshot Build| API
     State -->|Bridge Read + Snapshot Build| API
     API -->|/memory/priority| Priority[Priority Engine]
     Priority -->|Ranked Agenda| Dashboard
     Priority -->|Urgency Challenge| Dashboard
     API -->|/swarm/run + DoD| Engine[SwarmEngine]
-    API -->|Read/Write| Config[.agentx/config.json]
+    API -->|Read/Write| Config[.aja/config.json]
     API -->|Approve/Deny + Mission Launch| Runner[runtime_actions.ts]
     Runner -->|Tool Execution + State Update| State
     API -->|SSE Stream| Dashboard
@@ -59,33 +59,33 @@ graph TD
 
 ## Naming Model
 
-- **AgentX Core** is the engine: runtime state, tools, safety gates, dashboard bridge, vault, and swarm orchestration.
-- **AJA** is the operator: the assistant personality that receives intent, explains consequences, and routes work through AgentX Core.
-- Practical shorthand: **AgentX Core powers AJA**.
+- **AJA Core** is the engine: runtime state, tools, safety gates, dashboard bridge, vault, and swarm orchestration.
+- **AJA** is the operator: the assistant personality that receives intent, explains consequences, and routes work through AJA Core.
+- Practical shorthand: **AJA Core powers AJA**.
 
 ## Unified CLI
 
 ```
-agentx              → Start the interactive AJA Guard TUI (default)
-agentx dash         → Launch Dashboard + API Bridge in one command
-agentx run [--bg]   → Delegate a mission to SwarmEngine (optionally in background)
-agentx status       → Show swarm health & active batons
-agentx explain <id> → Forensic trace of an agent's decision logic and failures
-agentx metrics      → Real-time strategy success rates and reliability dashboard
-agentx run-loop     → Launch the persistent autonomous agent loop
-agentx trigger      → Enqueue event-driven tasks (TIME, TASK_STATE, FILE_FLAG)
-agentx approve <id> → Remotely approve a pending high-risk action
-agentx reject <id>  → Remotely reject a pending high-risk action
-agentx setup        → Configure AI provider, API key & model interactively
-agentx doctor       → Run system health checks and diagnostics
-agentx memory       → Manage agent persistent memory
-agentx help         → Show available commands
+aja              → Start the interactive AJA Guard TUI (default)
+aja dash         → Launch Dashboard + API Bridge in one command
+aja run [--bg]   → Delegate a mission to SwarmEngine (optionally in background)
+aja status       → Show swarm health & active batons
+aja explain <id> → Forensic trace of an agent's decision logic and failures
+aja metrics      → Real-time strategy success rates and reliability dashboard
+aja run-loop     → Launch the persistent autonomous agent loop
+aja trigger      → Enqueue event-driven tasks (TIME, TASK_STATE, FILE_FLAG)
+aja approve <id> → Remotely approve a pending high-risk action
+aja reject <id>  → Remotely reject a pending high-risk action
+aja setup        → Configure AI provider, API key & model interactively
+aja doctor       → Run system health checks and diagnostics
+aja memory       → Manage agent persistent memory
+aja help         → Show available commands
 ```
 
 ## Configuration
 
-API settings are stored in `.agentx/config.json` and can be configured two ways:
-- **CLI**: Run `agentx setup` for an interactive wizard
+API settings are stored in `.aja/config.json` and can be configured two ways:
+- **CLI**: Run `aja setup` for an interactive wizard
 - **Dashboard**: Click the Settings (gear) icon in the sidebar
 
 Both read from and write to the same config file. Gateway clients (TypeScript and Python) 

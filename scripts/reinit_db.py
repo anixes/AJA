@@ -2,7 +2,7 @@ import lancedb
 from pathlib import Path
 
 # New path after reorganization
-db_path = Path(".agentx/lancedb")
+db_path = Path(".aja/lancedb")
 if not db_path.exists():
     print("No LanceDB found.")
     exit()

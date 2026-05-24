@@ -13,8 +13,8 @@
 ### Task 1: Standardize Embedding Dimension to 384
 
 **Files:**
-- Modify: `packages/agentx-core/agentx/skills/skill_store.py:51`
-- Modify: `packages/agentx-core/agentx/memory/secretary.py` (Verify any hardcoded 1536 dims)
+- Modify: `packages/aja-core/aja/skills/skill_store.py:51`
+- Modify: `packages/aja-core/aja/memory/secretary.py` (Verify any hardcoded 1536 dims)
 
 **Step 1: Update SkillStore schema**
 Change `pa.list_(pa.float32(), 1536)` to `pa.list_(pa.float32(), 384)`.
@@ -23,22 +23,22 @@ Change `pa.list_(pa.float32(), 1536)` to `pa.list_(pa.float32(), 384)`.
 Update `vector = [0.0] * 1536` to `vector = [0.0] * 384`.
 
 **Step 3: Run validation**
-Run: `python -m agentx.skills.skill_store` (Add a simple test main if not present)
+Run: `python -m aja.skills.skill_store` (Add a simple test main if not present)
 Expected: Table creates successfully with 384D vector column.
 
 ### Task 2: Implement Real Vector Search in SkillStore
 
 **Files:**
-- Modify: `packages/agentx-core/agentx/skills/skill_store.py:117-132`
+- Modify: `packages/aja-core/aja/skills/skill_store.py:117-132`
 
 **Step 1: Import embedding model utility**
-Add `from agentx.memory.territory import _get_embedding` or similar utility access.
+Add `from aja.memory.territory import _get_embedding` or similar utility access.
 
 **Step 2: Update search_skills to use vector search**
 ```python
 def search_skills(self, query_text: str, limit: int = 10) -> List[Dict[str, Any]]:
     table = self.db.open_table("aja_skills")
-    from agentx.memory.territory import TerritoryScanner
+    from aja.memory.territory import TerritoryScanner
     scanner = TerritoryScanner()
     query_vector = scanner._get_embedding(query_text)
     return table.search(query_vector).limit(limit).to_list()
@@ -50,7 +50,7 @@ Verify that a query for "file operations" returns the "disk-cleanup" skill even 
 ### Task 3: Harden Reflection Engine Synthesis
 
 **Files:**
-- Modify: `packages/agentx-core/agentx/autonomy/reflection.py:47-64`
+- Modify: `packages/aja-core/aja/autonomy/reflection.py:47-64`
 
 **Step 1: Add few-shot examples to the prompt**
 Update the prompt to include a successful skill extraction example to guide the LLM.
@@ -61,7 +61,7 @@ Refine the `response_str` cleaning logic to handle more varied markdown formats.
 ### Task 4: Improve RAG Chunking Strategy
 
 **Files:**
-- Modify: `packages/agentx-core/agentx/memory/territory.py:131-133`
+- Modify: `packages/aja-core/aja/memory/territory.py:131-133`
 
 **Step 1: Implement line-aware chunking**
 Replace character slicing with a strategy that respects line breaks to preserve code context.

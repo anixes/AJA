@@ -4,24 +4,24 @@ import shutil
 import uuid
 from pathlib import Path
 
-from agentx.capabilities.handover import HandoverCapability
-from agentx.runtime.event_bus import EventBus
-from agentx.runtime.event_bus import bus as global_bus
-from agentx.runtime.baton_types import (
+from aja.capabilities.handover import HandoverCapability
+from aja.runtime.event_bus import EventBus
+from aja.runtime.event_bus import bus as global_bus
+from aja.runtime.baton_types import (
     MISSION_BATON_FIELDS,
     WORKER_BATON_FIELDS,
     MissionBatonPayload,
     WorkerBatonPayload,
 )
-from agentx.runtime.handover import (
+from aja.runtime.handover import (
     _IN_MEMORY_BATONS,
     _MAX_IN_MEMORY_BATONS,
     BatonManager,
 )
-from agentx.runtime.events import normalize_runtime_event
-from agentx.runtime.session import SessionManager
-from agentx.runtime.lancedb_logger import LanceDBLogger
-from agentx.scheduler.cron_scheduler import CronScheduler
+from aja.runtime.events import normalize_runtime_event
+from aja.runtime.session import SessionManager
+from aja.runtime.lancedb_logger import LanceDBLogger
+from aja.scheduler.cron_scheduler import CronScheduler
 
 
 class FakeTaskStore:
@@ -75,7 +75,7 @@ class SlowScheduler(CronScheduler):
 
 def test_handover_capability_uses_runtime_baton_api():
     cap = HandoverCapability()
-    baton_dir = Path("libs/agentx-core/temp_batons") / f"cap-test-{uuid.uuid4().hex}"
+    baton_dir = Path("libs/aja-core/temp_batons") / f"cap-test-{uuid.uuid4().hex}"
     baton_dir.mkdir(parents=True, exist_ok=True)
     cap.manager.baton_dir = baton_dir
 
@@ -277,7 +277,7 @@ def test_baton_type_contracts_match_native_schema_fields():
 
 def test_baton_memory_cache_is_bounded():
     manager = BatonManager()
-    baton_dir = Path("libs/agentx-core/temp_batons") / f"cache-test-{uuid.uuid4().hex}"
+    baton_dir = Path("libs/aja-core/temp_batons") / f"cache-test-{uuid.uuid4().hex}"
     baton_dir.mkdir(parents=True, exist_ok=True)
     manager.baton_dir = baton_dir
     manager.clear_memory_cache()

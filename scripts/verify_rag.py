@@ -1,6 +1,6 @@
 print("Starting verify_rag.py...")
 try:
-    from agentx.memory.secretary import get_aja_memory
+    from aja.memory.secretary import get_aja_memory
     print("Import successful.")
 except Exception as e:
     print(f"Import failed: {e}")

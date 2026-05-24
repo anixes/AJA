@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import shutil
-from agentx.gateway import UnifiedGateway
+from aja.gateway import UnifiedGateway
 
 async def verify():
     print("--- Agent Hybrid Verification ---")
@@ -25,7 +25,7 @@ async def verify():
     
     # 3. Verify Native Translation directly
     print("\nTesting Native Translation Layer...")
-    import agentx_native
+    import aja_native
     sample_request = {
         "model": "claude-3-5-sonnet",
         "input": [
@@ -36,7 +36,7 @@ async def verify():
             }
         ]
     }
-    translated = agentx_native.translate_to_anthropic(json.dumps(sample_request))
+    translated = aja_native.translate_to_anthropic(json.dumps(sample_request))
     translated_data = json.loads(translated)
     print(f"Translated Model: {translated_data.get('model')}")
     print(f"Message Count: {len(translated_data.get('messages', []))}")

@@ -1,7 +1,7 @@
 @echo off
-echo Building AgentX Native Rust Layer...
+echo Building AJA Native Rust Layer...
 
-cd packages\agentx-native
+cd packages\aja-native
 
 echo Installing Maturin build system...
 python -m pip install maturin

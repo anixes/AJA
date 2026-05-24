@@ -1,5 +1,5 @@
 import pytest
-from agentx.tui.curses_tui import TerminalDashboard, SKINS
+from aja.tui.curses_tui import TerminalDashboard, SKINS
 
 def test_tui_initialization_and_skins():
     db = TerminalDashboard(dry_run=True)

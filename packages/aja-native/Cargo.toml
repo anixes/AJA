@@ -1,0 +1,16 @@
+[package]
+name = "aja-native"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "aja_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20.0", features = ["extension-module", "abi3-py311"] }
+arrow = "58.0.0"
+arrow-ipc = "58.0.0"
+tiktoken-rs = "0.5.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

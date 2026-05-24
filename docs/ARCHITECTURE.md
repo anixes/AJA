@@ -1,7 +1,7 @@
-# AgentX Architecture: Tri-Memory Stack
+# AJA Architecture: Tri-Memory Stack
 ### *Featuring AJA: Assistant of Joint Agents*
 
-AgentX is a high-performance, local-first orchestration core engineered to run on every machine—from high-end servers to standard consumer hardware. By utilizing a cutting-edge **Tri-Memory Stack**, AgentX delivers elite autonomy with maximum efficiency. The entire system is built on **Apache Arrow**, ensuring zero-copy performance across all layers.
+AJA is a high-performance, local-first orchestration core engineered to run on every machine—from high-end servers to standard consumer hardware. By utilizing a cutting-edge **Tri-Memory Stack**, AJA delivers elite autonomy with maximum efficiency. The entire system is built on **Apache Arrow**, ensuring zero-copy performance across all layers.
 
 > **Runtime**: Always use global Python 3.12.10 at `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`
 
@@ -9,16 +9,16 @@ AgentX is a high-performance, local-first orchestration core engineered to run o
 
 ## 1. System Overview
 
-AgentX follows a **Sovereign Agent** architecture where a central Assistant (**AJA**) orchestrates a swarm of specialized workers.
+AJA follows a **Sovereign Agent** architecture where a central Assistant (**AJA**) orchestrates a swarm of specialized workers.
 
 ```mermaid
 graph TD
     User([User]) <--> AJA[AJA Secretary Persona]
     AJA <--> Gateway[Multi-Interface Gateway Socket]
-    Gateway <--> Core[AgentX Core - Python]
-    Core <--> Native[AgentX Native - Rust]
+    Gateway <--> Core[AJA Core - Python]
+    Core <--> Native[AJA Native - Rust]
     Native <--> Memory[(Tri-Memory Stack)]
-    Core <--> Swarm[AgentX Worker Swarm]
+    Core <--> Swarm[AJA Worker Swarm]
     Swarm <--> Tools[MCP Tools / Local CLI]
     AJA <--> TUI[Curses Terminal TUI Dashboard]
 ```
@@ -28,26 +28,26 @@ graph TD
 ## 2. The Tri-Memory Stack
 
 ### A. LanceDB (The Persistent Brain)
-**Storage Location:** `.agentx/lancedb/`
+**Storage Location:** `.aja/lancedb/`
 - **Purpose**: Authoritative long-term memory and project context.
 - **Components**: `core_tasks`, `core_tool_executions`, `core_plans` (384D vectors), `core_triggers`, `aja_chat_history`, `territory_knowledge`, `self_evolve_knowledge`.
 - **Performance**: Columnar retrieval and vector similarity search via `sentence-transformers`.
 
 ### B. Arrow IPC (The Reflexive Nerves)
-**Storage Location:** `.agentx/batons/*.arrow`
+**Storage Location:** `.aja/batons/*.arrow`
 - **Purpose**: Ultra-low latency handovers (Batons).
 - **Strategy**: Memory-mapped zero-copy transfers between Python and Rust.
 - **Trace Propagation**: Active `trace_id` values are serialized into Arrow metadata headers during capture and restored automatically during pickup, enabling full distributed tracing across baton handovers.
 
 ### C. Config & Metrics (The Operating Vitals)
-**Storage Location:** `.agentx/*.json`, `telegram-history.jsonl`, `.agentx/security_audit.log`
+**Storage Location:** `.aja/*.json`, `telegram-history.jsonl`, `.aja/security_audit.log`
 - **Purpose**: Readable configuration, auxiliary telemetry logs, and structured security audit records.
 
 ---
 
 ## 3. Core Components
 
-### `agentx-core` (Python)
+### `aja-core` (Python)
 - **Role**: High-level orchestration, LLM interfacing, and terminal-first local persona management.
 - **Key Modules**:
     - `main.py`: CLI entry point with `setup`, `doctor`, `run`, `chat`, `status`, `memory`, and `tui` subcommands.
@@ -63,7 +63,7 @@ graph TD
     - `agents/`: Swarm logic and base agent classes.
     - `utils/agentx_guard.py`: The safety gate and command auditor.
 
-### `agentx-native` (Rust)
+### `aja-native` (Rust)
 - **Role**: Performance-critical GIL-free operations.
 - **Key Modules**:
     - `tokenizers`: Fast tiktoken-based encoding.
@@ -76,18 +76,18 @@ graph TD
 
 | Capability | Module | Status | Description |
 |---|---|---|---|
-| Pydantic config validation | `agentx/config_schema.py`, `agentx/config.py` | ✅ Live | Standard validation schemas for system settings |
-| Trace-aware context manager | `agentx/observability/telemetry.py` | ✅ Live | Propagates thread-safe active task trace IDs |
-| Arrow Baton trace propagation | `agentx/runtime/handover.py` | ✅ Live | Serializes active tracing headers inside IPC batons |
-| Systems diagnostics doctor | `agentx/utils/diagnostics.py` | ✅ Live | System resources audit checks via `/doctor` |
-| Guided setup wizard | `agentx/main.py` (`setup`) | ✅ Live | Wizard prompts scaffolding standard workspace layout |
-| Dry-run safe simulation | `agentx/orchestration/swarm.py` | ✅ Live | Audits planned terminal commands via dry-run simulation |
-| Pluggable Model/Tool ABCs | `agentx/api/interfaces.py` | ✅ Live | Decoupled model provider subclasses and base tools |
-| Multi-Interface Gateway | `agentx/gateway/gateway_runner.py` | ✅ Live | Continuous chat broker managing Slack and Discord bot sessions |
-| Persisted Cron Scheduler | `agentx/scheduler/cron_scheduler.py` | ✅ Live | Recurring HTN swarm ticker with LanceDB and timeout safety |
-| Curses TUI Live Dashboard | `agentx/tui/curses_tui.py` | ✅ Live | Terminal three-pane layout featuring dynamic color skins |
-| Distributed Network Batons | `agentx/runtime/handover.py` | ✅ Live | Network-scalable GIL-free batons via base64 Arrow IPC |
-| Hacker-Butler Conversational Persona | `agentx/api/bridge.py`, `agentx/interface/intent_parser.py`, `agentx/gateway/orchestrator.py` | ✅ Live | Polite, developer-fluent secretary and proactive coordinator |
+| Pydantic config validation | `aja/config_schema.py`, `aja/config.py` | ✅ Live | Standard validation schemas for system settings |
+| Trace-aware context manager | `aja/observability/telemetry.py` | ✅ Live | Propagates thread-safe active task trace IDs |
+| Arrow Baton trace propagation | `aja/runtime/handover.py` | ✅ Live | Serializes active tracing headers inside IPC batons |
+| Systems diagnostics doctor | `aja/utils/diagnostics.py` | ✅ Live | System resources audit checks via `/doctor` |
+| Guided setup wizard | `aja/main.py` (`setup`) | ✅ Live | Wizard prompts scaffolding standard workspace layout |
+| Dry-run safe simulation | `aja/orchestration/swarm.py` | ✅ Live | Audits planned terminal commands via dry-run simulation |
+| Pluggable Model/Tool ABCs | `aja/api/interfaces.py` | ✅ Live | Decoupled model provider subclasses and base tools |
+| Multi-Interface Gateway | `aja/gateway/gateway_runner.py` | ✅ Live | Continuous chat broker managing Slack and Discord bot sessions |
+| Persisted Cron Scheduler | `aja/scheduler/cron_scheduler.py` | ✅ Live | Recurring HTN swarm ticker with LanceDB and timeout safety |
+| Curses TUI Live Dashboard | `aja/tui/curses_tui.py` | ✅ Live | Terminal three-pane layout featuring dynamic color skins |
+| Distributed Network Batons | `aja/runtime/handover.py` | ✅ Live | Network-scalable GIL-free batons via base64 Arrow IPC |
+| Hacker-Butler Conversational Persona | `aja/api/bridge.py`, `aja/interface/intent_parser.py`, `aja/gateway/orchestrator.py` | ✅ Live | Polite, developer-fluent secretary and proactive coordinator |
 | Pure Local-First Focus | `apps/dashboard` DELETED | 🗑️ Stripped | Removed React Web UI frontend, simplifying worker spawners |
 
 ---
@@ -107,7 +107,7 @@ graph TD
 
 Run the full test suite under global Python 3.12:
 ```powershell
-$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
+$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
 ```
 **Current Status**: `142 passed, 1 warning` (Python 3.12.10, pytest-9.0.3)
 

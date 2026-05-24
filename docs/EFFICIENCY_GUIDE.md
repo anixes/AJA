@@ -26,6 +26,6 @@ To fix a bug efficiently, follow this sequence:
 ## 4. Local Mocking & Simulation
 Testing agent logic shouldn't cost money.
 
-*   **Feature**: `AGENTX_MOCK=true`
+*   **Feature**: `AJA_MOCK=true`
 *   **Mechanism**: Swaps the LLM for a `MockQueryEngine` that follows a `simulation_playbook.json`.
 *   **Use Case**: Verifying security gates, baton handoffs, and UI updates for $0.

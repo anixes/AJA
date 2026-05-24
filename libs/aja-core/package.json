@@ -1,0 +1,9 @@
+{
+  "name": "@aja/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Core Python logic for AJA",
+  "files": [
+    "aja"
+  ]
+}

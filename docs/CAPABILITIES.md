@@ -1,6 +1,6 @@
-# AgentX & AJA: Capabilities Playbook
+# AJA & AJA: Capabilities Playbook
 
-This document outlines the complete capability set of AgentX Core — a research-aligned, enterprise-grade agentic orchestration system built for reliable, safe, and fully observable autonomous operations.
+This document outlines the complete capability set of AJA Core — a research-aligned, enterprise-grade agentic orchestration system built for reliable, safe, and fully observable autonomous operations.
 
 > **Runtime**: Always use global Python 3.12.10 at `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`
 
@@ -9,43 +9,43 @@ This document outlines the complete capability set of AgentX Core — a research
 ## 🛡️ Product-Readiness Capabilities (Phase 29 — Latest)
 
 ### 1. Pydantic Configuration Validation
-**Problem**: Typos or missing keys in `agentx.json` caused silent runtime failures that were hard to debug.  
+**Problem**: Typos or missing keys in `aja.json` caused silent runtime failures that were hard to debug.  
 **Solution**: All configuration is now validated against a strict Pydantic v2 schema on every import.
 - Invalid configs output clear, field-level error messages and fall back to secure defaults.
-- Schema defined in `agentx/config_schema.py`: `TerritoryConfig`, `SwarmModels`, `SwarmSettings`, `AgentXConfig`.
+- Schema defined in `aja/config_schema.py`: `TerritoryConfig`, `SwarmModels`, `SwarmSettings`, `AgentXConfig`.
 - Tests: `tests/python/test_config_validation.py`
 
 ### 2. Trace-Aware Observability (`TraceContextManager`)
 **Problem**: Multi-process baton handovers and async tasks had no trace correlation — failures were impossible to attribute across workers.  
 **Solution**: A contextvar-local `TraceContextManager` propagates trace IDs across threads, async tasks, and Rust-native Arrow Baton IPC.
-- `get_trace_id()` / `set_trace_id()` / `TraceContextManager` in `agentx/observability/telemetry.py`.
-- `BatonManager` (in `agentx/runtime/handover.py`) auto-embeds trace IDs in Arrow metadata headers during `capture()` and restores them during `pickup()`.
+- `get_trace_id()` / `set_trace_id()` / `TraceContextManager` in `aja/observability/telemetry.py`.
+- `BatonManager` (in `aja/runtime/handover.py`) auto-embeds trace IDs in Arrow metadata headers during `capture()` and restores them during `pickup()`.
 - Thread and async isolation validated in `tests/python/test_trace_telemetry.py`.
 
-### 3. Resilient Systems Diagnostics (`agentx doctor`)
+### 3. Resilient Systems Diagnostics (`aja doctor`)
 **Problem**: Environment setup failures (missing keys, wrong DB schemas, unavailable Rust module) were only discovered at runtime.  
-**Solution**: `agentx doctor` runs a full pre-flight check of all subsystems and reports results in a formatted table.
+**Solution**: `aja doctor` runs a full pre-flight check of all subsystems and reports results in a formatted table.
 - Checks: Config schema ✅ | Native Rust engine ✅ | LanceDB tables ✅ | API credentials ✅ | System resources ✅
 - `psutil` is a **soft dependency** — gracefully falls back to `os.cpu_count()` and `shutil.disk_usage()` if not installed.
-- Module: `agentx/utils/diagnostics.py`
+- Module: `aja/utils/diagnostics.py`
 
-### 4. Guided Setup Wizard (`agentx setup`)
+### 4. Guided Setup Wizard (`aja setup`)
 **Problem**: New developers had no clear path to configure the workspace from scratch.  
-**Solution**: `agentx setup` walks through `agentx.json` creation, `.env` key setup, and LanceDB folder initialization using interactive `rich` prompts.
-- Module: `agentx/main.py` (`setup` subcommand)
+**Solution**: `aja setup` walks through `aja.json` creation, `.env` key setup, and LanceDB folder initialization using interactive `rich` prompts.
+- Module: `aja/main.py` (`setup` subcommand)
 
 ### 5. Safe Dry-Run Simulation (`--dry-run`)
 **Problem**: Operators had no way to preview what an autonomous mission would do before committing execution.  
-**Solution**: `agentx run "..." --dry-run` fully simulates the mission lifecycle — planning, worker dispatch, baton creation — without executing any real commands or mutating state.
+**Solution**: `aja run "..." --dry-run` fully simulates the mission lifecycle — planning, worker dispatch, baton creation — without executing any real commands or mutating state.
 - Every command is audited via `AJAGuard` safety classification.
 - Falls back to a safe simulated local plan if LLM is offline or unauthenticated.
-- Module: `agentx/orchestration/swarm.py`
+- Module: `aja/orchestration/swarm.py`
 
 ---
 
 ## 🔬 4-Layer Agent Architecture
 
-AgentX follows a modern 4-layer agentic architecture to ensure stability and explainability:
+AJA follows a modern 4-layer agentic architecture to ensure stability and explainability:
 
 1. **Execution Layer**: Handles raw actions via a curated **Skill Library** (Action Abstractions) and **Hierarchical Execution** (Composition).
 2. **Control Layer**: Enforces reliability through a **Multi-Agent Evaluation Layer** and a **Strategy Selection Module**.
@@ -62,7 +62,7 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 
 ### 7. Multi-Agent Evaluation & Judge Layer
 **Problem**: Single-model evaluation is prone to hallucinations and "Yes-man" bias.  
-**Solution**: AgentX uses a layered consensus pipeline:
+**Solution**: AJA uses a layered consensus pipeline:
 - **Deterministic Guards**: Code-level verification of postconditions.
 - **Weighted Consensus**: Votes from diverse models weighted by historical accuracy.
 - **Minority Veto**: High-reliability models can override a success verdict if they detect a failure.
@@ -84,7 +84,7 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 
 ### 10. Experience-Driven Learning (RL-lite)
 **Problem**: Agents often repeat the same sub-optimal patterns across different missions.  
-**Solution**: AgentX implements a lightweight behavioral learning layer.
+**Solution**: AJA implements a lightweight behavioral learning layer.
 - **Policy Store**: Persists success scores for plan patterns, tools, and reasoning modes.
 - **Reward Optimization**: Future planning is biased toward high-reward trajectories (`Success - Latency - Risk`).
 - **Failure Memory**: Plans similar to historical failures are automatically penalized, preventing recurring loops.
@@ -138,16 +138,16 @@ AgentX follows a modern 4-layer agentic architecture to ensure stability and exp
 
 | Command | Description |
 |---------|-------------|
-| `agentx setup` | Interactive workspace scaffolding wizard |
-| `agentx doctor` | System-wide health diagnostics |
-| `agentx run "..."` | Dispatch mission to swarm |
-| `agentx run "..." --dry-run` | Safe preview simulation (no mutations) |
-| `agentx chat` | Interactive AJA conversational shell |
-| `agentx status` | Swarm health + active baton metrics |
-| `agentx memory list` | List persistent obligations |
-| `agentx memory add "..."` | Add a new obligation/follow-up |
-| `agentx review morning` | Generate executive morning review |
-| `agentx dash` | Launch React executive dashboard |
+| `aja setup` | Interactive workspace scaffolding wizard |
+| `aja doctor` | System-wide health diagnostics |
+| `aja run "..."` | Dispatch mission to swarm |
+| `aja run "..." --dry-run` | Safe preview simulation (no mutations) |
+| `aja chat` | Interactive AJA conversational shell |
+| `aja status` | Swarm health + active baton metrics |
+| `aja memory list` | List persistent obligations |
+| `aja memory add "..."` | Add a new obligation/follow-up |
+| `aja review morning` | Generate executive morning review |
+| `aja dash` | Launch React executive dashboard |
 
 ---
 *Updated 2026-05-20 — Product-Readiness Phase 29 capabilities added.*

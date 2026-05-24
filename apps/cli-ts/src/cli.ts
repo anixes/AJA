@@ -28,7 +28,7 @@ import type { ExecutionMode } from './engine/executionModes.js';
 const program = new Command();
 
 program
-  .name('agent')
+  .name('aja')
   .description('The cheapest serious coding agent — local-first, repo-aware, safely autonomous.')
   .version('1.0.0');
 
@@ -179,7 +179,7 @@ program
     const targetShell = shell || (process.env.SHELL?.includes('zsh') ? 'zsh' : 'bash');
     console.log(getCompletionScript(targetShell));
     if (!shell) {
-      console.error(`\n# To enable, run: eval "$(agent completion)"`);
+      console.error(`\n# To enable, run: eval "$(aja completion)"`);
     }
   });
 

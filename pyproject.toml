@@ -1,10 +1,10 @@
 [tool.pytest.ini_options]
 pythonpath = [
-  "libs/agentx-core"
+  "libs/aja-core"
 ]
 testpaths = [
   "tests/python"
 ]
 addopts = [
-  "--basetemp=libs/agentx-core/temp_batons/pytest-full"
+  "--basetemp=libs/aja-core/temp_batons/pytest-full"
 ]

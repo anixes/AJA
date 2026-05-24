@@ -2,7 +2,7 @@ import pytest
 import json
 import pyarrow as pa
 from pathlib import Path
-from agentx.runtime.handover import BatonManager
+from aja.runtime.handover import BatonManager
 
 def test_baton_mmap_serialization(tmp_path):
     # Setup BatonManager with custom path

@@ -2,7 +2,7 @@
 # Bridges Telegram Gateway with Terminal Autonomous Worker
 
 $Root = Get-Location
-$Env:PYTHONPATH = "$Root\libs\agentx-core"
+$Env:PYTHONPATH = "$Root\libs\aja-core"
 
 Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 Write-Host "   AJA: Autonomous Gateway & Execution Loop" -ForegroundColor Cyan
@@ -17,15 +17,15 @@ if (-not $Env:TELEGRAM_BOT_TOKEN) {
 Write-Host "[*] Starting AJA Gateway (Telegram + Mission Hub)..." -ForegroundColor Yellow
 $GatewayJob = Start-Job -Name "AJAGateway" -ScriptBlock {
     param($root)
-    $Env:PYTHONPATH = "$root\libs\agentx-core"
-    python -m agentx.gateway.server
+    $Env:PYTHONPATH = "$root\libs\aja-core"
+    python -m aja.gateway.server
 } -ArgumentList $Root
 
 Write-Host "[*] Starting AJA Worker (Autonomous Execution Loop)..." -ForegroundColor Yellow
 $WorkerJob = Start-Job -Name "AJAWorker" -ScriptBlock {
     param($root)
-    $Env:PYTHONPATH = "$root\libs\agentx-core"
-    python -m agentx.runtime.autonomous_loop
+    $Env:PYTHONPATH = "$root\libs\aja-core"
+    python -m aja.runtime.autonomous_loop
 } -ArgumentList $Root
 
 Write-Host "🚀 AJA is now LIVE 24/7." -ForegroundColor Green

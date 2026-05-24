@@ -6,14 +6,14 @@ import os
 # Add the packages directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "packages", "agent-core")))
 
-import agentx_native
+import aja_native
 
 async def main():
     print("--- Agent: Native Adaptive Context Verification ---")
     
     # 1. Initialize the Native Trajectory Manager
     # We specify the model so it can use the correct BPE (tiktoken)
-    tm = agentx_native.PyTrajectoryManager("gpt-4o")
+    tm = aja_native.PyTrajectoryManager("gpt-4o")
     
     # 2. Create a "Heavy" History
     # We'll simulate a conversation with a large middle block

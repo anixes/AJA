@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "bin": {
-    "agentx": "./dist/cli.js"
+    "aja": "./dist/cli.js"
   },
   "workspaces": [
     "apps/*",
@@ -19,7 +19,7 @@
     "start:cli": "node apps/cli-ts/dist/cli.js",
     "aja": "node tools/start-aja.mjs",
     "start:aja": "node tools/start-aja.mjs",
-    "status": "set PYTHONPATH=libs/agentx-core && python -m agentx status",
+    "status": "set PYTHONPATH=libs/aja-core && python -m aja status",
     "test": "npm run test:ts && npm run test:py",
     "test:py": "pytest",
     "test:ts": "tsx tests/typescript/test_bash.ts && tsx tests/typescript/test_file_safety.ts && tsx tests/typescript/test_query.ts"

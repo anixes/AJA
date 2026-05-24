@@ -14,10 +14,10 @@
 > **⚠️ Python Runtime**: Always use `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`.  
 > Do **not** use Anaconda Python (3.11.7) — it is a separate install at `D:\ANACONDA py\python.exe`.
 
-## Python Dependencies (`libs/agentx-core`)
+## Python Dependencies (`libs/aja-core`)
 | Package | Version | Purpose |
 |---------|---------|---------| 
-| Pydantic | ^2.0.0 | Config schema validation (`agentx.json`) |
+| Pydantic | ^2.0.0 | Config schema validation (`aja.json`) |
 | aiohttp | Latest | Asynchronous HTTP requests for API providers |
 | python-dotenv | Latest | Environment variable configuration |
 | PyArrow | Latest | Python bindings for Arrow data handling |
@@ -33,7 +33,7 @@
 | anyio | ^4.0 | Backend-agnostic async concurrency (used in tests) |
 | psutil | Optional | System resource metrics (CPU, RAM, disk). Falls back to `os`/`shutil` stdlib if not installed. |
 
-## Native Dependencies (`packages/agentx-native`)
+## Native Dependencies (`packages/aja-native`)
 | Crate | Version | Purpose |
 |-------|---------|---------| 
 | PyO3 | 0.21 | Python bindings for Rust (GIL-free) |
@@ -56,23 +56,23 @@
 ## Infrastructure & Configuration
 | Variable | Purpose | Required |
 |----------|---------|----------| 
-| `PYTHONPATH` | Directs Python to local `libs/agentx-core` | Yes (Dev) |
+| `PYTHONPATH` | Directs Python to local `libs/aja-core` | Yes (Dev) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Primary LLM provider | Yes |
 | `TELEGRAM_TOKEN` | AJA Telegram bot gateway | Optional |
 | `TELEGRAM_ALLOWED_USER_ID` | Whitelist for Telegram remote control | Optional |
-| `LANCEDB_PATH` | Storage location for persistent brain | No (Defaults to `.agentx/`) |
+| `LANCEDB_PATH` | Storage location for persistent brain | No (Defaults to `.aja/`) |
 | `WS_PORT` | Dashboard telemetry port (8001) | No |
 | `PYTHONIOENCODING` | Set to `utf-8` on Windows for emoji/rich output | Recommended |
 
 ## Key File Paths
 | File | Purpose |
 |------|---------|
-| `agentx.json` | Main project configuration (Pydantic-validated) |
-| `libs/agentx-core/agentx/config_schema.py` | Pydantic schema for `agentx.json` |
-| `libs/agentx-core/agentx/observability/telemetry.py` | `TraceContextManager` — trace ID propagation |
-| `libs/agentx-core/agentx/runtime/handover.py` | Arrow Baton IPC with trace header embedding |
-| `libs/agentx-core/agentx/utils/diagnostics.py` | Systems health doctor |
-| `libs/agentx-core/agentx/orchestration/swarm.py` | Swarm engine + dry-run simulation |
-| `libs/agentx-core/agentx/main.py` | CLI entry point (setup, doctor, run, chat, status) |
-| `.agentx/security_audit.log` | Structured security event log (JSON lines) |
+| `aja.json` | Main project configuration (Pydantic-validated) |
+| `libs/aja-core/aja/config_schema.py` | Pydantic schema for `aja.json` |
+| `libs/aja-core/aja/observability/telemetry.py` | `TraceContextManager` — trace ID propagation |
+| `libs/aja-core/aja/runtime/handover.py` | Arrow Baton IPC with trace header embedding |
+| `libs/aja-core/aja/utils/diagnostics.py` | Systems health doctor |
+| `libs/aja-core/aja/orchestration/swarm.py` | Swarm engine + dry-run simulation |
+| `libs/aja-core/aja/main.py` | CLI entry point (setup, doctor, run, chat, status) |
+| `.aja/security_audit.log` | Structured security event log (JSON lines) |
 | `tests/python/` | Full Python test suite (119 tests, Python 3.12) |

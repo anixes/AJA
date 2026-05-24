@@ -2,12 +2,12 @@
 setlocal enabledelayedexpansion
 
 :: =======================================================
-:: AgentX Native Core Installer (Persistence Mode)
+:: AJA Native Core Installer (Persistence Mode)
 :: =======================================================
 
 echo [*] Detecting project structure...
 set "ROOT=%CD%"
-set "NATIVE_DIR=%ROOT%\packages\agentx-native"
+set "NATIVE_DIR=%ROOT%\packages\aja-native"
 
 if not exist "%NATIVE_DIR%" (
     echo [ERROR] Native core directory not found: %NATIVE_DIR%
@@ -37,7 +37,7 @@ if exist "target" (
     rmdir /s /q target
 )
 
-echo [*] Building AgentX Native Core (RELEASE)...
+echo [*] Building AJA Native Core (RELEASE)...
 cd /d "%NATIVE_DIR%"
 
 :: Build the wheel in release mode.
@@ -53,7 +53,7 @@ if %errorlevel% equ 0 (
     %PYTHON_EXE% -m pip install --force-reinstall "!WHEEL!"
     
     echo.
-    echo [SUCCESS] AgentX Native Core is now installed in RELEASE mode.
+    echo [SUCCESS] AJA Native Core is now installed in RELEASE mode.
     echo [SUCCESS] DLL size reduced and debug symbols stripped.
 ) else (
     echo.

@@ -1,18 +1,18 @@
 import asyncio
 import json
 import os
-import agentx_native
-from agentx.gateway.orchestrator import UnifiedGateway
-from agentx.utils.tokenjuice import TokenJuice
-from agentx.runtime.memory import MemoryTree
-from agentx.capabilities import registry
+import aja_native
+from aja.gateway.orchestrator import UnifiedGateway
+from aja.utils.tokenjuice import TokenJuice
+from aja.runtime.memory import MemoryTree
+from aja.capabilities import registry
 
 async def verify_system():
-    print("[START] Starting Final System Verification for AgentX & AJA...")
+    print("[START] Starting Final System Verification for AJA & AJA...")
     
     # 1. Verify Rust Core
     print("\n[1/5] Verifying Rust Native Core...")
-    t = agentx_native.count_tokens("Hello World")
+    t = aja_native.count_tokens("Hello World")
     print(f"  - Rust Core Tokenizer: OK (Tokens for 'Hello World': {t})")
     
     # 2. Verify Memory Tree (LanceDB/Arrow)
@@ -55,7 +55,7 @@ async def verify_system():
 
     # 6. Verify Swarm Registry (Phase 6)
     print("\n[6/9] Verifying Swarm Registry (Phase 6)...")
-    from agentx.orchestration.registry import WorkerRegistry
+    from aja.orchestration.registry import WorkerRegistry
     registry_inst = WorkerRegistry()
     registry_inst.register_worker("test-worker", "Test Worker", ["testing"])
     best = registry_inst.get_best_worker("testing")
@@ -66,7 +66,7 @@ async def verify_system():
 
     # 7. Verify Reflection Engine
     print("\n[7/9] Verifying Reflection Engine...")
-    from agentx.autonomy.reflection import ReflectionEngine
+    from aja.autonomy.reflection import ReflectionEngine
     refl = ReflectionEngine()
     # Check if SkillStore is healthy
     skills = refl.skill_store.list_skills()
@@ -75,7 +75,7 @@ async def verify_system():
 
     # 8. Verify Handover Manager
     print("\n[8/9] Verifying Handover Manager...")
-    from agentx.orchestration.handover import HandoverManager
+    from aja.orchestration.handover import HandoverManager
     hom = HandoverManager()
     otc = hom.generate_otc({"session": "test"})
     resolved = hom.resolve_otc(otc)
@@ -86,7 +86,7 @@ async def verify_system():
 
     # 9. Verify Resource Telemetry
     print("\n[9/9] Verifying Resource Telemetry...")
-    from agentx.utils.health_check import get_resource_telemetry
+    from aja.utils.health_check import get_resource_telemetry
     telemetry = get_resource_telemetry()
     print(f"  - Hardware Stats: CPU={telemetry.get('cpu_load')} Disk={telemetry.get('disk_free_gb')}GB")
     if "vram_available_mb" in telemetry:

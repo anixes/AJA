@@ -2,13 +2,13 @@ import pytest
 import asyncio
 import threading
 from pathlib import Path
-from agentx.observability.telemetry import (
+from aja.observability.telemetry import (
     TraceContextManager,
     get_trace_id,
     set_trace_id,
     _trace_id_ctx
 )
-from agentx.runtime.handover import BatonManager
+from aja.runtime.handover import BatonManager
 
 def test_trace_context_manager():
     # Clear any active trace ID

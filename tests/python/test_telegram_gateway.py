@@ -1,9 +1,9 @@
 import json
 from types import SimpleNamespace
 
-from agentx.gateway.base import MessageEvent, MessageType
-from agentx.gateway.orchestrator import UnifiedGateway
-from agentx.gateway.tg_client import TelegramAdapter
+from aja.gateway.base import MessageEvent, MessageType
+from aja.gateway.orchestrator import UnifiedGateway
+from aja.gateway.tg_client import TelegramAdapter
 
 
 class _FakeQuery:
@@ -26,7 +26,7 @@ class _FakeUpdate:
 
 
 def test_orchestrator_authorization_uses_user_id(monkeypatch):
-    import agentx.gateway.orchestrator as orchestrator_mod
+    import aja.gateway.orchestrator as orchestrator_mod
 
     monkeypatch.setattr(orchestrator_mod, "TELEGRAM_ALLOWED_USER_ID", "42")
     gateway = object.__new__(UnifiedGateway)
@@ -69,7 +69,7 @@ def test_callback_reports_already_handled_status(monkeypatch):
         def get_mission(self, mission_id):
             return {"mission_id": mission_id, "status": "ACTIVE", "metadata_json": "{}"}
 
-    import agentx.memory.secretary as secretary_mod
+    import aja.memory.secretary as secretary_mod
 
     monkeypatch.setattr(secretary_mod, "AJAMemory", lambda: _FakeMemory())
 
@@ -92,7 +92,7 @@ def test_callback_reports_expired_approval(monkeypatch):
                 "metadata_json": json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"}),
             }
 
-    import agentx.memory.secretary as secretary_mod
+    import aja.memory.secretary as secretary_mod
 
     monkeypatch.setattr(secretary_mod, "AJAMemory", lambda: _FakeMemory())
 

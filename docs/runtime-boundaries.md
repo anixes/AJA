@@ -1,6 +1,6 @@
-# AgentX Runtime Boundaries
+# AJA Runtime Boundaries
 
-AgentX is the local-first runtime/infrastructure layer. AJA is a first-party client built on top of it.
+AJA is the local-first runtime/infrastructure layer. AJA is a first-party client built on top of it.
 
 This document records the current boundaries after the runtime stabilization and compatibility-preserving API extraction passes.
 
@@ -14,25 +14,25 @@ This document records the current boundaries after the runtime stabilization and
 ## Runtime Contracts
 
 - Scheduler code depends on `RuntimeTaskStore` and `RuntimeEventSink`, not concrete client memory classes.
-- Runtime persistence protocols live in `agentx.runtime.store_protocols`.
-- The current LanceDB compatibility adapter is `agentx.runtime.lance_stores.LanceRuntimeStore`; it is the only runtime/scheduler/orchestration module allowed to import `get_aja_memory`.
-- Baton code depends on `agentx.runtime.handover.BatonManager` as the runtime-owned Arrow IPC boundary.
+- Runtime persistence protocols live in `aja.runtime.store_protocols`.
+- The current LanceDB compatibility adapter is `aja.runtime.lance_stores.LanceRuntimeStore`; it is the only runtime/scheduler/orchestration module allowed to import `get_aja_memory`.
+- Baton code depends on `aja.runtime.handover.BatonManager` as the runtime-owned Arrow IPC boundary.
 - Event producers emit dictionaries compatible with `RuntimeEvent`; sinks normalize events before persistence.
 - Blocking subprocess, network, and LanceDB work must stay in synchronous APIs or run behind `asyncio.to_thread()` when called from async paths.
-- Runtime websocket/event broadcast helpers live in `agentx.runtime.broadcast` so legacy servers remain thin wrappers.
+- Runtime websocket/event broadcast helpers live in `aja.runtime.broadcast` so legacy servers remain thin wrappers.
 
 ## API Boundary
 
-`agentx.api.bridge` remains the compatibility FastAPI entrypoint. Existing imports and endpoint paths must continue to work.
+`aja.api.bridge` remains the compatibility FastAPI entrypoint. Existing imports and endpoint paths must continue to work.
 
-Route ownership is declared under `agentx.api.routes`:
+Route ownership is declared under `aja.api.routes`:
 
 - `runtime.py`: approvals, runtime events, baton state, streams, swarm run, status snapshots.
 - `memory.py`: workers, tasks, communications, priority engine, scheduler review endpoints.
 - `telegram.py`: Telegram status/history/command/webhook paths.
 - `legacy.py`: dashboard-compatible, config, safety, and websocket paths.
 
-Shared non-route behavior belongs under `agentx.api.services`:
+Shared non-route behavior belongs under `aja.api.services`:
 
 - `command_policy.py`: command safety classification used by bridge/client surfaces.
 - `legacy_dashboard.py`: deprecated dashboard launcher response; it must not spawn deleted web assets.
@@ -42,19 +42,19 @@ Shared non-route behavior belongs under `agentx.api.services`:
 Core orchestration should not require AJA persona text.
 
 - `SwarmEngine` accepts a presenter object.
-- `agentx.gateway.presenter.NullPresenter` is the neutral runtime presenter.
-- `agentx.gateway.presenter.AJAPresenter` owns AJA console wording and direct-execution persona prompts.
+- `aja.gateway.presenter.NullPresenter` is the neutral runtime presenter.
+- `aja.gateway.presenter.AJAPresenter` owns AJA console wording and direct-execution persona prompts.
 - New runtime execution paths should accept a neutral presenter or no presenter; client layers choose AJA presentation when needed.
 
 ## Legacy Client Surfaces
 
 These modules remain for compatibility and tests, but should not gain new runtime behavior:
 
-- `agentx.server.mobile_bridge`
-- `agentx.server.api`
-- `agentx.dashboard.api`
-- `agentx.scheduler.scheduler`
-- Telegram-specific routes in `agentx.api.bridge`
+- `aja.server.mobile_bridge`
+- `aja.server.api`
+- `aja.dashboard.api`
+- `aja.scheduler.scheduler`
+- Telegram-specific routes in `aja.api.bridge`
 
 Legacy modules should:
 
@@ -68,13 +68,13 @@ Legacy modules should:
 Run the full suite with the project Python:
 
 ```powershell
-$env:PYTHONPATH="libs/agentx-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
+$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
 ```
 
 Current boundary guards live in `tests/python/test_runtime_boundaries.py` and verify:
 
-- `agentx.api.bridge.app` still exposes compatibility routes.
-- Route ownership metadata exists under `agentx.api.routes`.
+- `aja.api.bridge.app` still exposes compatibility routes.
+- Route ownership metadata exists under `aja.api.routes`.
 - Command policy delegates to the shared command guard.
 - Deprecated dashboard launch does not spawn a web app.
 - Runtime/scheduler/orchestration modules do not import client memory directly, except `runtime.lance_stores`.

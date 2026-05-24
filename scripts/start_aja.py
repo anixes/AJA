@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 
 # Add packages to path
-sys.path.append(str(Path(__file__).parent.parent / "libs" / "agentx-core"))
+sys.path.append(str(Path(__file__).parent.parent / "libs" / "aja-core"))
 
-from agentx.gateway.orchestrator import UnifiedGateway
-from agentx.config import TELEGRAM_TOKEN
+from aja.gateway.orchestrator import UnifiedGateway
+from aja.config import TELEGRAM_TOKEN
 
 async def main():
     token = TELEGRAM_TOKEN

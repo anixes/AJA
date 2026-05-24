@@ -1,13 +1,13 @@
 import ast
 from pathlib import Path
 
-from agentx.api.bridge import analyze_shell_command, app, start_dashboard
-from agentx.api.routes import ROUTE_GROUPS
-from agentx.security.command_guard import classify_command
+from aja.api.bridge import analyze_shell_command, app, start_dashboard
+from aja.api.routes import ROUTE_GROUPS
+from aja.security.command_guard import classify_command
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PACKAGE_ROOT = PROJECT_ROOT / "libs" / "agentx-core" / "agentx"
+PACKAGE_ROOT = PROJECT_ROOT / "libs" / "aja-core" / "aja"
 
 
 def test_bridge_compatibility_app_exposes_route_groups():
@@ -54,7 +54,7 @@ def test_runtime_layers_do_not_import_client_memory_directly():
             if path in allowed or "__pycache__" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8")
-            if "agentx.memory.secretary" in text or "get_aja_memory" in text or "AJAMemory" in text:
+            if "aja.memory.secretary" in text or "get_aja_memory" in text or "AJAMemory" in text:
                 offenders.append(str(path.relative_to(PROJECT_ROOT)))
 
     assert offenders == []

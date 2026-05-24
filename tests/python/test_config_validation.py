@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from agentx.config_schema import AgentXConfig, SwarmSettings
+from aja.config_schema import AgentXConfig, SwarmSettings
 
 def test_valid_config():
     data = {

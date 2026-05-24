@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from agentx.scheduler.cron_scheduler import (
+from aja.scheduler.cron_scheduler import (
     match_cron_expr,
     parse_duration_to_seconds,
     CronScheduler

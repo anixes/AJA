@@ -1,6 +1,6 @@
 # AJA Guard and Assistant Approval Safety
 
-AJA Guard is the command safety layer inside AgentX Core. AJA uses it to keep shell execution explainable, auditable, and operator-approved when risk is present.
+AJA Guard is the command safety layer inside AJA Core. AJA uses it to keep shell execution explainable, auditable, and operator-approved when risk is present.
 
 ## 🧱 The Architecture
 
@@ -55,12 +55,12 @@ Every risky action should be understandable before approval. A pending approval 
 
 When a risky command is waiting:
 
-1. the runtime or Telegram bridge writes the pending approval into `.agentx/runtime-state.json`
+1. the runtime or Telegram bridge writes the pending approval into `.aja/runtime-state.json`
 2. the API bridge exposes that state to the React dashboard
 3. Telegram-originated requests are also sent to the phone as readable approval text
 4. dashboard approve/deny actions or Telegram `approve <id>` / `reject <id>` decide the request
 5. the command is checked again through `FileGuardian` and `CommandStripper` before execution
-6. approval lifecycle entries are appended to `.agentx/approval-audit.jsonl`
+6. approval lifecycle entries are appended to `.aja/approval-audit.jsonl`
 
 This keeps the TypeScript runtime, dashboard, and phone control path aligned with the `Allow / Ask / Deny` model, even though the shell parser is still heuristic rather than a full AST parser.
 
@@ -71,14 +71,14 @@ For a first-class developer experience, we have provided `tui_shell.py`. This mo
 ### TUI Features
 - **Neon Dark Theme**: High-contrast, modern aesthetic inspired by the premium AJA persona.
 - **Risk Side-Panel**: A dedicated area that displays AI-generated risk analysis when dangerous binaries are detected.
-- **Status Dashboard**: Persistent monitoring of your current AI backbone (AgentX Gateway).
+- **Status Dashboard**: Persistent monitoring of your current AI backbone (AJA Gateway).
 - **Interactive Input**: Batch-processed inputs and scrollable output history.
 
 ---
 ## 🚀 Getting Started
 
-1.  **Launch**: `agentx chat`
-2.  **Configure**: Use `agentx setup` to configure providers.
+1.  **Launch**: `aja chat`
+2.  **Configure**: Use `aja setup` to configure providers.
 3.  **Test**: Try running a "noisy" dangerous command in chat:
     `DEBUG=true sudo rm -rf ./temp_dir`
 

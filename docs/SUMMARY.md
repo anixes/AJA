@@ -1,25 +1,25 @@
-# AgentX & AJA: The Local-First Agentic OS
+# AJA & AJA: The Local-First Agentic OS
 **High-Performance Autonomy for Every Machine.**
 
 ## Project Mission
-AgentX is engineered to run on standard hardware while delivering maximum performance. By utilizing the **Apache Arrow** memory stack and **Rust-native** acceleration, it brings elite autonomous orchestration to standard machines with a strict local-first philosophy.
+AJA is engineered to run on standard hardware while delivering maximum performance. By utilizing the **Apache Arrow** memory stack and **Rust-native** acceleration, it brings elite autonomous orchestration to standard machines with a strict local-first philosophy.
 
 ## Project Milestone: "Adaptive Execution & Control"
-AgentX is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
+AJA is a self-correcting execution system with adaptive control, not yet a fully autonomous planning agent.
 
 ## Naming
 
-- **AgentX Core**: the engine, runtime, tools, bridge, dashboard, vault, and swarm.
+- **AJA Core**: the engine, runtime, tools, bridge, dashboard, vault, and swarm.
 - **AJA**: the natural-language secretary that turns intent into explainable action.
-- **AgentX Core powers AJA**.
+- **AJA Core powers AJA**.
 
 ### Components Delivered:
-- **Unified CLI**: Single `agentx` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
+- **Unified CLI**: Single `aja` command with clean subcommands (`dash`, `run`, `status`, `setup`, `doctor`, `memory`, `help`).
 - **Safety Gate**: Semantic command auditing via `CommandStripper`.
 - **Secret Vault**: Encrypted credential storage.
 - **Unified Swarm Engine**: Replaces disjointed scripts with a single engine supporting Background, Parallel, and Baton modes.
 - **API Bridge & Dashboard**: Glassmorphic real-time telemetry with secure, CSRF-protected approval routes and a Mission Launcher panel.
-- **Telegram Remote Control**: AJA can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> AgentX Core.
+- **Telegram Remote Control**: AJA can receive whitelisted phone commands through Telegram Bot API -> FastAPI bridge -> AJA Core.
 - **Structured Approval Workflow**: Risky actions become approval objects with command preview, action type, reason, risk level, rollback path, expiry, requester source, and dry-run summary.
 - **Structured Secretary Memory**: AJA persists obligations, follow-ups, recurring tasks, reminders, stale-task review, and escalation state in LanceDB/Arrow.
 - **Messaging Layer**: AJA drafts, manages, approves, and tracks outbound communication without unsafe auto-send behavior.
@@ -29,25 +29,25 @@ AgentX is a self-correcting execution system with adaptive control, not yet a fu
 - **Definition of Done (DoD) Framework**: Mandatory success criteria for all delegations, with auto-generation support for common engineering and executive tasks.
 - **Executive Desk Dashboard**: Refactored command center focusing on high-level agenda and delegation oversight.
 - **Resilient Recovery Layer**: LanceDB/Arrow-backed authoritative task tracking, boot-time crash recovery, and atomic tool idempotency guards.
-- **Persistent Presence Loop**: Continuous AgentX loop with triggers, guardrails, health dashboard, and remote operator-in-the-loop approvals.
+- **Persistent Presence Loop**: Continuous AJA loop with triggers, guardrails, health dashboard, and remote operator-in-the-loop approvals.
 - **Strategy Selection Module**: Strategic dispatch layer that chooses optimal execution paths (Skill vs Compose vs Swarm) with hard risk gates and confidence fallbacks. (formerly LLM Decision Engine)
 - **AJA Telegram Gateway**: Resilient, mobile-optimized communication layer with adaptive polling, table-to-bullet rendering, and vision-to-text enrichment.
 
 ### User Experience:
 | What you want | What you type |
 |---|---|
-| Interactive shell | `agentx` |
-| Launch dashboard | `agentx dash` |
-| Run a mission | `agentx run [--bg] "fix all bugs"` |
-| Configure API keys | `agentx setup` |
-| System diagnostics | `agentx doctor` |
-| Manage memory | `agentx memory list` |
-| Check swarm status | `agentx status` |
+| Interactive shell | `aja` |
+| Launch dashboard | `aja dash` |
+| Run a mission | `aja run [--bg] "fix all bugs"` |
+| Configure API keys | `aja setup` |
+| System diagnostics | `aja doctor` |
+| Manage memory | `aja memory list` |
+| Check swarm status | `aja status` |
 | Control from phone | Telegram command to AJA |
 | Vision enrichment | Send photo to Telegram |
-| Add an obligation | `agentx memory add "follow up with recruiter next Tuesday"` |
-| Draft communication | `agentx message draft "draft recruiter follow-up"` |
-| Run executive review | `agentx review morning` |
+| Add an obligation | `aja memory add "follow up with recruiter next Tuesday"` |
+| Draft communication | `aja message draft "draft recruiter follow-up"` |
+| Run executive review | `aja review morning` |
 | Ask for priority | `what should I do first` (Telegram) |
 
 ### Security Metrics:
@@ -56,7 +56,7 @@ AgentX is a self-correcting execution system with adaptive control, not yet a fu
 - **Endpoint Lockdown**: Critical endpoints require Bearer Token authorization to mitigate CSRF attacks.
 - **Telegram Whitelist**: Only `TELEGRAM_ALLOWED_USER_ID` can issue phone commands to AJA. Unauthorized attempts are logged and ignored.
 - **Structured Operator Review**: Risky actions default to ASK and must be explainable before approval.
-- **Immutable Approval Audit**: Approval lifecycle events are appended to `.agentx/approval-audit.jsonl`.
+- **Immutable Approval Audit**: Approval lifecycle events are appended to `.aja/approval-audit.jsonl`.
 - **Encrypted Persistence**: All secrets are stored using AES-256-GCM.
 - **Execution Constraints**: Mandatory Definition of Done checklists prevent "agent drift" during autonomous missions.
 - **Atomic Tool Idempotency**: `ToolGuard` prevents duplicate side-effects (payments, emails) using database-level reservation locks.
@@ -73,11 +73,11 @@ Implemented phone -> Telegram -> PC execution flow:
 - Supported text commands: `status`, `check gpu`, `run training job`, `git pull repo`, `shutdown laptop tonight`, `restart notebook process`.
 - Non-whitelisted users are denied.
 - Non-text messages are rejected with a text-only explanation.
-- Command history persists to `.agentx/telegram-history.jsonl`.
+- Command history persists to `.aja/telegram-history.jsonl`.
 
 ## Phase 2: Production Approval Workflow
 
-Risky actions no longer rely on opaque confirmation prompts. AJA now creates a structured approval object and sends it to Telegram while syncing it to the dashboard queue through `.agentx/runtime-state.json`.
+Risky actions no longer rely on opaque confirmation prompts. AJA now creates a structured approval object and sends it to Telegram while syncing it to the dashboard queue through `.aja/runtime-state.json`.
 
 Approval objects include:
 
@@ -111,7 +111,7 @@ The system combines:
 
 Interfaces:
 
-- CLI: `python -m agentx memory add|list|review|complete|archive`
+- CLI: `python -m aja memory add|list|review|complete|archive`
 - FastAPI: `/memory/tasks`, `/memory/review`, `/memory/summary`
 - Telegram: `tasks`, `task review`, `complete <task_id>`, `archive <task_id>`, and natural obligation messages
 
@@ -142,7 +142,7 @@ Safety rules:
 
 Interfaces:
 
-- CLI: `python -m agentx message draft|list|approve|reject`
+- CLI: `python -m aja message draft|list|approve|reject`
 - FastAPI: `/communications`, `/communications/{message_id}/approve`, `/communications/{message_id}/send`
 - Telegram: `draft recruiter follow-up`, `approve message <id>`, `send message <id>`, `check pending unanswered messages`
 
@@ -169,7 +169,7 @@ Scheduler capabilities:
 
 Interfaces:
 
-- CLI: `python -m agentx review morning|night|weekly`
+- CLI: `python -m aja review morning|night|weekly`
 - FastAPI: `/scheduler/config`, `/scheduler/review/{kind}`, `/scheduler/run`, `/scheduler/snooze/{task_id}`
 - Telegram: `morning review`, `night review`, `weekly review`, `what am I avoiding today`, `what slipped this week`
 
@@ -198,7 +198,7 @@ Transforming execution from ephemeral scripts into a state-aware platform.
 - **Concurrent Safety**: Task-level locking prevents parallel execution collisions on the same objective.
 
 Interfaces:
-- CLI: `agentx status` (authoritative), `agentx run` (tracked)
+- CLI: `aja status` (authoritative), `aja run` (tracked)
 - Persistence: `agent/persistence/tasks.py`, `agent/persistence/tools.py`, `agent/persistence/recovery.py`
 
 ## Phase 7 (AJA Gateway): Premium Secretary Integration
@@ -218,14 +218,14 @@ Porting a resilient messaging architecture into the AJA persona.
 The system is now capable of running entirely without cloud dependencies using the **Llama Gold** local stack.
 
 - **Llama Gold Server**: High-performance `llama.cpp` backend configured for 50+ TPS on consumer hardware.
-- **Master Launcher**: `AgentX Launcher.bat` provides a one-click initialization of the entire swarm (LLM + Bridge + Dashboard + AJA).
-- **Unified Command**: `agentx.bat` provides global CLI access to the agent's core capabilities.
+- **Master Launcher**: `AJA Launcher.bat` provides a one-click initialization of the entire swarm (LLM + Bridge + Dashboard + AJA).
+- **Unified Command**: `aja.bat` provides global CLI access to the agent's core capabilities.
 - **Zero-Latency Reasoning**: Optimized for real-time Telegram response generation via local inference.
 
 Launchers:
-- **`AgentX Launcher.bat`**: Master orchestrator for production startup.
+- **`AJA Launcher.bat`**: Master orchestrator for production startup.
 - **`start_llama_gold.bat`**: Dedicated local LLM server initialization.
-- **`agentx.bat`**: Global CLI shim for `agentx-core`.
+- **`aja.bat`**: Global CLI shim for `aja-core`.
 - Specification: `docs/AJA_GATEWAY_SPEC.md`
 
 ## Phase 8: Resilient Skill System
@@ -295,7 +295,7 @@ Transitioned from one-off command execution to a robust, continuous agentic runt
 - **Operator Approval Layer**: Implementation of a pause-and-wait workflow for `HIGH` risk tasks, allowing remote `approve`/`reject`/`modify` actions and emergency CLI loop controls (`pause-loop`, `resume-loop`, `kill-task`).
 
 Interfaces:
-- CLI: `agentx run-loop`, `agentx trigger`, `agentx status`, `agentx approve/reject`, `agentx pause-loop/resume-loop`
+- CLI: `aja run-loop`, `aja trigger`, `aja status`, `aja approve/reject`, `aja pause-loop/resume-loop`
 - Logic: `agent/presence/agent_loop.py`, `agent/presence/trigger_engine.py`, `agent/presence/state.py`, `agent/presence/notifier.py`, `agent/presence/approval.py`
 
 ## Phase 10 — Execution, Control & Learning Architecture (Research-Aligned)
