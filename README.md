@@ -1,200 +1,168 @@
-# AJA & AJA
-### *The High-Performance Local-First Agentic OS*
+# AJA Runtime
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12.10-blue.svg)](https://www.python.org/)
-[![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Apache Arrow](https://img.shields.io/badge/Apache--Arrow-Binary--IPC-red.svg)](https://arrow.apache.org/)
-[![Tests](https://img.shields.io/badge/Tests-119%20passed-brightgreen.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**A local-first orchestration runtime and execution substrate for autonomous agents.**
 
-**High-Performance Autonomy for Every Machine.**
+---
 
-AJA is a high-performance orchestration core designed for autonomous swarm intelligence. While AJA handles the heavy lifting—native Rust execution, Arrow memory structures, and planning graphs—**AJA** (Assistant of Joint Agents) acts as your personal natural-language secretary, planning missions and managing your workflow via TUI, Telegram, or WebSockets.
+## 1. What AJA Runtime Is
 
-```mermaid
-graph TD
-    User([User Input]) -->|CLI / Telegram| AJA[AJA Voice: Secretary & Parser]
-    AJA -->|Cooperative Async Queue| Intent[Intent Engine & Router]
-    Intent -->|Binary Baton IPC| Swarm[AJA Swarm Engine: The Muscle]
-    Swarm -->|Hybrid Memory Stack| Memory{Memory Layer}
-    Memory -->|In-Memory JSON| TUI[TUI Working Set: MemoryTree]
-    Memory -->|SIMD Vector Store| Lance[LanceDB: Codebase & Trajectories]
-    Swarm -->|Native Rust Acceleration| RustCore[aja-native: PyO3 GIL-free Core]
+AJA Runtime is a persistent workflow engine and systems-level orchestration substrate. It provides the core execution infrastructure required to run autonomous agents reliably on local hardware. 
+
+Instead of treating agents as transient chat loops, AJA treats agentic workflows as **standard scheduled compute**. It manages state persistence, process isolation, inter-process communication (IPC), deterministic scheduling, and execution telemetry, allowing developers to build robust AI agents without fighting the underlying infrastructure.
+
+## 2. What AJA Runtime is NOT
+
+- **Not a chatbot or "Jarvis clone":** AJA is the runtime infrastructure *underneath* the assistant, not the conversational interface itself.
+- **Not "fully autonomous AGI":** We do not make speculative claims about superintelligence. This is a systems-engineering project focused on deterministic execution.
+- **Not a prompt-engineering framework:** AJA does not compete with LangChain or LlamaIndex. It focuses on the execution environment, not the LLM chain.
+
+## 3. Why AJA Exists
+
+Current agent ecosystems focus too heavily on prompt generation and too little on execution guarantees. Building reliable agents requires robust systems infrastructure: durable memory, fault-tolerant scheduling, safe execution sandboxes, and zero-copy state persistence. 
+
+AJA exists to provide this local-first execution layer. Execution infrastructure matters more than prompt orchestration when building systems that can safely modify local files, execute shell commands, and run unattended for days.
+
+## 4. Core Architecture
+
+AJA's architecture separates the runtime from the presentation layer (CLI, TUI, Telegram, Web), ensuring the core orchestration logic remains isolated and deterministic.
+
+```text
+  +-------------------+        +--------------------+
+  |  Clients / UIs    |        |  Scheduled Tasks   |
+  | (CLI, TUI, HTTP)  |        | (LanceDB + Cron)   |
+  +--------+----------+        +---------+----------+
+           |                             |
+           v                             v
+  +-------------------------------------------------+
+  |                  AJA Runtime                    |
+  |  +-----------------+       +-----------------+  |
+  |  |  Orchestration  | ----> | Trace Telemetry |  |
+  |  +-----------------+       +-----------------+  |
+  |          |                                      |
+  |          v                                      |
+  |  +-----------------+       +-----------------+  |
+  |  | Rust Baton IPC  | ----> |   Lance Store   |  |
+  |  +-----------------+       +-----------------+  |
+  +----------+--------------------------------------+
+             |
+             v
+  +-------------------------------------------------+
+  |                Execution Workers                |
+  |  [ Docker Sandbox ]   [ Direct Subprocess ]     |
+  +-------------------------------------------------+
 ```
 
-### 🧠 The Logic Flow:
-- **LLM**: The Brain (Reasoning & Action Decisions).
-- **AJA**: The Voice (Cooperative UI, Fail-Secure Telegram Gateway, FastAPI WebSocket Bridge).
-- **AJA**: The Muscle (Native Execution, High-Speed Serialization, & Swarm Performance).
+### Major Subsystems
+- **Runtime Scheduler**: Deterministic cron and duration-based scheduling backed by LanceDB.
+- **Baton IPC**: Inter-process communication using Apache Arrow for zero-copy state transfer.
+- **Orchestration Engine**: Translates high-level tasks into executable steps within strict time limits.
+- **Execution Sandbox**: Docker-based process isolation for shell commands.
+- **Trace Telemetry**: Context-variable based trace propagation for complete execution observability.
+- **Persistent Memory**: LanceDB vector and tabular stores for long-term task and event retention.
 
----
+## 5. Runtime Execution Flow
 
-## 🎯 Our Mission: Performance Without Compromise
-We believe that high-performance autonomous orchestration should not be a luxury reserved for multi-GPU clusters. AJA is engineered from the ground up to:
-- **Democratize Autonomy**: Run efficiently on standard consumer-grade hardware with zero performance degradation.
-- **Local-First Security**: Keep your state, memories, and codebase credentials local and auditable.
-- **Extreme Efficiency**: Utilize Rust-native acceleration and columnar binary state structures to maximize every CPU cycle.
+The canonical lifecycle of a task in AJA Runtime follows a strict, observable path:
 
----
+1. **Task** is created and persisted to LanceDB.
+2. **Planner** evaluates the objective and determines the steps.
+3. **Baton** containing the execution state and trace context is generated and serialized via Rust Arrow.
+4. **Worker** picks up the baton (locally or remotely).
+5. **Execution** occurs safely within the sandbox boundaries.
+6. **Telemetry** (stdout, stderr, exit codes) is emitted to the Event Sink.
+7. **Persistence** captures the final state, updating the task store and flushing the trace tree.
 
-## 🏗️ Project Structure
-AJA is organized as a clean, modular monorepo:
-- **`libs/aja-core`**: The primary Python package (`aja.*`). Contains the engine, memory caching, TUI interface, and planning logic.
-- **`packages/aja-native`**: High-performance Rust extension compiled via `maturin` and `PyO3` into a binary `.whl` targeting Python 3.12.
-- **`apps/`**: High-level applications, including the React Executive Dashboard.
-- **`tests/`**: Centralized test suite — 119 high-speed Python unit and system tests, all passing under Python 3.12.10.
-- **`.aja/`**: Local-first storage directory containing LanceDB tables, state logs, and binary mission batons.
-- **`docs/`**: Comprehensive technical documentation covering all architectural phases.
+## 6. Key Features
 
----
+- **Persistent Execution**: Tasks survive process restarts and crashes.
+- **Cron Scheduling**: Built-in deterministic job scheduling with hard interrupt limits.
+- **Arrow IPC**: O(1) state transfer overhead using Apache Arrow memory mapping.
+- **LanceDB Memory**: Unified vector and metadata storage for execution history.
+- **Trace Propagation**: Context-safe trace IDs mapped across async execution boundaries.
+- **Sandbox Execution**: Docker-isolated execution with explicit resource bounds (Memory, CPU, Network).
+- **Runtime APIs**: Clean decoupling between the core engine and external client interfaces.
 
-## 🏗️ The Pure AJA Architecture
+## 7. Current Capabilities
 
-### 1. Hybrid Memory Stack (LanceDB + MemoryTree)
-To eliminate latency bottlenecks, AJA uses a dual-tiered cache-backed data store:
-- **Conversational Working Set (`MemoryTree`)**: Conversational histories and active TUI interactions are kept in-memory for instant read/write performance.
-- **Columnar Semantic Memory (`VectorMemory` & `AJAMemory`)**: Long-term trajectories and indexed codebases are offloaded to **LanceDB**, performing SIMD-accelerated vector lookups via local sentence-transformers.
-- **Real-Time Mirroring**: Synchronizes conversational working sets instantly into a columnar `aja_chat_history` LanceDB table for persistent analytics and immediate RAG access.
- 
-### 2. Native Rust Nervous System (`aja-native`)
-Performance-critical components are compiled into a native Rust extension using `PyO3`:
-- **GIL-Free Execution**: Token calculations, semantic database directory initializations, and binary serialization bypass the Python Global Interpreter Lock.
-- **Arrow C-Data Integration**: High-speed schema conversions utilize native Arrow structures for massive throughput.
- 
-### 3. Arrow Binary Baton Protocol
- Swarm coordination uses a specialized binary **Baton Protocol**. When a sub-agent is spawned or a task is handed over:
-- State dictionaries are serialized into **Apache Arrow Tables** via `pyarrow`.
-- **Zero-Copy Memory-Mapped Handover**: Uses `pyarrow.memory_map` in `BatonManager` to map baton state files directly into physical memory, bypassing slow file read cycles and row-by-row dictionary instantiations for near-instant handover.
-- **Trace ID Propagation**: Active `trace_id` values are automatically serialized into Arrow metadata headers during capture and restored during pickup, enabling full end-to-end observability across baton handovers.
-- Includes a compiled, native PyO3 binary fallback to `aja_native.read_baton` for maximum execution safety across mixed environments.
- 
----
- 
-## 🤖 Meet AJA (The Hacker Butler)
-While **AJA** is the high-performance engine, **AJA** is your elite, local-first conversational interface. Styled with a highly natural, developer-fluent **Hacker Butler / Secretary** persona, AJA is your personal coordinator who:
-- **Polite & Proactive Executive Assistant**: Delivers structured developer briefings, plans meetings, schedules tasks, and coordinates obligations with elegant, concise, and witty communication.
-- **Plans & Delegates**: Translates your natural language intent into structured missions for the AJA swarm.
-- **Cooperative Async Telemetry**: Leverages an in-memory Pub/Sub event broker and asyncio queues to run non-blocking UI and telemetry tasks.
-- **Fail-Secure System Safeguard**: Features the **AJA Guard** to audit every shell command before execution. If safety thresholds are violated, it triggers an AI risk analysis gate. Remote Telegram controls are strictly fail-secure (deny-by-default).
-- **Real-time Mobile Sync**: Keeps your mobile device in sync with local system states using a FastAPI-powered WebSocket bridge (`/ws/mobile`).
- 
----
- 
-## ⚡ Autonomous Overdrive (Max Powers)
-AJA has been upgraded with **AJA Overdrive** capabilities, moving beyond simple task management into true autonomous engineering:
- 
-### 📂 Deep Territory RAG (Codebase Awareness)
-The engine features a recursive `TerritoryScanner` (configured via `aja.json`) that indexes specified directories into a LanceDB vector store.
-- Indexes code chunks using a **line-aware chunking strategy** to preserve code block syntax integrity.
-- Leverages local `SentenceTransformer` models, falling back to a deterministic 384D SHA-256 hash vector generator if external libraries are missing.
- 
-### 🔧 Autonomous Tool Loop
-The swarm does not just plan—it acts. Using the `ToolExecutor`, AJA can autonomously execute shell commands during its planning phase to verify environment state, list directories, check logs, or inspect dependencies, providing a self-correcting execution loop.
- 
-### 🧠 Synthetic Skill Library (Reflective Learning)
-The `ReflectionEngine` audits every completed mission. If it identifies a successful pattern:
-- It extracts a reusable **Synthetic Skill** and stores it in the `SkillStore`.
-- If a pattern is repeated 3 times, it triggers a **self-building cycle** to dynamically synthesize and compile a custom tool to automate the workflow.
- 
-### 🛡️ Self-Healing HTN (Plan Hardening)
-AJA features a rigorous structural validation layer for its Hierarchical Task Network plan graph inside `dag_validator.py`:
-- **DAG Verification**: Enforces unique node IDs, cycle detection using Kahn's algorithm, and referential integrity of HTN sub-trees.
-- **State-Flow Verification**: Simulates the state transitions of the plan, checking that all preconditions match the effects of upstream nodes, and detecting state assignment contradictions before execution.
-- **Automated HTN Healer**: Dynamically heals malformed LLM plans in-place by breaking cyclic back-edges, stripping invalid primitive children, expanding compound node dependencies into leaf primitives, and automatically injecting preceding write effects to satisfy downstream preconditions.
+**Stable & Production-Ready:**
+- Task persistence and state recovery
+- Cron scheduling and timeout enforcement
+- Baton IPC and Arrow serialization
+- Trace propagation and JSON logging
+- Isolated sandbox execution with PTY streaming
+- Execution Replay & Visualization tooling (artifact-backed workspace diffs & timeline inspection)
 
----
+**Evolving:**
+- Orchestration DAGs and multi-step planning
+- Distributed remote execution (HTTP Baton transmission)
 
-## 🆕 Product-Readiness Upgrades (Latest)
+## 8. Architecture Philosophy
 
-These six core enterprise enhancements were implemented to bring AJA to full product-readiness:
+- **Deterministic Orchestration**: The engine must predictably execute, timeout, or fail. Nondeterministic LLM calls are bounded by strict systems constraints.
+- **Observable Execution**: Every action, shell command, and decision is traced and emitted to an event sink.
+- **Explicit Ownership**: Data has single owners. The runtime owns execution; the clients own presentation.
+- **Composable Runtime APIs**: Interfaces are built for programmatic consumption by future agent frameworks.
+- **Infrastructure-First Design**: Fix the system constraints (memory, IPC, sandbox) before adding AI features.
 
-### ✅ 1. Pydantic Configuration Validation
-- [config_schema.py](libs/aja-core/aja/config_schema.py) defines strict models for all `aja.json` keys.
-- [config.py](libs/aja-core/aja/config.py) validates on every import. Invalid configs produce clean warnings and fall back to safe defaults — no silent failures.
+## 9. Rust + Python Hybrid Design
 
-### ✅ 2. Trace-Aware Observability
-- `TraceContextManager` in [telemetry.py](libs/aja-core/aja/observability/telemetry.py) tracks trace IDs across threads and async tasks using Python `contextvars`.
-- `BatonManager` in [handover.py](libs/aja-core/aja/runtime/handover.py) auto-serializes `trace_id` into Arrow metadata headers during capture, and restores them during pickup.
+AJA uses a hybrid runtime to maximize performance and developer velocity:
 
-### ✅ 3. Resilient Systems Diagnostics (`aja doctor`)
-- [diagnostics.py](libs/aja-core/aja/utils/diagnostics.py) checks config schema validity, native Rust engine, LanceDB tables, API credentials, and system resources.
-- `psutil` is a **soft dependency** — falls back gracefully to `os.cpu_count()` and `shutil.disk_usage()` if not installed.
+- **What Rust Owns**: Baton serialization (Apache Arrow), PyO3 IPC boundaries, trajectory compression, and token counting. 
+  - *Why?* Zero-copy state transfer and O(1) memory mapping completely eliminate the massive overhead of moving multi-turn LLM context windows between processes.
+- **What Python Owns**: Orchestration logic, the `asyncio` scheduling loop, client integrations, and shell execution wrappers. 
+  - *Why?* Python provides unparalleled velocity for API integrations, async I/O, and shell semantics without premature optimization.
 
-### ✅ 4. Guided Setup Wizard (`aja setup`)
-- Interactive `rich`-prompt onboarding inside [main.py](libs/aja-core/aja/main.py) scaffolds `aja.json`, `.env` keys, and LanceDB folder layout.
+## 10. Example Use Cases
 
-### ✅ 5. Safe Dry-Run Simulation (`--dry-run`)
-- Full plan simulation without executing shell commands or mutating state.
-- Every command is audited through `AJAGuard` safety classification.
-- Falls back to a safe simulated plan if LLM is offline or unauthenticated.
+- **Research Daemons**: Long-running background processes that aggregate and synthesize information over days.
+- **Local Automation**: Safe, sandboxed scripts that manage local infrastructure or file systems.
+- **Scheduled Workflows**: Recurring AI tasks (e.g., daily briefings, repository audits).
+- **Persistent Assistants**: Agents that retain long-term memory and context across reboots.
+- **Terminal-Native Orchestration**: Headless workflows triggered directly via CLI pipelines.
 
-### ✅ 6. Premium Hacker-Butler Conversational Persona
-- Refactored prompt layouts in the chat gateway (`bridge.py`), intent parser (`intent_parser.py`), and swarm orchestrator (`orchestrator.py`) to form a polite, natural **Hacker Butler & Secretary** persona.
-- Acts as a proactive task executive: coordinates schedules and calendars, summarizes code status/obligations, and presents clean structural developer briefings.
+## 11. Current Limitations
 
----
- 
-## 🛠️ Technology Stack
-- **Core Engine**: Python 3.12.10 (Global Install — `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`)
-- **Performance Layer**: Rust-native acceleration via `PyO3` & `maturin`
-- **Memory Stack**: Apache Arrow & LanceDB (SIMD-accelerated)
-- **Configuration**: Pydantic v2 schema validation
-- **Safety Layer**: AJA Guard (Command auditing & fail-secure filters) + Security audit logs
-- **Observability**: `TraceContextManager` with Arrow Baton trace propagation
-- **TUI/CLI**: Interactive terminal console utilizing `prompt_toolkit`, `rich`, and virtual Kanban boards.
-- **Dashboard**: React 19 Executive Command Center
+Please note the following architectural gaps:
+- **Resource Governance**: While sandboxing limits process space, execution policies (e.g., granular CPU limits, network egress filtering) are not yet strictly enforced.
+- **Copy-on-Write Overlays**: Complete filesystem isolation relies on patch-based diffs. Full `tmpfs` copy-on-write overlay support is pending.
 
----
+## 12. Roadmap (Next 6 Months)
 
-## 🚀 Getting Started
+1. **Execution Policy & Resource Governance**: Implement constraints for resource utilization and execution capabilities.
+2. **Copy-on-Write Workspaces**: Move from git-patch diffs to isolated `tmpfs` execution overlays for complete filesystem safety.
+3. **OpenTelemetry Integration**: Standardize the `TraceStore` to canonical OTel schemas.
+4. **API Stabilization**: Lock the schema for LanceDB TaskStore and EventSink.
 
-> **⚠️ Important**: Always use the project's **global Python 3.12.10** installation.  
-> Path: `C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe`  
-> Do **not** use Anaconda Python or any virtual environment Python.
+## 13. Project Structure
 
-### 1. Run Setup Wizard (First Time)
-Scaffold your configuration, API keys, and workspace folders interactively.
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja setup
+- `libs/aja-core/`: Python orchestration, scheduler, observability, and sandbox runtime.
+- `libs/aja-native/`: Rust implementation of Arrow IPC and high-performance state compression.
+- `tests/`: Comprehensive Python and TypeScript test suites verifying boundary integrity.
+
+## 14. Quick Start
+
+Run the systems diagnostics to verify native modules and dependencies:
+```bash
+python -m aja doctor
 ```
 
-### 2. Run System Diagnostics
-Verify your environment is fully configured and all subsystems are healthy.
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja doctor
+Launch the Curses TUI Live Dashboard:
+```bash
+python -m aja tui
 ```
 
-### 3. Launch AJA Chat
-Interact with your assistant and manage the swarm through a premium conversational loop.
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja chat
+Launch the Execution Replay Viewer:
+```bash
+python -m aja exec replay --latest
 ```
 
-### 4. Dispatch Missions
-Delegate complex objectives directly to the SwarmEngine.
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja run "Audit the project security and implement missing guardrails"
+## 15. Development
+
+Ensure you are using the global Python environment.
+
+Run Python unit tests (verifies IPC, scheduler, tracing):
+```bash
+export PYTHONPATH="libs/aja-core"
+python -m pytest tests/python
 ```
-
-### 5. Safe Dry-Run Simulation
-Preview what the swarm would do without executing any commands.
-```powershell
-$env:PYTHONIOENCODING="utf-8"; $env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja run "Perform project analysis" --dry-run
-```
-
-### 6. Monitor Swarm Health
-View real-time metrics and active baton handoffs across the Arrow memory stack.
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja status
-```
-
-### 7. Run Unit Tests
-```powershell
-$env:PYTHONPATH="libs/aja-core"; & "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python
-```
-**Expected result**: `119 passed, 1 warning`
-
----
-
-## 📜 Philosophy
-Performance is not a luxury—it is an engineering requirement. AJA proves that by prioritizing **Memory Efficiency**, **Native Execution**, **Fail-Secure Security**, and **Trace-Aware Observability**, we can deliver world-class autonomous systems on the hardware you already own.
