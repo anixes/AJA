@@ -44,11 +44,17 @@ def run_in_sandbox(cmd: str, timeout: int = 60, allow_network: bool = None) -> C
             tool_context = "cargo/build"
 
         stdout = res.get("stdout", "")
-        compacted = juice.compact(stdout, tool_context=tool_context)
+        if hasattr(juice, "compact"):
+            compacted = juice.compact(stdout, tool_context=tool_context)
+        else:
+            compacted = juice.squeeze(stdout)
         
         if len(stdout) > len(compacted):
-            stats = juice.get_stats(stdout, compacted)
-            logger.info(f"TokenJuice: {stats.reduction_percent}% reduction ({stats.original_chars} -> {stats.compacted_chars})")
+            if hasattr(juice, "get_stats"):
+                stats = juice.get_stats(stdout, compacted)
+                logger.info(f"TokenJuice: {stats.reduction_percent}% reduction ({stats.original_chars} -> {stats.compacted_chars})")
+            else:
+                logger.info("TokenJuice: compacted terminal output (%s -> %s chars)", len(stdout), len(compacted))
 
         if res["success"]:
             return CapabilityResult(

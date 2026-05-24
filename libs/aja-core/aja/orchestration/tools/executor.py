@@ -1,11 +1,13 @@
 import os
 import json
 import logging
-import subprocess
 import shlex
+import asyncio
+import threading
 from typing import List, Dict, Any, Optional
 from aja.config import PROJECT_ROOT
 from aja.security.command_guard import classify_command
+from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,48 @@ class ToolExecutor:
     def __init__(self):
         self.history = []
 
+    def _run_execution(self, command: str, cwd: str) -> Dict[str, Any]:
+        async def _run():
+            return await get_default_execution_manager().run(
+                ExecutionRequest(
+                    command=command,
+                    cwd=cwd,
+                    timeout=30,
+                    workspace_mode="isolated",
+                    metadata={"legacy_api": "ToolExecutor.execute"},
+                )
+            )
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            result = asyncio.run(_run())
+        else:
+            box: Dict[str, Any] = {}
+            err: Dict[str, BaseException] = {}
+
+            def runner():
+                try:
+                    box["result"] = asyncio.run(_run())
+                except BaseException as exc:
+                    err["error"] = exc
+
+            thread = threading.Thread(target=runner, daemon=True)
+            thread.start()
+            thread.join()
+            if err:
+                raise err["error"]
+            result = box["result"]
+
+        return {
+            "status": "success" if result.success else "failed",
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "code": result.exit_code,
+            "session_id": result.session_id,
+            "manifest_path": result.manifest_path,
+        }
+
     def execute(self, command: str, cwd: str = None) -> Dict[str, Any]:
         """Executes a single command and returns the result."""
         logger.info(f"ToolExecutor: Executing '{command}'")
@@ -33,27 +77,10 @@ class ToolExecutor:
         target_cwd = cwd or str(PROJECT_ROOT)
         
         try:
-            # We use shell=True for flexibility but with restricted environment
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=target_cwd,
-                capture_output=True,
-                text=True,
-                timeout=30 # Safety timeout
-            )
-            
-            output = {
-                "status": "success" if result.returncode == 0 else "failed",
-                "stdout": result.stdout.strip(),
-                "stderr": result.stderr.strip(),
-                "code": result.returncode
-            }
+            output = self._run_execution(command, target_cwd)
             self.history.append({"command": command, "result": output})
             return output
             
-        except subprocess.TimeoutExpired:
-            return {"status": "error", "message": "Command timed out after 30s."}
         except Exception as e:
             logger.error(f"Execution error: {e}")
             return {"status": "error", "message": str(e)}

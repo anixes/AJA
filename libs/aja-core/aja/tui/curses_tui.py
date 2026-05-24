@@ -187,6 +187,13 @@ class TerminalDashboard:
 
     def render_control_panel(self) -> RenderableType:
         skin = self.get_skin()
+        try:
+            from aja.runtime.execution import get_default_execution_manager
+
+            active_executions = get_default_execution_manager().list_active()
+            exec_state = f"{len(active_executions)} active"
+        except Exception:
+            exec_state = "unavailable"
         
         # Build layout control status
         state_text = "[bold green]ONLINE RUNNING[/]"
@@ -200,7 +207,7 @@ class TerminalDashboard:
         
         bindings_table.add_row("[S]", "Toggle Themes / Color Skins", f"Skin: [bold magenta]{skin['name']}[/]")
         bindings_table.add_row("[P]", "Pause / Interrupt Swarm", f"Engine State: {state_text}")
-        bindings_table.add_row("[R]", "Resume / Approve Next Task", "Arrow Batons: [green]Active[/]")
+        bindings_table.add_row("[R]", "Resume / Approve Next Task", f"Executions: [green]{exec_state}[/]")
         bindings_table.add_row("[Q / Ctrl+C]", "Exit & Safe Handover to Background", "PID: [green]Worker Active[/]")
         
         return Panel(

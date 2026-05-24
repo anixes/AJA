@@ -15,12 +15,14 @@ Docker flags used when available:
   -w WORKDIR      → container working directory
 """
 
-import subprocess
 import shutil
 import asyncio
+import threading
+import subprocess
 from typing import Optional
 from aja.security.permissions import default_permissions
 from aja.config import PROJECT_ROOT
+from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
 
 # ---------------------------------------------------------------------------
 # Docker availability detection
@@ -65,82 +67,45 @@ def is_safe(cmd: str) -> bool:
 # Execution helpers
 # ---------------------------------------------------------------------------
 
-def _run_in_docker(cmd: str, timeout: int, memory: str, cpus: str, workdir: str, allow_network: bool = False) -> dict:
-    """Execute *cmd* inside an isolated Docker container."""
-    host_path = str(PROJECT_ROOT.resolve())
+def _run_async_in_thread(coro_factory):
+    result = {}
+    error = {}
 
-    network_mode = "bridge" if allow_network else "none"
+    def runner():
+        try:
+            result["value"] = asyncio.run(coro_factory())
+        except Exception as exc:
+            error["value"] = exc
 
-    docker_cmd = [
-        "docker", "run", "--rm",
-        f"--network={network_mode}",
-        f"--memory={memory}",
-        f"--cpus={cpus}",
-        "-v", f"{host_path}:{workdir}",
-        "-w", workdir,
-        "python:3.10-slim",
-        "bash", "-c", cmd,
-    ]
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join()
+    if error:
+        raise error["value"]
+    return result.get("value")
+
+
+def _run_coroutine_sync(coro_factory):
     try:
-        result = subprocess.run(
-            docker_cmd, capture_output=True, text=True, timeout=timeout
-        )
-        return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.returncode,
-            "mode": "docker",
-        }
-    except subprocess.TimeoutExpired as e:
-        return {
-            "success": False,
-            "stdout": e.stdout.decode() if e.stdout else "",
-            "stderr": f"Docker command timed out after {timeout}s.",
-            "exit_code": -1,
-            "mode": "docker",
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": f"Docker execution error: {e}",
-            "exit_code": -1,
-            "mode": "docker",
-        }
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+    return _run_async_in_thread(coro_factory)
 
 
-def _run_direct(cmd: str, timeout: int) -> dict:
-    """Fallback: execute *cmd* directly via subprocess (no container isolation)."""
-    try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            timeout=timeout, cwd=str(PROJECT_ROOT)
-        )
-        return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.returncode,
-            "mode": "direct_fallback",
-            "warning": "Docker unavailable — running without container isolation.",
-        }
-    except subprocess.TimeoutExpired as e:
-        return {
-            "success": False,
-            "stdout": e.stdout.decode() if e.stdout else "",
-            "stderr": f"Command timed out after {timeout}s.",
-            "exit_code": -1,
-            "mode": "direct_fallback",
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": f"Subprocess error: {e}",
-            "exit_code": -1,
-            "mode": "direct_fallback",
-        }
+def _result_to_legacy(result, mode: str, warning: Optional[str] = None) -> dict:
+    payload = {
+        "success": result.success,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exit_code": result.exit_code,
+        "mode": mode,
+        "session_id": result.session_id,
+        "manifest_path": result.manifest_path,
+    }
+    if warning:
+        payload["warning"] = warning
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -169,10 +134,25 @@ def execute_command(
     if not is_safe(cmd):
         raise ValueError(f"Unsafe command blocked by sandbox rules: {cmd!r}")
 
-    if docker_available():
-        return _run_in_docker(cmd, timeout, memory, cpus, workdir, allow_network=allow_network)
-    else:
-        return _run_direct(cmd, timeout)
+    use_docker = docker_available()
+    warning = None if use_docker else "Docker unavailable — running in an isolated local workspace."
+
+    async def _run():
+        manager = get_default_execution_manager()
+        result = await manager.run(
+            ExecutionRequest(
+                command=cmd,
+                timeout=timeout,
+                use_docker=use_docker,
+                memory=memory,
+                cpus=cpus,
+                allow_network=allow_network,
+                metadata={"legacy_api": "runtime.sandbox.execute_command"},
+            )
+        )
+        return _result_to_legacy(result, "docker" if use_docker else "isolated_local", warning)
+
+    return _run_coroutine_sync(_run)
 
 
 async def execute_command_async(
@@ -184,12 +164,20 @@ async def execute_command_async(
     allow_network: bool = False,
 ) -> dict:
     """Async-safe command execution wrapper for event-loop callers."""
-    return await asyncio.to_thread(
-        execute_command,
-        cmd,
-        timeout=timeout,
-        memory=memory,
-        cpus=cpus,
-        workdir=workdir,
-        allow_network=allow_network,
+    if not is_safe(cmd):
+        raise ValueError(f"Unsafe command blocked by sandbox rules: {cmd!r}")
+
+    use_docker = docker_available()
+    result = await get_default_execution_manager().run(
+        ExecutionRequest(
+            command=cmd,
+            timeout=timeout,
+            use_docker=use_docker,
+            memory=memory,
+            cpus=cpus,
+            allow_network=allow_network,
+            metadata={"legacy_api": "runtime.sandbox.execute_command_async"},
+        )
     )
+    warning = None if use_docker else "Docker unavailable — running in an isolated local workspace."
+    return _result_to_legacy(result, "docker" if use_docker else "isolated_local", warning)

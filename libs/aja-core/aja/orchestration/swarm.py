@@ -390,11 +390,16 @@ class SwarmEngine:
             return baton_data
 
         start_time = time.time()
-        process = await asyncio.to_thread(
-            subprocess.run,
-            [PYTHON, "-m", "aja.agents.worker", str(baton_path)],
-            capture_output=True,
-            text=True,
+        from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
+
+        worker_cmd = f'"{PYTHON}" -m aja.agents.worker "{baton_path}"'
+        process = await get_default_execution_manager().run(
+            ExecutionRequest(
+                command=worker_cmd,
+                timeout=180,
+                workspace_mode="direct",
+                metadata={"legacy_api": "SwarmEngine._execute_baton_worker"},
+            )
         )
         latency = time.time() - start_time
 
@@ -402,7 +407,7 @@ class SwarmEngine:
         baton_data["worker_stdout"] = process.stdout.strip()
         baton_data["worker_stderr"] = process.stderr.strip()
 
-        if process.returncode != 0:
+        if process.exit_code != 0:
             baton_data["status"] = "failed"
             baton_data["stage"] = "dispatch_failed"
             baton_data["error"] = process.stderr.strip() or "Worker process non-zero exit code."

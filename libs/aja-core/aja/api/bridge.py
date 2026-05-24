@@ -848,23 +848,23 @@ async def run_shell_command(command: str):
             "output": f"Execution blocked: {classification['reasons'][0]}"
         }
 
-    def _run():
-        return subprocess.run(
-            command,
-            cwd=str(PROJECT_ROOT),
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=TELEGRAM_COMMAND_TIMEOUT,
-        )
+    from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
 
-    result = await asyncio.to_thread(_run)
+    result = await get_default_execution_manager().run(
+        ExecutionRequest(
+            command=command,
+            cwd=str(PROJECT_ROOT),
+            timeout=TELEGRAM_COMMAND_TIMEOUT,
+            workspace_mode="isolated",
+            metadata={"legacy_api": "api.bridge.run_shell_command"},
+        )
+    )
     output = result.stdout.strip()
     if result.stderr.strip():
         output = f"{output}\nErrors:\n{result.stderr.strip()}".strip()
     return {
-        "ok": result.returncode == 0,
-        "code": result.returncode,
+        "ok": result.success,
+        "code": result.exit_code,
         "output": compact_text(output),
     }
 
