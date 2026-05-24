@@ -79,7 +79,7 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
     if os.getenv("TELEGRAM_TOKEN"):
         secrets.append("Telegram Token set")
     else:
-        secrets.append("Telegram Token missing (Remote AJA secretary disabled)")
+        secrets.append("Telegram Token missing (remote assistant client disabled)")
 
     has_keys = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
     checks.append(("API & Credentials", has_keys, " | ".join(secrets)))

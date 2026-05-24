@@ -22,8 +22,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from agentx.security.stripper import CommandStripper
-from agentx.security.command_guard import classify_command
 from agentx.config import PROJECT_ROOT
+from agentx.api.routes import attach_route_groups
+from agentx.api.services.command_policy import analyze_shell_command as analyze_shell_command_policy
+from agentx.api.services.legacy_dashboard import dashboard_unavailable_payload
 from agentx.memory.secretary import (
     AJAMemory,
     get_aja_memory,
@@ -60,6 +62,7 @@ async def lifespan(app: FastAPI):
             pass
 
 app = FastAPI(lifespan=lifespan)
+attach_route_groups(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -732,7 +735,7 @@ def build_supported_command(text: str):
 
 
 def analyze_shell_command(command: str):
-    return classify_command(command)
+    return analyze_shell_command_policy(command)
 
 
 def normalize_risk_level(level: str):
@@ -2379,7 +2382,7 @@ async def approve_pending():
         if chat_id:
             await send_telegram_message(chat_id, f"Dashboard approved {pending.get('id')}.\n{result['message']}")
         return result
-    return run_runtime_action("approve")
+    return await asyncio.to_thread(run_runtime_action, "approve")
 
 
 @app.post("/runtime/deny", dependencies=[Depends(verify_token)])
@@ -2394,7 +2397,7 @@ async def deny_pending():
         if chat_id:
             await send_telegram_message(chat_id, f"Dashboard rejected {pending.get('id')}.")
         return result
-    return run_runtime_action("deny")
+    return await asyncio.to_thread(run_runtime_action, "deny")
 
 
 @app.get("/runtime/approvals/audit/{approval_id}", dependencies=[Depends(verify_token)])
@@ -2445,12 +2448,13 @@ async def swarm_run(request: Request):
     }
     try:
         BATON_DIR.mkdir(parents=True, exist_ok=True)
-        brief_file.write_text(json.dumps(brief_data, indent=2), encoding="utf-8")
+        await asyncio.to_thread(brief_file.write_text, json.dumps(brief_data, indent=2), encoding="utf-8")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to write delegation brief: {exc}") from exc
 
     try:
-        proc = subprocess.Popen(
+        proc = await asyncio.to_thread(
+            subprocess.Popen,
             [sys.executable, "-m", "agentx.orchestration.swarm", "--mode", "baton", "--objective", objective, "--worker", worker_id],
             cwd=str(PROJECT_ROOT),
             stdout=subprocess.PIPE,
@@ -2590,15 +2594,10 @@ async def telegram_polling_loop():
 
 
 def start_dashboard():
-    """Utility to launch the AJA Dashboard in the background."""
-    from agentx.config import PROJECT_ROOT
-    dashboard_path = PROJECT_ROOT / "apps" / "dashboard"
-    if dashboard_path.exists():
-        print(f"[*] Launching AJA Dashboard from {dashboard_path}...")
-        # Use shell=True on Windows for npm
-        subprocess.Popen(["npm", "run", "dev"], cwd=dashboard_path, shell=(os.name == 'nt'))
-    else:
-        print(f"[!] Dashboard not found at {dashboard_path}")
+    """Compatibility shim for the deprecated dashboard launcher."""
+    payload = dashboard_unavailable_payload()
+    print(f"[!] {payload['message']} ({payload['path']})")
+    return payload
 
 if __name__ == "__main__":
     import uvicorn

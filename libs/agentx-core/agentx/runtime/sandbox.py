@@ -17,6 +17,7 @@ Docker flags used when available:
 
 import subprocess
 import shutil
+import asyncio
 from typing import Optional
 from agentx.security.permissions import default_permissions
 from agentx.config import PROJECT_ROOT
@@ -172,3 +173,23 @@ def execute_command(
         return _run_in_docker(cmd, timeout, memory, cpus, workdir, allow_network=allow_network)
     else:
         return _run_direct(cmd, timeout)
+
+
+async def execute_command_async(
+    cmd: str,
+    timeout: int = 60,
+    memory: str = "256m",
+    cpus: str = "0.5",
+    workdir: str = "/workspace",
+    allow_network: bool = False,
+) -> dict:
+    """Async-safe command execution wrapper for event-loop callers."""
+    return await asyncio.to_thread(
+        execute_command,
+        cmd,
+        timeout=timeout,
+        memory=memory,
+        cpus=cpus,
+        workdir=workdir,
+        allow_network=allow_network,
+    )

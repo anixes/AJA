@@ -4,7 +4,7 @@ from agentx.goals.goal_engine import goal_engine
 from agentx.config import TELEGRAM_ALLOWED_USER_ID
 from agentx.interface.intent_parser import parse_intent
 from agentx.interface.telegram_listener import async_send_telegram_message
-from agentx.memory.secretary import AJAMemory
+from agentx.runtime.events import LanceRuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _send_telegram_report(message: str):
         extra={"message_length": len(message or "")},
     )
     try:
-        AJAMemory().add_runtime_event(
+        LanceRuntimeEventSink().emit(
             {
                 "event_type": "LEGACY_TELEGRAM_REPORT",
                 "tool": "intent_engine",

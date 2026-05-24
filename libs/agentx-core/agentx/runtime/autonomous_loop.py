@@ -7,25 +7,25 @@ import sys
 sys.path.append(os.getcwd())
 
 from agentx.runtime.lancedb_logger import lancedb_logger
-from agentx.memory.secretary import AJAMemory
+from agentx.runtime.lance_stores import LanceRuntimeStore
 
 async def publish_heartbeats(memory, worker_id):
     """Periodically publishes the heartbeat to LanceDB in a background async loop."""
     while True:
         try:
-            memory.publish_heartbeat(worker_id, name="AJA Worker")
+            memory.publish_heartbeat(worker_id, name="AgentX Worker")
         except Exception as e:
             print(f"[!] Heartbeat publish error: {e}")
         await asyncio.sleep(10)
 
 async def main_loop():
     print("[*] Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
-    memory = AJAMemory()
+    memory = LanceRuntimeStore()
     worker_id = "local-terminal-worker"
     
     # Publish initial heartbeat synchronously to mark worker ONLINE immediately
     try:
-        memory.publish_heartbeat(worker_id, name="AJA Worker")
+        memory.publish_heartbeat(worker_id, name="AgentX Worker")
         print("[*] Initial heartbeat published.")
     except Exception as e:
         print(f"[!] Initial heartbeat publish error: {e}")
@@ -46,7 +46,7 @@ async def main_loop():
     # 3. Setup goal engine
     from agentx.goals.goal_engine import goal_engine
     
-    print(f"[*] AJA Autonomous Worker Started (ID: {worker_id})")
+    print(f"[*] AgentX Autonomous Worker Started (ID: {worker_id})")
     
     while True:
         try:

@@ -24,6 +24,7 @@ def execute_task_sync(session: Session, task: str):
     
     node = MockNode()
     bus.publish(EVENTS["NODE_STARTED"], node)
+    import time
     time.sleep(1)
     bus.publish(EVENTS["NODE_SUCCESS"], node)
     

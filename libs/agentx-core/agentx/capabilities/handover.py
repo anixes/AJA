@@ -1,5 +1,5 @@
 from .base import Capability, CapabilityResult
-from agentx.runtime.handover import HandoverManager
+from agentx.runtime.handover import BatonManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ class HandoverCapability(Capability):
     }
 
     def __init__(self):
-        self.manager = HandoverManager()
+        self.manager = BatonManager()
 
     def execute(self, inputs: dict) -> CapabilityResult:
         action = inputs.get("action")
@@ -26,7 +26,8 @@ class HandoverCapability(Capability):
             if not state:
                 return CapabilityResult(success=False, output={}, error="Missing 'current_state' to handover")
             
-            code = self.manager.create_handover(state)
+            objective = inputs.get("objective") or state.get("objective") or state.get("goal") or "session handover"
+            code = self.manager.capture(objective, state)
             return CapabilityResult(
                 success=True, 
                 output={
@@ -40,7 +41,7 @@ class HandoverCapability(Capability):
             if not code:
                 return CapabilityResult(success=False, output={}, error="Missing handover 'code'")
             
-            state = self.manager.pickup_handover(code)
+            state = self.manager.pickup(code)
             if not state:
                 return CapabilityResult(success=False, output={}, error="Invalid or expired handover code")
             

@@ -6,7 +6,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from agentx.memory.secretary import AJAMemory, utc_now
+from agentx.observability.telemetry import TraceContextManager, get_trace_id
+from agentx.runtime.events import LanceRuntimeEventSink, RuntimeEventSink
+from agentx.runtime.task_store import LanceRuntimeTaskStore, RuntimeTaskStore
 
 logger = logging.getLogger("agentx.scheduler.cron_scheduler")
 
@@ -98,16 +100,45 @@ def parse_duration_to_seconds(expr: str) -> Optional[float]:
 
 class CronScheduler:
     """
-    Enterprise-grade Cron & Duration Task Scheduler for AgentX (AJA).
-    Saves job definitions in the unified LanceDB `aja_tasks` table.
+    Deterministic cron and duration task scheduler for AgentX runtime.
+    Persists through an injected runtime task store and emits observable events
+    through an injected event sink.
     Enforces a 3-minute hard interrupt limit on scheduled executions.
     """
     
-    def __init__(self, check_interval: float = 1.0):
+    def __init__(
+        self,
+        check_interval: float = 1.0,
+        store: Optional[RuntimeTaskStore] = None,
+        event_sink: Optional[RuntimeEventSink] = None,
+    ):
         self.check_interval = check_interval
         self._running = False
         self._task = None
-        self.memory = AJAMemory()
+        self.store = store or LanceRuntimeTaskStore()
+        self.event_sink = event_sink or LanceRuntimeEventSink()
+        self._execution_tasks: Dict[str, asyncio.Task] = {}
+        self._running_jobs: set[str] = set()
+        # Compatibility for callers/tests that reached into the old concrete field.
+        self.memory = self.store
+
+    def _emit_event(
+        self,
+        event_type: str,
+        message: str,
+        level: str = "info",
+        metadata: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+    ) -> None:
+        payload = {
+            "event_type": event_type,
+            "tool": "cron_scheduler",
+            "message": message,
+            "level": level,
+            "trace_id": trace_id or get_trace_id(),
+            "metadata": metadata or {},
+        }
+        self.event_sink.emit(payload)
 
     def add_job(self, goal: str, schedule_expr: str) -> Dict[str, Any]:
         """Registers and persists a new scheduled job in LanceDB."""
@@ -135,18 +166,18 @@ class CronScheduler:
         }
         
         logger.info(f"Persisting scheduled job {tid} with schedule '{schedule_expr}' in LanceDB")
-        return self.memory.create_task(job_data)
+        return self.store.create_task(job_data)
 
     def pause_job(self, job_id: str) -> bool:
         """Pauses a scheduled job by updating its metadata or status."""
-        job = self.memory.get_task(job_id)
+        job = self.store.get_task(job_id)
         if not job or job.get("owner") != "scheduler":
             return False
             
         meta = json.loads(job["metadata_json"]) if job.get("metadata_json") else {}
         meta["paused"] = True
         
-        self.memory.update_task(job_id, {
+        self.store.update_task(job_id, {
             "status": "scheduled_paused",
             "metadata_json": json.dumps(meta)
         })
@@ -155,14 +186,14 @@ class CronScheduler:
 
     def resume_job(self, job_id: str) -> bool:
         """Resumes a paused scheduled job."""
-        job = self.memory.get_task(job_id)
+        job = self.store.get_task(job_id)
         if not job or job.get("owner") != "scheduler":
             return False
             
         meta = json.loads(job["metadata_json"]) if job.get("metadata_json") else {}
         meta["paused"] = False
         
-        self.memory.update_task(job_id, {
+        self.store.update_task(job_id, {
             "status": "scheduled",
             "metadata_json": json.dumps(meta)
         })
@@ -171,11 +202,11 @@ class CronScheduler:
 
     def delete_job(self, job_id: str) -> bool:
         """Deletes a scheduled job by removing or archiving it."""
-        job = self.memory.get_task(job_id)
+        job = self.store.get_task(job_id)
         if not job or job.get("owner") != "scheduler":
             return False
             
-        self.memory.update_task(job_id, {
+        self.store.update_task(job_id, {
             "status": "archived"
         })
         logger.info(f"Deleted/archived scheduled job {job_id}")
@@ -183,7 +214,7 @@ class CronScheduler:
 
     def list_jobs(self) -> List[Dict[str, Any]]:
         """Returns all active and paused scheduled jobs from LanceDB."""
-        all_tasks = self.memory.list_tasks(statuses=["scheduled", "scheduled_paused"])
+        all_tasks = self.store.list_tasks(statuses=["scheduled", "scheduled_paused"])
         jobs = []
         for t in all_tasks:
             if t.get("owner") == "scheduler":
@@ -198,63 +229,81 @@ class CronScheduler:
                 })
         return jobs
 
-    async def _execute_job(self, job_id: str, goal: str):
+    async def _execute_job(self, job_id: str, goal: str, run_id: str, trace_id: str):
         """Executes a single job with a hard 3-minute timeout limit."""
-        logger.info(f"Starting execution of scheduled task: '{goal}'")
-        
-        # Emit event to LanceDB runtime events
-        self.memory.add_runtime_event({
-            "event_type": "SCHEDULER_JOB_START",
-            "tool": "cron_scheduler",
-            "message": f"Executing scheduled job: {goal}",
-            "level": "info"
-        })
-        
-        from agentx.orchestration.swarm import SwarmEngine
-        from agentx.config import CONFIG
-        engine = SwarmEngine()
-        
-        try:
-            # Enforce the 3-minute hard interrupt limit
-            if CONFIG.swarm_settings.direct_execution:
-                await asyncio.wait_for(engine.execute_direct(goal), timeout=180.0)
-            else:
-                await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=180.0)
-            
-            logger.info(f"Successfully completed scheduled task: '{goal}'")
-            self.memory.add_runtime_event({
-                "event_type": "SCHEDULER_JOB_SUCCESS",
-                "tool": "cron_scheduler",
-                "message": f"Successfully completed job: {goal}",
-                "level": "info"
-            })
-        except asyncio.TimeoutError:
-            logger.error(f"Execution of scheduled task '{goal}' timed out after 3 minutes!")
-            self.memory.add_runtime_event({
-                "event_type": "SCHEDULER_JOB_TIMEOUT",
-                "tool": "cron_scheduler",
-                "message": f"Job execution exceeded 3-minute limit (hard interrupted): {goal}",
-                "level": "error"
-            })
-        except Exception as e:
-            logger.exception(f"Error executing scheduled task '{goal}': {e}")
-            self.memory.add_runtime_event({
-                "event_type": "SCHEDULER_JOB_ERROR",
-                "tool": "cron_scheduler",
-                "message": f"Job execution error: {e}",
-                "level": "error"
-            })
+        with TraceContextManager(trace_id):
+            logger.info(f"Starting execution of scheduled task: '{goal}'")
+            self._emit_event(
+                "SCHEDULER_JOB_START",
+                f"Executing scheduled job: {goal}",
+                metadata={"job_id": job_id, "run_id": run_id},
+            )
+
+            from agentx.orchestration.swarm import SwarmEngine
+            from agentx.config import CONFIG
+
+            engine = SwarmEngine()
+
+            try:
+                # Enforce the 3-minute hard interrupt limit
+                if CONFIG.swarm_settings.direct_execution:
+                    await asyncio.wait_for(engine.execute_direct(goal), timeout=180.0)
+                else:
+                    await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=180.0)
+
+                logger.info(f"Successfully completed scheduled task: '{goal}'")
+                self._emit_event(
+                    "SCHEDULER_JOB_SUCCESS",
+                    f"Successfully completed job: {goal}",
+                    metadata={"job_id": job_id, "run_id": run_id},
+                )
+            except asyncio.CancelledError:
+                self._emit_event(
+                    "SCHEDULER_JOB_CANCELLED",
+                    f"Scheduled job cancelled: {goal}",
+                    level="warning",
+                    metadata={"job_id": job_id, "run_id": run_id},
+                )
+                raise
+            except asyncio.TimeoutError:
+                logger.error(f"Execution of scheduled task '{goal}' timed out after 3 minutes!")
+                self._emit_event(
+                    "SCHEDULER_JOB_TIMEOUT",
+                    f"Job execution exceeded 3-minute limit (hard interrupted): {goal}",
+                    level="error",
+                    metadata={"job_id": job_id, "run_id": run_id},
+                )
+            except Exception as e:
+                logger.exception(f"Error executing scheduled task '{goal}': {e}")
+                self._emit_event(
+                    "SCHEDULER_JOB_ERROR",
+                    f"Job execution error: {e}",
+                    level="error",
+                    metadata={"job_id": job_id, "run_id": run_id},
+                )
+            finally:
+                self._running_jobs.discard(job_id)
+                self._execution_tasks.pop(job_id, None)
+                try:
+                    job = self.store.get_task(job_id)
+                    if job and job.get("metadata_json"):
+                        meta = json.loads(job["metadata_json"])
+                        meta.pop("active_run_id", None)
+                        meta.pop("active_trace_id", None)
+                        self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
+                except Exception:
+                    logger.exception("Failed to clear active scheduler metadata for %s", job_id)
 
     async def tick_loop(self):
         """Infinite loop checking schedules and triggering due tasks."""
         logger.info("Cron scheduler tick loop started")
         while self._running:
             try:
-                now_dt = datetime.now()
+                now_dt = datetime.now(timezone.utc)
                 now_ts = time.time()
                 
                 # Fetch only active scheduled tasks
-                scheduled_tasks = self.memory.list_tasks(status="scheduled")
+                scheduled_tasks = self.store.list_tasks(status="scheduled")
                 
                 for task in scheduled_tasks:
                     if task.get("owner") != "scheduler":
@@ -283,16 +332,49 @@ class CronScheduler:
                                 is_due = True
                                 
                     if is_due:
+                        job_id = task["task_id"]
+                        if job_id in self._running_jobs:
+                            self._emit_event(
+                                "SCHEDULER_JOB_SKIPPED_OVERLAP",
+                                f"Skipped overlapping scheduled job: {task['context']}",
+                                level="warning",
+                                metadata={"job_id": job_id},
+                            )
+                            continue
+
                         logger.info(f"Triggering scheduled job {task['task_id']}: '{task['context']}'")
+                        run_id = f"run-{uuid.uuid4().hex[:8]}"
+                        trace_id = f"tr-sched-{uuid.uuid4().hex[:12]}"
                         
                         # Immediately update last_run to prevent double triggers
                         meta["last_run"] = now_ts
-                        self.memory.update_task(task["task_id"], {
+                        meta["active_run_id"] = run_id
+                        meta["active_trace_id"] = trace_id
+                        self.store.update_task(task["task_id"], {
                             "metadata_json": json.dumps(meta)
                         })
+
+                        self._running_jobs.add(job_id)
+                        self._emit_event(
+                            "SCHEDULER_JOB_DUE",
+                            f"Scheduled job due: {task['context']}",
+                            metadata={"job_id": job_id, "run_id": run_id},
+                            trace_id=trace_id,
+                        )
                         
                         # Spawn task execution asynchronously in the background
-                        asyncio.create_task(self._execute_job(task["task_id"], task["context"]))
+                        exec_task = asyncio.create_task(
+                            self._execute_job(job_id, task["context"], run_id, trace_id),
+                            name=f"agentx-scheduler-{job_id}-{run_id}",
+                        )
+                        self._execution_tasks[job_id] = exec_task
+
+                        def _clear_owned_task(done_task: asyncio.Task, completed_job_id: str = job_id):
+                            self._execution_tasks.pop(completed_job_id, None)
+                            if done_task.cancelled():
+                                self._running_jobs.discard(completed_job_id)
+
+                        exec_task.add_done_callback(_clear_owned_task)
                         
             except Exception as e:
                 logger.error(f"Error in scheduler tick loop: {e}")
@@ -312,4 +394,13 @@ class CronScheduler:
             self._running = False
             if self._task:
                 self._task.cancel()
+            for task in list(self._execution_tasks.values()):
+                task.cancel()
             logger.info("Scheduler stopped successfully")
+
+    async def stop_async(self):
+        """Stops the scheduler and waits for owned tasks to settle."""
+        self.stop()
+        owned_tasks = [t for t in [self._task, *self._execution_tasks.values()] if t]
+        if owned_tasks:
+            await asyncio.gather(*owned_tasks, return_exceptions=True)

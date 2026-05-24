@@ -5,3 +5,6 @@ pythonpath = [
 testpaths = [
   "tests/python"
 ]
+addopts = [
+  "--basetemp=libs/agentx-core/temp_batons/pytest-full"
+]

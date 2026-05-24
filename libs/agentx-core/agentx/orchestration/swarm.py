@@ -12,13 +12,8 @@ from agentx.config import PROJECT_ROOT
 from agentx.orchestration.gateway import LLMGateway
 from agentx.orchestration.registry import WorkerRegistry
 from agentx.orchestration.verification_engine import run_verification
+from agentx.runtime.handover import read_baton_ipc, write_baton_ipc
 from agentx.utils.health_check import get_resource_telemetry
-
-try:
-    import agentx_native
-except ImportError:
-    print("Warning: agentx_native not found. Fallback not implemented since strict Rust native is required by SPEC.", file=sys.stderr)
-    agentx_native = None
 
 PYTHON = sys.executable
 
@@ -34,23 +29,17 @@ def append_baton_history(baton_data, stage, message):
     baton_data["updated_at"] = now_iso()
 
 def write_baton(path: Path, baton_data):
-    if agentx_native:
-        agentx_native.write_baton_ipc(str(path), json.dumps(baton_data))
-    else:
-        path.write_text(json.dumps(baton_data, indent=2))
+    write_baton_ipc(path, baton_data)
 
 def read_baton(path: Path):
-    if agentx_native and str(path).endswith(".arrow"):
-        return json.loads(agentx_native.read_baton_ipc(str(path)))
-    else:
-        return json.loads(path.read_text(encoding="utf-8"))
+    return read_baton_ipc(path)
 
 class SwarmEngine:
     """
     Unified Swarm Engine for AgentX.
     Orchestrates workers, manages batons, and enforces Phase 6 verification logic.
     """
-    def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3", dry_run: bool = False):
+    def __init__(self, provider: str = "nvidia", key: str = "dummy", model: str = "llama-3", dry_run: bool = False, presenter=None):
         import os
         from agentx.config import AGENTX_PLANNER_MODEL
         
@@ -65,6 +54,10 @@ class SwarmEngine:
         self.provider = self.gateway.provider
         self.workers = {}
         self.registry = WorkerRegistry()
+        if presenter is None:
+            from agentx.gateway.presenter import AJAPresenter
+            presenter = AJAPresenter()
+        self.presenter = presenter
         # Using the unified BatonManager location
         self.baton_dir = PROJECT_ROOT / ".agentx" / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
@@ -82,21 +75,8 @@ class SwarmEngine:
         from agentx.orchestration.tools.executor import ToolExecutor
         executor = ToolExecutor()
         
-        # 2. Build AJA Assistant Prompt
-        system_prompt = (
-            "You are AJA (Assistant of Joint Agents), an elite hacker-butler, personal secretary, "
-            "and operator operating directly in-process on the user's terminal.\n"
-            "You have direct execution access to local filesystem and shell commands.\n"
-            "Your objective is to accomplish the user's task using direct tooling execution.\n\n"
-            "CONVERSATIONAL PERSONA:\n"
-            "- Speak like a premium hacker-butler. Be extremely polite, refined, loyal, wittingly concise, "
-            "and speak with absolute developer fluency (use terms like 'Sir', 'My friend', 'Operator').\n\n"
-            "INSTRUCTIONS:\n"
-            "1. Output your thought process and suggest standard shell/terminal commands inside ```bash or ```sh blocks to run next.\n"
-            "2. If you suggest a command, it will be executed immediately, and the results (stdout, stderr) will be fed back to you.\n"
-            "3. If you have completed the task or no further commands are needed, write your final response/synthesis and do not output any more commands.\n"
-            "4. NEVER output raw forbidden words or reference deprecated components."
-        )
+        # 2. Build client-specific prompt through the presenter boundary.
+        system_prompt = self.presenter.direct_system_prompt
 
         history = [
             {"role": "user", "content": f"Please execute this task directly: {objective}"}
@@ -126,8 +106,7 @@ class SwarmEngine:
                 console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
                 break
 
-            # Print AJA's thought process/message
-            console.print(f"\n[bold cyan]AJA:[/] {response.strip()}")
+            self.presenter.assistant(response)
             
             # Record LLM's response to history
             history.append({"role": "assistant", "content": response})
@@ -148,14 +127,14 @@ class SwarmEngine:
                         commands.append(cmd)
             
             if not commands:
-                # No more commands suggested, AJA has finished!
+                # No more commands suggested; direct execution has finished.
                 console.print(f"\n[bold green][+] Direct In-Process task completed successfully.[/bold green]")
                 break
             
             # Execute each suggested command
             all_completed_successfully = True
             for cmd in commands:
-                console.print(f"\n[bold cyan][*] [Direct Execution] Running command:[/] [yellow]{cmd}[/]")
+                self.presenter.command(cmd)
                 
                 # Check dry-run
                 if self.dry_run:
@@ -268,8 +247,8 @@ class SwarmEngine:
         
         # ── Power 4: Deep Territory RAG ──
         try:
-            from agentx.memory.secretary import get_aja_memory
-            mem = get_aja_memory()
+            from agentx.runtime.lance_stores import LanceRuntimeStore
+            mem = LanceRuntimeStore()
             # Generate dummy query vector (should be real if we had a local embedder)
             query_vec = [0.0] * 384 
             # In a real run, we'd use self.gateway.embed(objective)
@@ -411,9 +390,11 @@ class SwarmEngine:
             return baton_data
 
         start_time = time.time()
-        process = subprocess.run(
+        process = await asyncio.to_thread(
+            subprocess.run,
             [PYTHON, "-m", "agentx.agents.worker", str(baton_path)],
-            capture_output=True, text=True
+            capture_output=True,
+            text=True,
         )
         latency = time.time() - start_time
 

@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 import random
 import string
@@ -8,12 +9,71 @@ import agentx_native
 from pathlib import Path
 from typing import Dict, Any, Optional
 from agentx.config import PROJECT_ROOT
+from agentx.runtime.baton_types import MissionBatonPayload, WorkerBatonPayload
 
 _IN_MEMORY_BATONS = {}
 _BATON_LOCK = threading.Lock()
+_MAX_IN_MEMORY_BATONS = 128
+_IN_MEMORY_BATON_TTL_SECONDS = 3600
 
 
 logger = logging.getLogger(__name__)
+
+
+def _cache_baton(code: str, buffer: Any) -> None:
+    now = time.time()
+    with _BATON_LOCK:
+        stale_codes = [
+            cached_code
+            for cached_code, (cached_at, _cached_buffer) in _IN_MEMORY_BATONS.items()
+            if now - cached_at > _IN_MEMORY_BATON_TTL_SECONDS
+        ]
+        for cached_code in stale_codes:
+            _IN_MEMORY_BATONS.pop(cached_code, None)
+
+        _IN_MEMORY_BATONS[code] = (now, buffer)
+
+        while len(_IN_MEMORY_BATONS) > _MAX_IN_MEMORY_BATONS:
+            oldest_code = min(_IN_MEMORY_BATONS, key=lambda item: _IN_MEMORY_BATONS[item][0])
+            _IN_MEMORY_BATONS.pop(oldest_code, None)
+
+
+def _get_cached_baton(code: str) -> Optional[Any]:
+    now = time.time()
+    with _BATON_LOCK:
+        cached = _IN_MEMORY_BATONS.get(code)
+        if cached is None:
+            return None
+        cached_at, buffer = cached
+        if now - cached_at > _IN_MEMORY_BATON_TTL_SECONDS:
+            _IN_MEMORY_BATONS.pop(code, None)
+            return None
+        return buffer
+
+
+def write_baton_ipc(path: Path, baton_data: Dict[str, Any]) -> None:
+    """
+    Write a worker baton through the runtime-owned native IPC boundary.
+
+    This keeps orchestration code from importing agentx_native directly while
+    preserving the legacy JSON-payload Arrow schema used by worker batons.
+    """
+    try:
+        agentx_native.write_baton_ipc(str(path), WorkerBatonPayload(baton_data).to_json())
+    except Exception as e:
+        logger.exception("Failed to write worker baton IPC state to %s", path)
+        raise RuntimeError(f"Failed to write worker baton IPC state: {path}") from e
+
+
+def read_baton_ipc(path: Path) -> Dict[str, Any]:
+    """
+    Read a worker baton through the runtime-owned native IPC boundary.
+    """
+    try:
+        return WorkerBatonPayload.from_json(agentx_native.read_baton_ipc(str(path))).data
+    except Exception as e:
+        logger.exception("Failed to read worker baton IPC state from %s", path)
+        raise RuntimeError(f"Failed to read worker baton IPC state: {path}") from e
 
 
 class HandoverManager:
@@ -52,23 +112,21 @@ class BatonManager(HandoverManager):
         # ARROW TABLE SERIALIZATION (Handled by Rust Core)
         arrow_path = baton_path.with_suffix(".arrow")
 
-        history = orchestrator_state.get("history", [])
-        run_id = orchestrator_state.get("run_id", "unknown")
-        
         # Trace propagation: inject the active trace_id into baton metadata
         from agentx.observability.telemetry import get_trace_id
         metadata = dict(orchestrator_state.get("metadata", {}))
         metadata["trace_id"] = get_trace_id()
+        payload = MissionBatonPayload.from_state(
+            objective,
+            {
+                **orchestrator_state,
+                "metadata": metadata,
+            },
+        )
 
         # Call the high-performance Rust function
         try:
-            agentx_native.write_baton(
-                str(arrow_path),
-                objective,
-                run_id,
-                json.dumps(history),
-                json.dumps(metadata),
-            )
+            agentx_native.write_baton(str(arrow_path), *payload.to_native_args())
         except Exception as e:
             logger.exception("Failed to write baton Arrow state to %s", arrow_path)
             raise RuntimeError(f"Failed to write baton Arrow state: {arrow_path}") from e
@@ -84,9 +142,9 @@ class BatonManager(HandoverManager):
             ])
             batch = pa.RecordBatch.from_arrays([
                 pa.array([objective], type=pa.string()),
-                pa.array([run_id], type=pa.string()),
-                pa.array([json.dumps(history)], type=pa.string()),
-                pa.array([json.dumps(metadata)], type=pa.string()),
+                pa.array([payload.run_id], type=pa.string()),
+                pa.array([json.dumps(payload.history)], type=pa.string()),
+                pa.array([json.dumps(payload.metadata)], type=pa.string()),
             ], schema=schema)
 
             sink = pa.BufferOutputStream()
@@ -94,8 +152,7 @@ class BatonManager(HandoverManager):
                 writer.write_batch(batch)
             buffer = sink.getvalue()
 
-            with _BATON_LOCK:
-                _IN_MEMORY_BATONS[code] = buffer
+            _cache_baton(code, buffer)
         except Exception as pyarrow_err:
             logger.warning("Failed in-memory Arrow serialization: %s", pyarrow_err)
 
@@ -112,9 +169,7 @@ class BatonManager(HandoverManager):
         Leverages native memory mapping for extreme zero-copy read speed.
         """
         # Check in-memory baton cache first for sub-millisecond zero-copy retrieval
-        buffer = None
-        with _BATON_LOCK:
-            buffer = _IN_MEMORY_BATONS.get(code)
+        buffer = _get_cached_baton(code)
 
         if buffer is not None:
             try:
@@ -123,10 +178,13 @@ class BatonManager(HandoverManager):
                 with pa.BufferReader(buffer) as source:
                     reader = pa.ipc.open_file(source)
                     batch = reader.read_all().to_batches()[0]
-                    state["objective"] = batch.column(0)[0].as_py()
-                    state["run_id"] = batch.column(1)[0].as_py()
-                    state["history"] = json.loads(batch.column(2)[0].as_py())
-                    state["metadata"] = json.loads(batch.column(3)[0].as_py())
+                    payload = MissionBatonPayload(
+                        objective=batch.column(0)[0].as_py(),
+                        run_id=batch.column(1)[0].as_py(),
+                        history=json.loads(batch.column(2)[0].as_py()),
+                        metadata=json.loads(batch.column(3)[0].as_py()),
+                    )
+                    state = payload.to_state()
 
                 # Thaw and restore trace_id from the loaded metadata
                 if "metadata" in state:
@@ -156,18 +214,18 @@ class BatonManager(HandoverManager):
                     with pa.memory_map(str(arrow_path), mode="r") as source:
                         reader = pa.ipc.open_file(source)
                         batch = reader.read_all().to_batches()[0]
-                        state["objective"] = batch.column(0)[0].as_py()
-                        state["run_id"] = batch.column(1)[0].as_py()
-                        state["history"] = json.loads(batch.column(2)[0].as_py())
-                        state["metadata"] = json.loads(batch.column(3)[0].as_py())
+                        payload = MissionBatonPayload(
+                            objective=batch.column(0)[0].as_py(),
+                            run_id=batch.column(1)[0].as_py(),
+                            history=json.loads(batch.column(2)[0].as_py()),
+                            metadata=json.loads(batch.column(3)[0].as_py()),
+                        )
+                        state = payload.to_state()
                 except Exception as mmap_err:
                     logger.warning("Failed zero-copy memory-mapped read, falling back to standard read: %s", mmap_err)
                     try:
                         rust_state = agentx_native.read_baton(str(arrow_path))
-                        state["objective"] = rust_state["objective"]
-                        state["run_id"] = rust_state["run_id"]
-                        state["history"] = json.loads(rust_state["history_json"])
-                        state["metadata"] = json.loads(rust_state["metadata_json"])
+                        state = MissionBatonPayload.from_native_dict(rust_state).to_state()
                     except Exception as e:
                         logger.exception("Failed to read baton Arrow state from %s", arrow_path)
                         raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
@@ -228,6 +286,10 @@ class BatonManager(HandoverManager):
             logger.error(f"Error transmitting baton {code} to {endpoint_url}: {e}")
             return False
 
+    async def transmit_baton_async(self, code: str, endpoint_url: str) -> bool:
+        """Async-safe wrapper for remote baton transmission."""
+        return await asyncio.to_thread(self.transmit_baton, code, endpoint_url)
+
     def receive_baton(self, payload_dict: Dict[str, Any]) -> str:
         """
         Receives a remote baton payload, deserializes it, and saves it locally.
@@ -253,8 +315,7 @@ class BatonManager(HandoverManager):
         try:
             import pyarrow as pa
             buffer = pa.py_buffer(arrow_data)
-            with _BATON_LOCK:
-                _IN_MEMORY_BATONS[code] = buffer
+            _cache_baton(code, buffer)
         except Exception as e:
             logger.warning("Failed to cache received baton in memory: %s", e)
             
@@ -273,6 +334,12 @@ class BatonManager(HandoverManager):
                         arrow_path = baton_path.with_suffix(".arrow")
                         if arrow_path.exists():
                             arrow_path.unlink()
+                        with _BATON_LOCK:
+                            _IN_MEMORY_BATONS.pop(data.get("code", baton_path.stem.removeprefix("baton_")), None)
             except Exception:
                 logger.exception("Failed to clean up baton %s", baton_path)
 
+    def clear_memory_cache(self):
+        """Clear the process-local baton cache owned by this runtime."""
+        with _BATON_LOCK:
+            _IN_MEMORY_BATONS.clear()

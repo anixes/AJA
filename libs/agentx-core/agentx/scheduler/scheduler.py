@@ -1,6 +1,8 @@
 import time
 import threading
 
+LEGACY_CLIENT_SURFACE = True
+
 class ScheduledTask:
     def __init__(self, task_id: str, goal: str, interval: float, last_run: float = 0.0, paused: bool = False):
         self.id = task_id
@@ -66,8 +68,8 @@ class AutonomousScheduler:
         return True
         
     def _notify_telegram(self, message: str):
-        # Mock Telegram integration
-        print(f"[Telegram Bot] {message}")
+        # Legacy compatibility surface. New runtime schedulers emit events.
+        print(f"[Legacy Telegram Scheduler] {message}")
 
     def loop(self):
         while self._running:

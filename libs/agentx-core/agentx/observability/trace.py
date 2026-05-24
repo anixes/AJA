@@ -71,8 +71,8 @@ class TraceStore:
 trace_store = TraceStore()
 
 # Hook into EventBus
-bus.subscribe(EVENTS["NODE_STARTED"], lambda n: trace_store.record(EVENTS["NODE_STARTED"], n))
-bus.subscribe(EVENTS["NODE_SUCCESS"], lambda n: trace_store.record(EVENTS["NODE_SUCCESS"], n))
-bus.subscribe(EVENTS["NODE_FAILED"],  lambda n: trace_store.record(EVENTS["NODE_FAILED"], n))
-bus.subscribe(EVENTS["ROLLBACK"],     lambda n: trace_store.record(EVENTS["ROLLBACK"], n))
-bus.subscribe(EVENTS["REPAIR"],       lambda n: trace_store.record(EVENTS["REPAIR"], n))
+bus.subscribe_once(EVENTS["NODE_STARTED"], lambda n: trace_store.record(EVENTS["NODE_STARTED"], n), "trace:NODE_STARTED")
+bus.subscribe_once(EVENTS["NODE_SUCCESS"], lambda n: trace_store.record(EVENTS["NODE_SUCCESS"], n), "trace:NODE_SUCCESS")
+bus.subscribe_once(EVENTS["NODE_FAILED"],  lambda n: trace_store.record(EVENTS["NODE_FAILED"], n), "trace:NODE_FAILED")
+bus.subscribe_once(EVENTS["ROLLBACK"],     lambda n: trace_store.record(EVENTS["ROLLBACK"], n), "trace:ROLLBACK")
+bus.subscribe_once(EVENTS["REPAIR"],       lambda n: trace_store.record(EVENTS["REPAIR"], n), "trace:REPAIR")

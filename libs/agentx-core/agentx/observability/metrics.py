@@ -76,7 +76,7 @@ metrics_system = MetricsSystem()
 
 # We can wire this up to EventBus as well
 from agentx.runtime.event_bus import bus, EVENTS
-bus.subscribe(EVENTS["NODE_SUCCESS"], lambda n: metrics_system.record_success())
-bus.subscribe(EVENTS["NODE_FAILED"], lambda n: metrics_system.record_failure())
-bus.subscribe(EVENTS["ROLLBACK"], lambda n: metrics_system.record_rollback())
-bus.subscribe(EVENTS["REPAIR"], lambda n: metrics_system.record_repair())
+bus.subscribe_once(EVENTS["NODE_SUCCESS"], lambda n: metrics_system.record_success(), "metrics:NODE_SUCCESS")
+bus.subscribe_once(EVENTS["NODE_FAILED"], lambda n: metrics_system.record_failure(), "metrics:NODE_FAILED")
+bus.subscribe_once(EVENTS["ROLLBACK"], lambda n: metrics_system.record_rollback(), "metrics:ROLLBACK")
+bus.subscribe_once(EVENTS["REPAIR"], lambda n: metrics_system.record_repair(), "metrics:REPAIR")

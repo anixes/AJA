@@ -1,11 +1,14 @@
+"""Legacy mobile websocket bridge kept for compatibility tests and clients."""
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import List, Any
 import asyncio
-import json
 from agentx.presence.state import get_system_state
 from agentx.runtime.event_bus import bus, EVENTS
+from agentx.runtime.broadcast import dispatch_broadcast, event_message
 
 app = FastAPI(title="Agent Mobile Bridge")
+LEGACY_CLIENT_SURFACE = True
 
 class ConnectionManager:
     def __init__(self):
@@ -36,47 +39,11 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-def make_serializable(obj: Any) -> Any:
-    if hasattr(obj, "to_dict") and callable(obj.to_dict):
-        return obj.to_dict()
-    if hasattr(obj, "model_dump") and callable(obj.model_dump):
-        return obj.model_dump()
-    if isinstance(obj, dict):
-        return {k: make_serializable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
-        return [make_serializable(x) for x in obj]
-    return obj
-
 def handle_event_bus_event(event_type: str, payload: Any):
     """Synchronous bridge to route global events to the active WebSocket broadcast pool."""
-    message = json.dumps({
-        "type": "event_broadcast",
-        "event_type": event_type,
-        "data": make_serializable(payload)
-    })
+    message = event_message(event_type, payload)
     
-    # Attempt to broadcast using all possible async context strategies
-    try:
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(manager.broadcast(message), loop)
-            return
-    except RuntimeError:
-        pass
-
-    try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        if loop.is_running():
-            loop.create_task(manager.broadcast(message))
-        else:
-            loop.run_until_complete(manager.broadcast(message))
-    except RuntimeError:
-        try:
-            asyncio.run(manager.broadcast(message))
-        except Exception:
-            pass
-    except Exception:
-        pass
+    dispatch_broadcast(lambda: manager.broadcast(message))
 
 # Subscribe manager dynamically to all core EventBus events
 for et in EVENTS.values():

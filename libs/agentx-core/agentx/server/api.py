@@ -1,7 +1,7 @@
 """
 agentx/server/api.py
 =====================
-FastAPI server for Agent.
+Legacy FastAPI server for Agent.
 
 Wave 3 OITL endpoints added:
   POST /hitl/approve            - approve pending node (optionally override inputs)
@@ -19,8 +19,10 @@ from typing import Any, Dict, Optional
 from agentx.runtime.session import session_manager
 from agentx.runtime.event_bus import bus, EVENTS
 import agentx.config
+from agentx.runtime.broadcast import dispatch_broadcast
 
 app = FastAPI(title="Agent Core Server")
+LEGACY_CLIENT_SURFACE = True
 
 
 # ---------------------------------------------------------------------------
@@ -259,9 +261,7 @@ def broadcast_event(event_name, data):
     node_id = data.get("node_id", "unknown") if isinstance(data, dict) else getattr(data, "id", "unknown")
     tool = getattr(data, "tool", "unknown") if not isinstance(data, dict) else "unknown"
     msg = json.dumps({"event": event_name, "node_id": node_id, "tool": tool})
-    loop = get_event_loop()
-    if loop and loop.is_running():
-        asyncio.create_task(manager.broadcast(msg))
+    dispatch_broadcast(lambda: manager.broadcast(msg))
 
 
 bus.subscribe(EVENTS["NODE_STARTED"], lambda n: broadcast_event("NODE_STARTED", n))

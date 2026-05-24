@@ -7,9 +7,9 @@ from agentx.config import PROJECT_ROOT
 
 HANDOVER_DB = PROJECT_ROOT / ".agentx" / "handover.json"
 
-class HandoverManager:
+class ClientHandoverManager:
     """
-    agent-inspired Session Handover Protocol.
+    Client session handover protocol.
     Generates One-Time Codes (OTC) to bridge terminal sessions to Assistant mobile.
     """
     def __init__(self):
@@ -54,3 +54,8 @@ class HandoverManager:
         now = time.time()
         db = {k: v for k, v in db.items() if v["expires_at"] > now}
         HANDOVER_DB.write_text(json.dumps(db, indent=2))
+
+
+# Backward-compatible alias for client/UI code that still imports the old name.
+# Runtime Arrow batons live in agentx.runtime.handover.BatonManager.
+HandoverManager = ClientHandoverManager

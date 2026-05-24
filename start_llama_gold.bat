@@ -12,7 +12,7 @@ if exist "%~dp0.env" (
 
 :: Set defaults if not provided in .env
 if "%LLAMA_SERVER_BIN%"=="" SET "LLAMA_SERVER_BIN=%USERPROFILE%\.gemini\antigravity\scratch\llama-bin\llama-server.exe"
-if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=E:\llama_models\gemma-4-E2B-it-Q4_K_M.gguf"
+if "%LLAMA_MODEL_PATH%"=="" SET "LLAMA_MODEL_PATH=E:\llama_models\gemma-4-E4B-it-Q4_K_M.gguf"
 
 echo [GOLD] Optimizing GPU clocks (if available)...
 :: Optional optimization commands
@@ -42,7 +42,7 @@ if not exist "%LLAMA_MODEL_PATH%" (
 :: Launch with optimized parameters
 "%LLAMA_SERVER_BIN%" ^
   -m "%LLAMA_MODEL_PATH%" ^
-  -ngl 100 ^
+  -ngl 20 ^
   -t 8 ^
   -np 1 ^
   -c 32768 ^
@@ -57,6 +57,8 @@ if not exist "%LLAMA_MODEL_PATH%" (
   --port 8080 ^
   --host 0.0.0.0 ^
   --reasoning auto ^
-  --reasoning-budget 1024
+  --reasoning-budget 1024 ^
+  --spec-type ngram-cache ^
+  --spec-draft-n-max 4
 
 pause

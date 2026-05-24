@@ -575,6 +575,8 @@ class AJAMemory:
             "kind": kind,
             "target": target,
             "status": "success" if status else "failed",
+            "message": str(metadata.get("message", "")),
+            "command": str(metadata.get("command", "")),
             "metadata_json": json.dumps(metadata),
             "timestamp": utc_now(),
         }

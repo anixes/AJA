@@ -13,8 +13,13 @@ desktop.ini
 
 # --- AgentX Runtime Data (DO NOT COMMIT) ---
 .agentx/
+.agentx_history
+.understand-anything/
+.pytest-agentx/
+.pytest-tmp/
 .gsd/
 temp_batons/
+**/temp_batons/
 scratch/
 graphify-out/
 .graphify*

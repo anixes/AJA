@@ -189,7 +189,8 @@ class UnifiedGateway:
         print(f"AgentX: Spawning sub-agent '{agent_id}' with mission baton '{code}'")
 
         # Detached background process
-        subprocess.Popen(
+        await asyncio.to_thread(
+            subprocess.Popen,
             [sys.executable, "-m", "agentx", "pickup", code],
             start_new_session=True,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
