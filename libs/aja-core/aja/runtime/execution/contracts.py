@@ -109,6 +109,7 @@ class ExecutionManifest:
     schema_version: str = "1.0"
     workspace: Optional[WorkspaceSnapshot] = None
     environment: Dict[str, Any] = field(default_factory=dict)
+    applied_limits: Dict[str, Any] = field(default_factory=dict)
     process: ProcessSnapshot = field(default_factory=ProcessSnapshot)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -122,6 +123,7 @@ class ExecutionManifest:
         cwd: str,
         backend: str,
         workspace: Optional[WorkspaceSnapshot],
+        applied_limits: Optional[Dict[str, Any]] = None,
     ) -> "ExecutionManifest":
         return cls(
             session_id=session_id,
@@ -133,6 +135,7 @@ class ExecutionManifest:
             backend=backend,
             schema_version="1.0",
             workspace=workspace,
+            applied_limits=applied_limits or {},
             environment={
                 "platform": platform.platform(),
                 "python": sys.version.split()[0],

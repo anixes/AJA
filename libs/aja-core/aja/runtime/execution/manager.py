@@ -22,6 +22,7 @@ from aja.runtime.execution.contracts import (
     ExecutionStreamEvent,
     utc_now,
 )
+from aja.runtime.execution.governance import GovernancePolicy, create_posix_preexec_fn
 from aja.runtime.execution.supervisor import snapshot_process, terminate_tree
 from aja.runtime.execution.workspace import WorkspaceManager
 
@@ -34,12 +35,14 @@ class ExecutionManager:
         project_root: Optional[Path] = None,
         event_sink: Optional[RuntimeEventSink] = None,
         workspace_manager: Optional[WorkspaceManager] = None,
+        governance_policy: Optional[GovernancePolicy] = None,
     ):
         self.project_root = (project_root or PROJECT_ROOT).resolve()
         self.base_dir = self.project_root / ".aja" / "executions"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.event_sink = event_sink or NullRuntimeEventSink()
         self.workspace_manager = workspace_manager or WorkspaceManager(self.project_root)
+        self.governance = governance_policy or GovernancePolicy()
         self._sessions: Dict[str, ExecutionSession] = {}
         self._lock = asyncio.Lock()
 
@@ -132,29 +135,37 @@ class ExecutionManager:
         final_state: ExecutionState = "failed"
         exit_code = -1
         error: Optional[str] = None
-        backend = "docker" if session.request.use_docker else self._backend_name()
+
+        # Apply Governance Policy Limits
+        limits = self.governance.apply(session.request)
+        backend = "docker" if limits.use_docker else self._backend_name()
 
         try:
             await self._set_state(session, "starting", "Execution session starting")
             workspace = self.workspace_manager.create(session.session_id, session.request.workspace_mode)
             session.workspace = workspace
             cwd = self._resolve_cwd(session.request.cwd, workspace)
+            
             manifest = ExecutionManifest.create(
-                session.session_id,
-                session.request,
-                session.trace_id,
-                session.run_id,
-                cwd,
-                backend,
-                workspace,
+                session_id=session.session_id,
+                request=session.request,
+                trace_id=session.trace_id,
+                run_id=session.run_id,
+                cwd=cwd,
+                backend=backend,
+                workspace=workspace,
+                applied_limits=limits.to_dict(),
             )
             self._write_json(session.manifest_path, manifest.to_dict())
             await self._emit(session, "EXECUTION_WORKSPACE_CREATED", "Workspace prepared", {"workspace": workspace.to_dict()})
             await self._set_state(session, "running", "Execution session running")
 
-            command, shell = self._command_for_request(session.request, workspace)
+            command, shell = self._command_for_request(session.request, workspace, limits)
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            preexec_fn = None if os.name == "nt" else os.setsid
+            
+            # Apply POSIX resource limits if executing locally without Docker
+            preexec_fn = create_posix_preexec_fn(limits) if not limits.use_docker else (None if os.name == "nt" else os.setsid)
+            
             env = os.environ.copy()
             env.update(session.request.env)
             env["AJA_EXECUTION_SESSION_ID"] = session.session_id
@@ -213,7 +224,7 @@ class ExecutionManager:
             if proc.stderr:
                 readers.append(asyncio.create_task(self._read_stream(session, "stderr", proc.stderr, stderr_chunks)))
             try:
-                await asyncio.wait_for(proc.wait(), timeout=session.request.timeout)
+                await asyncio.wait_for(proc.wait(), timeout=limits.timeout)
                 if session.state in {"cancelled", "timeout", "force_kill", "graceful_shutdown"}:
                     final_state = "cancelled" if session.state in {"cancelled", "force_kill", "graceful_shutdown"} else "timeout"
                     exit_code = -1
@@ -222,7 +233,7 @@ class ExecutionManager:
                     exit_code = int(proc.returncode or 0)
                     final_state = "completed" if exit_code == 0 else "failed"
             except asyncio.TimeoutError:
-                error = f"Command timed out after {session.request.timeout}s."
+                error = f"Command timed out after {limits.timeout}s."
                 await self._shutdown_process(session, "timeout")
                 exit_code = -1
                 final_state = "timeout"
@@ -393,17 +404,17 @@ class ExecutionManager:
         session.timeline.append(event)
         self._append_text(session.root / "timeline.jsonl", json.dumps(event, default=str) + "\n")
 
-    def _command_for_request(self, request: ExecutionRequest, workspace: Any) -> tuple[Any, bool]:
-        if not request.use_docker:
+    def _command_for_request(self, request: ExecutionRequest, workspace: Any, limits: Any) -> tuple[Any, bool]:
+        if not limits.use_docker:
             return request.command, request.shell
-        network = "bridge" if request.allow_network else "none"
+        network = "bridge" if limits.allow_network else "none"
         docker_cmd = [
             "docker",
             "run",
             "--rm",
             f"--network={network}",
-            f"--memory={request.memory}",
-            f"--cpus={request.cpus}",
+            f"--memory={limits.memory_str}",
+            f"--cpus={limits.cpus}",
             "-v",
             f"{workspace.execution_root}:/workspace",
             "-w",

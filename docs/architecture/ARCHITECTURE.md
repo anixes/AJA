@@ -55,4 +55,5 @@ Rust owns state serialization (Apache Arrow), PyO3 IPC boundaries, high-throughp
 
 1. **Explicit Data Ownership**: No global mutable state exists outside of the LanceDB stores and the strictly-locked `_IN_MEMORY_BATONS` buffer.
 2. **Protocolized Persistence**: The orchestration engine does not know about LanceDB; it speaks to a `RuntimeTaskStore` protocol.
-3. **Deterministic Constraints**: Tasks are bounded by time (e.g., hard 3-minute timeouts) and resources (sandbox constraints). Nondeterminism introduced by LLM planners must be caged by the deterministic runtime loop.
+3. **Deterministic Constraints**: Tasks are bounded by time (e.g., hard 3-minute timeouts) and resources (sandbox constraints). Nondeterminism introduced by LLM planners must be caged by the deterministic runtime loop. See [Resource Governance](file:///d:/AgenticAI/Project1(no-name)/docs/architecture/GOVERNANCE.md) for enforcement details.
+

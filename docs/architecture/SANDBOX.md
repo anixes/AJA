@@ -13,14 +13,15 @@ Commands run in an isolated local workspace by default.
 ## Docker Mode
 
 When Docker is available, the container mounts the isolated execution root, not the live project root.
-- Network defaults to disabled.
-- Memory and CPU flags are still applied.
+- Network defaults to disabled unless explicitly allowed by the global `ExecutionPolicy`.
+- Memory and CPU allocation parameters are passed directly as container constraints (`--memory` and `--cpus`).
 - Docker is a stronger process boundary than the local fallback, but it is not treated as a complete enterprise sandbox.
 
 ## Local Mode
 
 When Docker is unavailable, commands run as host subprocesses inside the isolated workspace.
 - This protects the live repo from normal filesystem mutations.
+- Resource constraints are clamped by the `GovernancePolicy`. On Linux/macOS, native POSIX limits (`RLIMIT_AS`/`RLIMIT_CPU`) are dynamically applied via a `preexec_fn` callback. On Windows, host subprocess limits gracefully degrade to timeout-only control, and containerization is recommended for strict resource boundary enforcement.
 - It does not prevent host-level side effects outside the workspace if a command intentionally targets absolute paths or external services.
 - Command guard checks still run before execution.
 

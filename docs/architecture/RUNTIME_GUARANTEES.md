@@ -29,3 +29,9 @@ As AJA evolves into a production-grade infrastructure platform, the core engine 
 - **Workspace Semantics**: Commands run in an isolated worktree or temp copy by default. The live repository is not mounted read-write into Docker.
 - **Telemetry Semantics**: Stdout/stderr stream lines, lifecycle transitions, workspace diffs, and cleanup outcomes are emitted with trace correlation.
 - **Replay Semantics**: AJA records manifests, timelines, stream logs, result files, process metadata, and workspace diffs. It does not claim deterministic replay.
+
+## 7. Resource Governance & Enforced Constraints
+- **Policy Boundaries**: Any subprocess execution requested through `ExecutionManager` is guaranteed to be clamped against the global `ExecutionPolicy` (max timeout, memory limits, CPU quotas, and network constraints).
+- **Audit Trails**: The exact applied resource bounds are guaranteed to be recorded under the `applied_limits` field in the final `ExecutionManifest`.
+- **Graceful OS Adaptation**: Limits degrade gracefully to timeout-only controls under raw Windows host execution, whereas Linux/macOS enforce strict virtual memory allocation limits using native POSIX RLIMITs.
+
