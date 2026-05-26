@@ -1,0 +1,100 @@
+name: AJA Runtime CI/CD
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+permissions:
+  contents: read
+
+jobs:
+  # Crate & Extension Wheels Compilation
+  build_wheels:
+    name: Build Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, x86_64-apple-darwin
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            packages/aja-native/target/
+          key: cargo-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml') }}
+          restore-keys: cargo-${{ matrix.os }}-
+
+      - name: Install Maturin
+        run: pip install maturin pytest anyio
+
+      - name: Build Crate Binary Extension
+        working-directory: packages/aja-native
+        run: maturin build --release --out ../../dist
+
+      - name: Upload Built Wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: aja-native-wheels-${{ matrix.os }}
+          path: dist/*.whl
+
+  # Hardened Runtime Smoke Tests
+  test_runtime:
+    name: Runtime Integration (${{ matrix.os }})
+    needs: build_wheels
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download compiled wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: aja-native-wheels-${{ matrix.os }}
+          path: dist
+
+      - name: Install Local Crate Wheel & Dev Dependencies
+        run: |
+          pip install --find-links=dist aja-native
+          pip install pytest anyio psutil
+
+      - name: Diagnostic Verification (doctor checks)
+        env:
+          PYTHONPATH: "libs/aja-core"
+        run: python -m aja doctor
+
+      - name: Run Execution Stream Transport Tests
+        env:
+          PYTHONPATH: "libs/aja-core"
+        run: python -m pytest tests/python/test_execution_stream_runtime.py

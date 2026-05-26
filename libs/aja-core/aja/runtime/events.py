@@ -4,6 +4,37 @@ from typing import Any, Dict, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Canonical execution event-type constants.
+# Every event type written to a timeline.jsonl MUST appear here.
+# This is the authoritative vocabulary for journal events.
+# ---------------------------------------------------------------------------
+EXECUTION_EVENTS: Dict[str, str] = {
+    # FSM lifecycle
+    "EXECUTION_STATE_CHANGED":          "EXECUTION_STATE_CHANGED",
+    # Workspace
+    "EXECUTION_WORKSPACE_CREATED":      "EXECUTION_WORKSPACE_CREATED",
+    "EXECUTION_WORKSPACE_DIFF":         "EXECUTION_WORKSPACE_DIFF",
+    "EXECUTION_WORKSPACE_DIFF_FAILED":  "EXECUTION_WORKSPACE_DIFF_FAILED",
+    "EXECUTION_WORKSPACE_CLEANED":      "EXECUTION_WORKSPACE_CLEANED",
+    "EXECUTION_WORKSPACE_CLEANUP_FAILED": "EXECUTION_WORKSPACE_CLEANUP_FAILED",
+    # Process
+    "EXECUTION_PROCESS_STARTED":        "EXECUTION_PROCESS_STARTED",
+    "EXECUTION_PROCESS_EXITED":         "EXECUTION_PROCESS_EXITED",
+    # Streams
+    "EXECUTION_STDOUT":                 "EXECUTION_STDOUT",
+    "EXECUTION_STDERR":                 "EXECUTION_STDERR",
+    # Errors
+    "EXECUTION_ERROR":                  "EXECUTION_ERROR",
+    # Session terminal events
+    "EXECUTION_SESSION_FINISHED":       "EXECUTION_SESSION_FINISHED",
+    # Phase 1: Crash-orphan detection — emitted when a session with no terminal
+    # event is discovered on manager startup (process died mid-run).
+    "EXECUTION_SESSION_CRASHED":        "EXECUTION_SESSION_CRASHED",
+    # Durable activities (Phase 2+)
+    "EXECUTION_ACTIVITY":               "EXECUTION_ACTIVITY",
+}
+
 
 @dataclass(frozen=True)
 class RuntimeEvent:

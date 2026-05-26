@@ -768,12 +768,34 @@ def show_help():
 [yellow]doctor[/]             → Run diagnostics
 [yellow]metrics[/]            → View performance
 [yellow]exec[/] <cmd>          → Inspect execution sessions, timelines, and diffs
+[yellow]rebuild-projections[/] → Rebuild derived LanceDB read projections
     """
     console.print(Panel(help_text, title="AJA Command Suite", border_style="cyan"))
 
 
-# ---------------------------------------------------------------------------
-# Main Router
+def cmd_rebuild_projections():
+    """
+    Rebuild derived LanceDB read projections from append-only journals.
+    """
+    print_info("Rebuilding derived LanceDB projections from append-only journals...")
+    
+    # Rebuild mission projections
+    try:
+        from aja.runtime.mission_journal import rebuild_all_mission_projections
+        rebuild_all_mission_projections()
+        print_success("Mission read-projections successfully rebuilt.")
+    except Exception as e:
+        print_error(f"Failed to rebuild mission projections: {e}")
+        
+    # Rebuild scheduler projections
+    try:
+        from aja.runtime.scheduler_journal import rebuild_scheduler_projections
+        rebuild_scheduler_projections()
+        print_success("Scheduler read-projections successfully rebuilt.")
+    except Exception as e:
+        print_error(f"Failed to rebuild scheduler projections: {e}")
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -817,6 +839,8 @@ def main():
         from aja.tui.curses_tui import run_curses_tui_main
 
         asyncio.run(run_curses_tui_main(dry_run=dry_run))
+    elif cmd == "rebuild-projections":
+        cmd_rebuild_projections()
     elif cmd == "help" or cmd == "--help" or cmd == "-h":
         show_help()
     else:

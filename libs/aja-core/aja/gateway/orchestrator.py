@@ -114,6 +114,14 @@ class UnifiedGateway:
                 for h in history_sorted
             ]
 
+        # Performance Audit: Profile token count of all messages inside a single PyO3 batch crossing
+        try:
+            texts_to_count = [msg["content"] for msg in messages if isinstance(msg.get("content"), str)]
+            batch_counts = aja_native.count_tokens_batch(texts_to_count)
+            logger.info(f"AJA [Batch Native]: Counted tokens for {len(texts_to_count)} turns in 1 crossing. Total: {sum(batch_counts)}")
+        except Exception as e:
+            logger.warning(f"Batch token counting skipped: {e}")
+
         # Analyze trajectory with Rust core
         analysis_json = self.trajectory_manager.analyze(
             json.dumps(messages), self.context_threshold, 2, 2

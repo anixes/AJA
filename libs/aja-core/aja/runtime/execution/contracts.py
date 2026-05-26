@@ -44,6 +44,49 @@ class ExecutionRequest:
     use_pty: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Full lossless serialization — every field included for journal persistence."""
+        return {
+            "command": self.command,
+            "timeout": self.timeout,
+            "cwd": self.cwd,
+            "env": dict(self.env),
+            "shell": self.shell,
+            "allow_network": self.allow_network,
+            "use_docker": self.use_docker,
+            "docker_image": self.docker_image,
+            "memory": self.memory,
+            "cpus": self.cpus,
+            "workspace_mode": self.workspace_mode,
+            "stdin": self.stdin,
+            "use_pty": self.use_pty,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionRequest":
+        """Reconstruct a fully-typed ExecutionRequest from a persisted dict.
+
+        Tolerant of missing keys so pre-Phase-1 manifests still deserialize
+        without raising (missing fields get their dataclass defaults).
+        """
+        return cls(
+            command=data.get("command", ""),
+            timeout=float(data.get("timeout", 60.0)),
+            cwd=data.get("cwd"),
+            env=dict(data.get("env") or {}),
+            shell=bool(data.get("shell", True)),
+            allow_network=bool(data.get("allow_network", False)),
+            use_docker=bool(data.get("use_docker", False)),
+            docker_image=str(data.get("docker_image", "python:3.10-slim")),
+            memory=str(data.get("memory", "256m")),
+            cpus=str(data.get("cpus", "0.5")),
+            workspace_mode=data.get("workspace_mode", "isolated"),
+            stdin=data.get("stdin"),
+            use_pty=bool(data.get("use_pty", False)),
+            metadata=dict(data.get("metadata") or {}),
+        )
+
 
 @dataclass
 class ProcessSnapshot:
@@ -122,7 +165,7 @@ class ExecutionManifest:
         run_id: Optional[str],
         cwd: str,
         backend: str,
-        workspace: Optional[WorkspaceSnapshot],
+        workspace: Optional["WorkspaceSnapshot"],
         applied_limits: Optional[Dict[str, Any]] = None,
     ) -> "ExecutionManifest":
         return cls(
@@ -142,7 +185,9 @@ class ExecutionManifest:
                 "pid": os.getpid(),
                 "executable": sys.executable,
             },
-            metadata=dict(request.metadata),
+            # Phase 1: Persist full ExecutionRequest so rehydration is lossless.
+            # The 'request' key is separate from 'metadata' to avoid collisions.
+            metadata={"request": request.to_dict(), **dict(request.metadata)},
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -176,6 +221,25 @@ class ExecutionResult:
         return data
 
 
+class StateTransitionError(RuntimeError):
+    """Raised when an invalid state transition is attempted inside ExecutionSession."""
+    pass
+
+
+ALLOWED_TRANSITIONS: Dict[ExecutionState, set[ExecutionState]] = {
+    "created": {"starting"},
+    "starting": {"running", "failed", "cancelled"},
+    "running": {"graceful_shutdown", "completed", "failed", "cancelled", "timeout"},
+    "graceful_shutdown": {"force_kill", "cancelled", "timeout"},
+    "force_kill": {"cancelled", "timeout"},
+    "completed": set(),
+    "failed": set(),
+    "cancelled": set(),
+    "timeout": set(),
+    "cleanup_failed": set(),
+}
+
+
 @dataclass
 class ExecutionSession:
     session_id: str
@@ -197,6 +261,28 @@ class ExecutionSession:
     process: Any = None
     workspace: Optional[WorkspaceSnapshot] = None
     result: Optional[ExecutionResult] = None
+
+    def transition_to(self, target: ExecutionState, emitter: Optional[Any] = None) -> None:
+        """Enforces FSM constraints on state modifications and journals the transition event."""
+        current = self.state
+        allowed = ALLOWED_TRANSITIONS.get(current, set())
+        if target not in allowed and target != current:
+            raise StateTransitionError(
+                f"Invalid FSM state transition: Cannot shift ExecutionSession from '{current}' to '{target}'."
+            )
+        
+        self.state = target
+        if emitter is not None:
+            emitter.emit(
+                "EXECUTION_STATE_CHANGED",
+                {
+                    "event_type": "execution.transition",
+                    "from": current,
+                    "to": target,
+                    "state": target,
+                    "message": f"Execution shifted from {current} to {target}",
+                },
+            )
 
     def snapshot(self) -> Dict[str, Any]:
         return {

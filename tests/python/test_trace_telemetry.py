@@ -87,3 +87,40 @@ def test_trace_propagation_via_baton(tmp_path):
     assert thawed is not None
     assert thawed["metadata"]["trace_id"] == "tr-propagated123"
     assert get_trace_id() == "tr-propagated123"
+
+
+@pytest.mark.anyio
+async def test_zero_context_leakage_concurrent(tmp_path):
+    """Verify that using pickup_scope concurrently in sibling tasks maintains strict trace isolation."""
+    manager = BatonManager()
+    manager.baton_dir = tmp_path
+
+    # Capture baton 1 under trace A
+    code_a = manager.capture("Objective A", {"run_id": "run_a", "history": [], "metadata": {}}, trace_id="tr-trace-AAAA")
+    # Capture baton 2 under trace B
+    code_b = manager.capture("Objective B", {"run_id": "run_b", "history": [], "metadata": {}}, trace_id="tr-trace-BBBB")
+
+    _trace_id_ctx.set(None)
+    results = {}
+
+    async def task_a():
+        with manager.pickup_scope(code_a) as thawed_a:
+            import anyio
+            await anyio.sleep(0.05)
+            results["a"] = get_trace_id()
+
+    async def task_b():
+        with manager.pickup_scope(code_b) as thawed_b:
+            import anyio
+            await anyio.sleep(0.05)
+            results["b"] = get_trace_id()
+
+    import anyio
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(task_a)
+        tg.start_soon(task_b)
+
+    assert results["a"] == "tr-trace-AAAA"
+    assert results["b"] == "tr-trace-BBBB"
+    assert get_trace_id() != "tr-trace-AAAA"
+    assert get_trace_id() != "tr-trace-BBBB"

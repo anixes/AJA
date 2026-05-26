@@ -36,12 +36,40 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
         import aja_native
         has_write = hasattr(aja_native, "write_baton")
         has_read = hasattr(aja_native, "read_baton")
-        if has_write and has_read:
-            checks.append(("Native Engine", True, "aja_native extension successfully loaded (PyO3 GIL-free)"))
+        has_batch = hasattr(aja_native, "PyTrajectoryManager")
+        if has_write and has_read and has_batch:
+            checks.append(("Native Engine", True, "aja_native extension successfully loaded (PyO3 stable ABI)"))
         else:
-            checks.append(("Native Engine", False, "aja_native loaded but missing write/read functions"))
+            checks.append(("Native Engine", False, "aja_native loaded but missing trajectory or baton serialization functions"))
     except ImportError as e:
         checks.append(("Native Engine", False, f"Failed to load aja_native Rust module: {e}"))
+
+    # 2b. Execution Transport & PTY Capabilities
+    try:
+        if os.name == "nt":
+            try:
+                import pywinpty
+                has_pty = pywinpty is not None
+                pty_msg = "Windows ConPTY active via pywinpty"
+            except ImportError:
+                has_pty = False
+                pty_msg = "Windows ConPTY inactive (pywinpty missing, falling back to PipeTransport)"
+        else:
+            # POSIX pseudo-terminal is always natively supported by standard library
+            has_pty = True
+            pty_msg = "POSIX pseudo-terminal natively supported"
+        
+        try:
+            import pyarrow
+            has_arrow = True
+            arrow_msg = "PyArrow zero-copy buffer mapping supported"
+        except ImportError:
+            has_arrow = False
+            arrow_msg = "PyArrow missing (falling back to standard IPC disk read/write)"
+
+        checks.append(("Execution Transport", True, f"PTY: {pty_msg} | Arrow: {arrow_msg}"))
+    except Exception as e:
+        checks.append(("Execution Transport", False, f"Diagnostics failed: {e}"))
 
     # 3. LanceDB & Unified Memory Stack
     try:

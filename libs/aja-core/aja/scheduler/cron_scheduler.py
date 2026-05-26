@@ -119,6 +119,8 @@ class CronScheduler:
         self.event_sink = event_sink or LanceRuntimeEventSink()
         self._execution_tasks: Dict[str, asyncio.Task] = {}
         self._running_jobs: set[str] = set()
+        self._tick: int = 0
+        self._last_fire_tick: Dict[str, int] = {}
         # Compatibility for callers/tests that reached into the old concrete field.
         self.memory = self.store
 
@@ -299,6 +301,7 @@ class CronScheduler:
         logger.info("Cron scheduler tick loop started")
         while self._running:
             try:
+                self._tick += 1
                 now_dt = datetime.now(timezone.utc)
                 now_ts = time.time()
                 
@@ -315,20 +318,22 @@ class CronScheduler:
                         
                     expr = meta.get("schedule_expr", "")
                     last_run = meta.get("last_run", 0.0)
+                    last_run_tick = meta.get("last_run_tick", 0)
                     
                     is_due = False
                     
                     # 1. Try simple duration
                     dur_secs = parse_duration_to_seconds(expr)
                     if dur_secs is not None:
-                        if now_ts - last_run >= dur_secs:
+                        dur_ticks = int(dur_secs)
+                        if self._tick - last_run_tick >= dur_ticks:
                             is_due = True
                     else:
                         # 2. Try 5-field cron check
                         # Check minute boundary (we tick every second, so match once per minute boundary)
                         # We only match if standard cron matches and we haven't run in the last 59 seconds
                         if match_cron_expr(expr, now_dt):
-                            if now_ts - last_run >= 59.0:
+                            if self._tick - last_run_tick >= 59:
                                 is_due = True
                                 
                     if is_due:
@@ -343,11 +348,13 @@ class CronScheduler:
                             continue
 
                         logger.info(f"Triggering scheduled job {task['task_id']}: '{task['context']}'")
-                        run_id = f"run-{uuid.uuid4().hex[:8]}"
-                        trace_id = f"tr-sched-{uuid.uuid4().hex[:12]}"
+                        from aja.runtime.replay_guards import derive_run_id, derive_trace_id
+                        run_id = derive_run_id(task["task_id"], self._tick)
+                        trace_id = derive_trace_id(run_id)
                         
-                        # Immediately update last_run to prevent double triggers
+                        # Immediately update last_run and last_run_tick to prevent double triggers
                         meta["last_run"] = now_ts
+                        meta["last_run_tick"] = self._tick
                         meta["active_run_id"] = run_id
                         meta["active_trace_id"] = trace_id
                         self.store.update_task(task["task_id"], {
@@ -384,6 +391,11 @@ class CronScheduler:
     def start(self):
         """Starts the scheduler in the current running event loop."""
         if not self._running:
+            try:
+                from aja.runtime.scheduler_journal import rebuild_scheduler_projections
+                rebuild_scheduler_projections()
+            except Exception as e:
+                logger.warning(f"Failed to rebuild scheduler projections on start: {e}")
             self._running = True
             self._task = asyncio.create_task(self.tick_loop())
             logger.info("Scheduler started successfully")

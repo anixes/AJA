@@ -191,6 +191,11 @@ class AJAMemory:
         # 7. Missions (AJA Executive Bridge)
         if "aja_missions" not in existing:
             self.db.create_table("aja_missions", schema=MISSIONS_SCHEMA)
+            try:
+                from aja.runtime.mission_journal import rebuild_all_mission_projections
+                rebuild_all_mission_projections()
+            except Exception as e:
+                logger.warning(f"Failed to rebuild all mission projections on table creation: {e}")
 
         # 8. Chat History (Conversational Working-Set mirroring)
         if "aja_chat_history" not in existing:
@@ -246,6 +251,23 @@ class AJAMemory:
     # --- Task Management ---
 
     def create_task(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if data.get("owner") == "scheduler":
+            tid = data.get("task_id") or f"JOB-{uuid.uuid4().hex[:6].upper()}"
+            metadata = data.get("metadata", {})
+            schedule_expr = metadata.get("schedule_expr", "")
+            
+            from aja.runtime.scheduler_journal import SchedulerJournal
+            journal = SchedulerJournal()
+            journal.emit("SCHEDULER_JOB_REGISTERED", {
+                "job_id": tid,
+                "goal": data.get("context", ""),
+                "schedule_expr": schedule_expr
+            })
+            if metadata.get("paused", False):
+                journal.emit("SCHEDULER_JOB_PAUSED", {"job_id": tid})
+                
+            return self.get_task(tid)
+
         tid = data.get("task_id") or uuid.uuid4().hex[:8]
         table = self.db.open_table("aja_tasks")
         row = {
@@ -269,20 +291,14 @@ class AJAMemory:
 
     def create_mission(self, goal: str, priority: int = 1) -> Dict[str, Any]:
         mid = f"M-{uuid.uuid4().hex[:6].upper()}"
-        table = self.db.open_table("aja_missions")
-        row = {
-            "mission_id": mid,
+        from aja.runtime.mission_journal import MissionJournal
+        journal = MissionJournal(mid)
+        journal.emit("MISSION_CREATED", {
             "goal": goal,
-            "status": "PENDING",
             "priority": priority,
-            "assigned_worker": "",
-            "created_at": utc_now(),
-            "updated_at": utc_now(),
-            "result_summary": "",
-            "metadata_json": "{}",
-        }
-        table.add([row])
-        return row
+            "metadata": {}
+        })
+        return self.get_mission(mid)
 
     def list_missions(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         table = self.db.open_table("aja_missions")
@@ -292,9 +308,35 @@ class AJAMemory:
         return query.to_list()
 
     def update_mission(self, mission_id: str, updates: Dict[str, Any]) -> None:
-        table = self.db.open_table("aja_missions")
-        updates["updated_at"] = utc_now()
-        table.update(where=f"mission_id = {sanitize_value(mission_id)}", values=updates)
+        from aja.runtime.mission_journal import MissionJournal
+        journal = MissionJournal(mission_id)
+        
+        # Determine status change
+        if "status" in updates:
+            journal.emit("MISSION_STATUS_CHANGED", {
+                "from": self.get_mission(mission_id).get("status", "PENDING") if self.get_mission(mission_id) else "PENDING",
+                "to": updates["status"]
+            })
+            
+        # Determine completed state
+        if "result_summary" in updates or updates.get("status") in ("DONE", "FAILED"):
+            journal.emit("MISSION_COMPLETED", {
+                "success": updates.get("status") == "DONE" or updates.get("status") != "FAILED",
+                "result_summary": updates.get("result_summary", "")
+            })
+            
+        # Determine run started
+        if "active_run_id" in updates or "run_id" in updates:
+            journal.emit("MISSION_RUN_STARTED", {
+                "run_id": updates.get("active_run_id") or updates.get("run_id"),
+                "trace_id": updates.get("active_trace_id") or updates.get("trace_id")
+            })
+            
+        # Determine plan generated
+        if "plan_id" in updates:
+            journal.emit("MISSION_PLAN_GENERATED", {
+                "plan_id": updates.get("plan_id")
+            })
 
     def get_mission(self, mission_id: str) -> Optional[Dict[str, Any]]:
         table = self.db.open_table("aja_missions")
@@ -331,6 +373,50 @@ class AJAMemory:
         return results[0] if results else None
 
     def update_task(self, task_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        existing = self.get_task(task_id)
+        if existing and existing.get("owner") == "scheduler":
+            import time
+            from aja.runtime.scheduler_journal import SchedulerJournal
+            journal = SchedulerJournal()
+            
+            # Determine paused status from "status" or updates
+            if "status" in updates:
+                new_status = updates["status"]
+                if new_status == "scheduled_paused":
+                    journal.emit("SCHEDULER_JOB_PAUSED", {"job_id": task_id})
+                elif new_status == "scheduled":
+                    journal.emit("SCHEDULER_JOB_RESUMED", {"job_id": task_id})
+                elif new_status == "archived":
+                    journal.emit("SCHEDULER_JOB_DELETED", {"job_id": task_id})
+                    
+            # Check "metadata_json" to see if there is active run state, last_run, or paused updates
+            if "metadata_json" in updates:
+                meta = json.loads(updates["metadata_json"]) if isinstance(updates["metadata_json"], str) else updates["metadata_json"]
+                if meta.get("paused") is True:
+                    journal.emit("SCHEDULER_JOB_PAUSED", {"job_id": task_id})
+                elif meta.get("paused") is False:
+                    journal.emit("SCHEDULER_JOB_RESUMED", {"job_id": task_id})
+                
+                # Check for fired run
+                if "active_run_id" in meta:
+                    journal.emit("SCHEDULER_JOB_FIRED", {
+                        "job_id": task_id,
+                        "run_id": meta["active_run_id"],
+                        "trace_id": meta.get("active_trace_id"),
+                        "tick": meta.get("last_run_tick", 0),
+                        "timestamp_ts": meta.get("last_run", time.time())
+                    })
+                elif "active_run_id" not in meta and existing.get("metadata_json"):
+                    # If active_run_id was cleared, it indicates job completed!
+                    exist_meta = json.loads(existing["metadata_json"]) if existing.get("metadata_json") else {}
+                    if "active_run_id" in exist_meta:
+                        journal.emit("SCHEDULER_JOB_COMPLETED", {
+                            "job_id": task_id,
+                            "run_id": exist_meta["active_run_id"],
+                            "success": True
+                        })
+            return self.get_task(task_id)
+
         table = self.db.open_table("aja_tasks")
         updates["updated_at"] = utc_now()
         table.update(where=f"task_id = {sanitize_value(task_id)}", values=updates)

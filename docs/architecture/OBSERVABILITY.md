@@ -2,28 +2,57 @@
 
 Observability in AJA Runtime is treated as a first-class citizen. Because autonomous workflows can execute hundreds of steps over hours or days, `print()` statements are entirely insufficient. 
 
-## 1. Trace Context Propagation
+## 1. Trace Context Propagation & Scoped Isolation
+
 AJA utilizes Python's `contextvars` via `TraceContextManager` (`aja/observability/telemetry.py`) to maintain a thread-safe and async-safe `trace_id`.
-- The `trace_id` is created at the start of a task execution (`run_id`).
-- When a Baton is generated (`MissionBatonPayload`), the active `trace_id` is explicitly serialized into the metadata.
-- When a worker picks up the baton, the `trace_id` is recovered and re-injected into the context, allowing logs across multiple physical processes to share the same trace root.
+
+* **Causality Lineage**: The `trace_id` is created at the start of a task execution (`run_id`).
+* **Baton Serialization**: When a Baton is generated (`MissionBatonPayload`), the active `trace_id` is explicitly serialized into the Arrow metadata headers.
+* **Scoped Lineage Isolation**: To completely eliminate global context leaks during concurrent execution, picking up a baton uses the **`pickup_scope(code)`** context manager. This yields the thawed state while scoping the trace variable locally to the active asynchronous Task or worker thread, preventing trace variables from leaking across sibling scopes.
+
+---
 
 ## 2. Event Sinks and Telemetry
+
 The standard `logging` module is configured to emit JSON structured logs (`StructuredJSONFormatter`) containing the active `trace_id`.
 
 Additionally, the Orchestrator does not print to the console. It emits structured payloads to `LanceRuntimeEventSink` (`aja/runtime/events.py`). This allows UI clients to "tail" the log stream via trace IDs.
 
+---
+
 ## 3. Security Audits
+
 All commands passing through the security classifiers trigger a structured audit log (`log_security_event`) written to `.aja/security_audit.log`, ensuring every terminal execution decision is historically reviewable.
 
-## 4. Replayability (Current Limitations)
-`TraceStore` (`aja/observability/trace.py`) saves execution nodes (STARTED, SUCCESS, FAILED, ROLLBACK) to disk (`traces/trace_{plan_id}.json`). 
-- **What is Implemented**: You can see exactly what the orchestrator decided at any given step and the output of the terminal.
-- **What is Aspirational**: True "deterministic replay" (rewinding the agent step-by-step and re-running it) is not yet possible, because the `TraceStore` does not capture complete filesystem diffs for every step.
+---
+
+## 4. Framed Log Journal & Self-Healing Recovery
+
+To prevent log corruption, out-of-order execution, and replay drift under high concurrency, stream events are treated as durable, append-only framed execution journals.
+
+### Framed Log Envelope
+All events written to `timeline.jsonl` are framed inside a validation envelope ensuring mathematical integrity:
+```
+FRAME:LENGTH:CRC32:PAYLOAD
+```
+* **`FRAME`**: Log line marker prefix.
+* **`LENGTH`**: Integer length prefix of the payload string.
+* **`CRC32`**: CRC32 integrity checksum validating payload content.
+* **`PAYLOAD`**: JSON-serialized timeline event.
+
+### Self-Healing Active Journal Recovery
+Upon execution startup, the runtime invokes `TelemetryEmitter.repair_journal(path)` to check for crash integrity:
+* Automatically scans `timeline.jsonl` sequentially, validating length prefixes and CRC32 checksums.
+* If a crash occurs mid-write, it strips corrupted or truncated log tails.
+* Safely rolls back the sequencer to the last verified contiguous sequence number, preventing replay parsing divergence.
+
+This guarantees sequence numbering (`sequence`) and logical event ordering serve as the canonical source of truth, while wall-clock timestamps are advisory metadata.
+
+---
 
 ## 5. Execution Observability
 
-`ExecutionManager` emits first-class execution events:
+`ExecutionManager` and the sequencer pipeline emit first-class execution events:
 - `EXECUTION_STATE_CHANGED`
 - `EXECUTION_WORKSPACE_CREATED`
 - `EXECUTION_PROCESS_STARTED`
@@ -34,19 +63,21 @@ All commands passing through the security classifiers trigger a structured audit
 - `EXECUTION_WORKSPACE_CLEANED`
 - `EXECUTION_SESSION_FINISHED`
 
-Each event carries the active `trace_id`, optional `run_id`, and `session_id`. The event bus routes these events to runtime sinks and compatible websocket/mobile/TUI bridges.
+Each event carries the monotonic `sequence` ID, `epoch`, active `trace_id`, optional `run_id`, and `session_id`. The event bus routes these events to runtime sinks and compatible websocket/mobile/TUI bridges.
+
+---
 
 ## 6. Execution Replay & Visualization
 
 Every execution writes a replay manifest under `.aja/executions/<session_id>`:
 - `manifest.json`: command, backend, environment metadata, workspace metadata, PID snapshot.
-- `timeline.jsonl`: ordered lifecycle and stream events.
+- `timeline.jsonl`: strictly ordered and sequenced lifecycle and stream event journal.
 - `stdout.log` / `stderr.log`: durable stream output.
 - `workspace_diff.json`: git diff, untracked files, and artifact inventory.
 - `result.json`: final state, exit code, duration, and manifest path.
 
 ### The Replay Viewer
-AJA Runtime ships with an interactive execution replay viewer, built in Textual. It hydrates the artifacts (via `SessionReplayDataLoader`) and provides:
+AJA Runtime's replay hydration reader (`SessionReplayDataLoader`) parses the append-only `timeline.jsonl` chronologically by the monotonic sequence IDs, enabling:
 - **Trace Explorer**: A step-by-step scrubber through the execution timeline.
 - **Terminal Playback**: Synchronized output stream visualization.
 - **Workspace Diff**: Immediate inspection of exact patch mutations generated by the session.

@@ -18,6 +18,18 @@ fn count_tokens(text: &str) -> PyResult<usize> {
     Ok(tokens.len())
 }
 
+/// Batch version of token counter to reduce boundary-crossing overhead
+#[pyfunction]
+fn count_tokens_batch(texts: Vec<String>) -> PyResult<Vec<usize>> {
+    let bpe = cl100k_base().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
+    let mut results = Vec::with_capacity(texts.len());
+    for text in texts {
+        let tokens = bpe.encode_with_special_tokens(&text);
+        results.push(tokens.len());
+    }
+    Ok(results)
+}
+
 /// Serialize a baton JSON string into an Arrow IPC file on disk.
 #[pyfunction]
 fn write_baton_ipc(path: &str, json_data: &str) -> PyResult<()> {
@@ -277,6 +289,7 @@ impl PyTrajectoryManager {
 #[pymodule]
 fn aja_native(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(count_tokens, m)?)?;
+    m.add_function(wrap_pyfunction!(count_tokens_batch, m)?)?;
     m.add_function(wrap_pyfunction!(write_baton_ipc, m)?)?;
     m.add_function(wrap_pyfunction!(read_baton_ipc, m)?)?;
     m.add_function(wrap_pyfunction!(init_semantic, m)?)?;

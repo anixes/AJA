@@ -47,6 +47,17 @@ async def work(baton_path: str):
         baton = json.loads(path.read_text(encoding="utf-8"))
     print(f"Worker {baton['id']} started. Task: {baton['task']}")
 
+    # Phase 2: Initialize ActivityContext inside worker subprocess if environment variables exist
+    import os
+    session_id = os.environ.get("AJA_EXECUTION_SESSION_ID")
+    run_id = os.environ.get("AJA_RUN_ID")
+    if session_id:
+        from aja.runtime.execution.activity import ActivityContext, set_activity_context
+        from aja.runtime.execution.sequencer import TelemetryEmitter
+        emitter = TelemetryEmitter(session_id, os.environ.get("AJA_TRACE_ID"))
+        ctx = ActivityContext(is_replay=False, emitter=emitter, run_id=run_id)
+        set_activity_context(ctx)
+
     from aja.orchestration.adapters import dispatch_worker
 
     try:

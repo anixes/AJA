@@ -5,6 +5,7 @@ import random
 import string
 import time
 import threading
+import contextlib
 import aja_native
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -98,12 +99,21 @@ class BatonManager(HandoverManager):
     def _generate_code(self, length: int = 6) -> str:
         return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-    def capture(self, objective: str, orchestrator_state: Dict[str, Any]) -> str:
+    from aja.runtime.execution.activity import durable_activity
+
+    @durable_activity("baton.capture")
+    def capture(self, objective: str, orchestrator_state: Dict[str, Any], trace_id: Optional[str] = None) -> str:
         """
         Serializes mission state into a cutting-edge Apache Arrow Table via Rust Core.
         This is the 'Complex Rust Logic' that ensures maximum performance.
         """
-        code = self._generate_code()
+        run_id = orchestrator_state.get("run_id")
+        if run_id:
+            from aja.runtime.replay_guards import derive_baton_code
+            stage = len(orchestrator_state.get("history", []))
+            code = derive_baton_code(run_id, stage)
+        else:
+            code = self._generate_code()
         baton_path = self.baton_dir / f"baton_{code}.json"
 
         # Meta-data for the baton (small JSON)
@@ -115,7 +125,7 @@ class BatonManager(HandoverManager):
         # Trace propagation: inject the active trace_id into baton metadata
         from aja.observability.telemetry import get_trace_id
         metadata = dict(orchestrator_state.get("metadata", {}))
-        metadata["trace_id"] = get_trace_id()
+        metadata["trace_id"] = trace_id or get_trace_id()
         payload = MissionBatonPayload.from_state(
             objective,
             {
@@ -163,7 +173,8 @@ class BatonManager(HandoverManager):
 
         return code
 
-    def pickup(self, code: str) -> Optional[Dict[str, Any]]:
+    @durable_activity("baton.pickup")
+    def pickup(self, code: str, mutate_global_trace: bool = True) -> Optional[Dict[str, Any]]:
         """
         Picks up a baton and 'thaws' the Arrow Table back into a state via memory-mapping.
         Leverages native memory mapping for extreme zero-copy read speed.
@@ -189,7 +200,7 @@ class BatonManager(HandoverManager):
                 # Thaw and restore trace_id from the loaded metadata
                 if "metadata" in state:
                     trace_id = state["metadata"].get("trace_id")
-                    if trace_id:
+                    if trace_id and mutate_global_trace:
                         from aja.observability.telemetry import set_trace_id
                         set_trace_id(trace_id)
 
@@ -233,11 +244,20 @@ class BatonManager(HandoverManager):
         # Thaw and restore trace_id from the loaded metadata
         if state and "metadata" in state:
             trace_id = state["metadata"].get("trace_id")
-            if trace_id:
+            if trace_id and mutate_global_trace:
                 from aja.observability.telemetry import set_trace_id
                 set_trace_id(trace_id)
 
         return state
+
+    @contextlib.contextmanager
+    def pickup_scope(self, code: str):
+        """Picks up a baton and yields the loaded state locally scoped within its trace context."""
+        state = self.pickup(code, mutate_global_trace=False)
+        trace_id = state.get("metadata", {}).get("trace_id") if state else None
+        from aja.observability.telemetry import TraceContextManager
+        with TraceContextManager(trace_id):
+            yield state
 
     def transmit_baton(self, code: str, endpoint_url: str) -> bool:
         """

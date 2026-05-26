@@ -45,9 +45,21 @@ class ExecutionManager:
         self.governance = governance_policy or GovernancePolicy()
         self._sessions: Dict[str, ExecutionSession] = {}
         self._lock = asyncio.Lock()
+        # Phase 1: Detect sessions that died without writing a terminal event.
+        # This runs synchronously at construction; it only reads/writes disk
+        # and does not interact with the event loop.
+        self._detect_and_mark_orphaned_sessions()
 
     async def start(self, request: ExecutionRequest) -> ExecutionSession:
-        session_id = request.metadata.get("session_id") or f"exec-{uuid.uuid4().hex[:12]}"
+        session_id = request.metadata.get("session_id")
+        if not session_id:
+            run_id = request.metadata.get("run_id") or request.env.get("AJA_RUN_ID")
+            node_id = request.metadata.get("node_id") or request.env.get("AJA_NODE_ID")
+            if run_id and node_id:
+                from aja.runtime.replay_guards import derive_session_id
+                session_id = derive_session_id(run_id, node_id)
+            else:
+                session_id = f"exec-{uuid.uuid4().hex[:12]}"
         root = self.base_dir / session_id
         root.mkdir(parents=True, exist_ok=True)
         session = ExecutionSession(
@@ -66,6 +78,9 @@ class ExecutionManager:
         session.task = asyncio.create_task(self._run_session(session), name=f"aja-execution-{session_id}")
         return session
 
+    from aja.runtime.execution.activity import durable_activity
+
+    @durable_activity("subprocess.dispatch")
     async def run(self, request: ExecutionRequest) -> ExecutionResult:
         session = await self.start(request)
         return await self.wait(session.session_id)
@@ -170,6 +185,8 @@ class ExecutionManager:
             env.update(session.request.env)
             env["AJA_EXECUTION_SESSION_ID"] = session.session_id
             env["AJA_TRACE_ID"] = session.trace_id or ""
+            if getattr(session, "run_id", None):
+                env["AJA_RUN_ID"] = session.run_id
 
             proc = None
             if getattr(session.request, "use_pty", False) and os.name == "nt":
@@ -465,6 +482,79 @@ class ExecutionManager:
         return int((e - s).total_seconds() * 1000)
 
 
+    def _detect_and_mark_orphaned_sessions(self) -> None:
+        """Phase 1: Scans session directories on startup to mark orphaned sessions as crashed."""
+        import zlib
+        if not self.base_dir.exists():
+            return
+        
+        for session_dir in self.base_dir.iterdir():
+            if not session_dir.is_dir():
+                continue
+            timeline_path = session_dir / "timeline.jsonl"
+            if not timeline_path.exists() or timeline_path.stat().st_size == 0:
+                continue
+            
+            # Read timeline and check for terminal events
+            try:
+                content = timeline_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            
+            has_terminal = False
+            last_seq = -1
+            trace_id = None
+            
+            lines = content.splitlines()
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    if line.startswith("FRAME:"):
+                        parts = line.split(":", 3)
+                        if len(parts) == 4:
+                            evt = json.loads(parts[3])
+                        else:
+                            continue
+                    else:
+                        evt = json.loads(line)
+                    
+                    last_seq = max(last_seq, evt.get("sequence", -1))
+                    trace_id = evt.get("trace_id") or trace_id
+                    
+                    if evt.get("event_type") in {"EXECUTION_SESSION_FINISHED", "EXECUTION_SESSION_CRASHED"}:
+                        has_terminal = True
+                        break
+                except Exception:
+                    continue
+            
+            if not has_terminal:
+                # Mark as crashed!
+                crashed_event = {
+                    "event_type": "EXECUTION_SESSION_CRASHED",
+                    "event_schema_version": "1.0",
+                    "sequence": last_seq + 1,
+                    "session_id": session_dir.name,
+                    "trace_id": trace_id,
+                    "timestamp": utc_now(),
+                    "message": "Session orphaned due to unexpected runtime termination.",
+                    "level": "error",
+                    "status": "failed",
+                }
+                
+                # Write CRC32 framed event using same frame protocol
+                payload_str = json.dumps(crashed_event, default=str)
+                length = len(payload_str)
+                crc32 = zlib.crc32(payload_str.encode("utf-8")) & 0xFFFFFFFF
+                framed_line = f"FRAME:{length:08x}:{crc32:08x}:{payload_str}\n"
+                
+                try:
+                    with timeline_path.open("a", encoding="utf-8") as f:
+                        f.write(framed_line)
+                except Exception:
+                    pass
+
+
 _DEFAULT_MANAGER: Optional[ExecutionManager] = None
 
 
@@ -485,5 +575,6 @@ for event_name in [
     "EXECUTION_WORKSPACE_DIFF",
     "EXECUTION_WORKSPACE_CLEANED",
     "EXECUTION_SESSION_FINISHED",
+    "EXECUTION_SESSION_CRASHED",
 ]:
     EVENTS.setdefault(event_name, event_name)

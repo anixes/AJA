@@ -65,9 +65,17 @@ class ReActExecutor:
 
     def __init__(self, graph: PlanGraph, plan_id: Optional[str] = None, task_id: Optional[int] = None, session=None):
         self.graph = graph
-        self.plan_id = plan_id or str(uuid.uuid4())
         self.task_id = task_id
         self.session = session
+        if not plan_id:
+            run_id = getattr(session, "run_id", None) if session else None
+            if run_id:
+                import hashlib
+                h = hashlib.sha256(f"plan:{run_id}:{task_id}".encode("utf-8")).hexdigest()
+                plan_id = f"plan-{h[:16]}"
+            else:
+                plan_id = str(uuid.uuid4())
+        self.plan_id = plan_id
         self.repair_history: List[RepairRecord] = []
         self._bridge = ExecutionBridge(self.graph, task_id=self.task_id)
         self._replanner = Replanner(self.graph, self.repair_history)
@@ -252,7 +260,28 @@ class ReActExecutor:
                             
                     # 3. Execute
                     if node.status != "FAILED":
-                        success = self._bridge.run_node(node)
+                        # Phase 2: Enforce isolated scope validation to prevent leaked durable states across plan nodes
+                        from aja.runtime.execution.activity import ActivityContext, set_activity_context, reset_activity_context
+                        from aja.runtime.execution.sequencer import TelemetryEmitter, EventSequencer
+
+                        session_id = getattr(self.session, "session_id", None) if self.session else None
+                        trace_id = getattr(self.session, "trace_id", None) if self.session else None
+                        run_id = getattr(self.session, "run_id", None) if self.session else None
+
+                        from aja.config import PROJECT_ROOT
+                        if session_id:
+                            session_root = PROJECT_ROOT / ".aja" / "executions" / session_id
+                            node_emitter = TelemetryEmitter(session_root, EventSequencer(session_id, trace_id))
+                        else:
+                            direct_root = PROJECT_ROOT / ".aja" / "executions" / "direct"
+                            node_emitter = TelemetryEmitter(direct_root, EventSequencer("direct"))
+
+                        node_ctx = ActivityContext(is_replay=False, emitter=node_emitter, run_id=run_id)
+                        node_ctx_token = set_activity_context(node_ctx)
+                        try:
+                            success = self._bridge.run_node(node)
+                        finally:
+                            reset_activity_context(node_ctx_token)
                     else:
                         success = False
                         

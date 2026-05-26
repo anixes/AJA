@@ -77,3 +77,39 @@ To ensure maximum scalability and user experience, the system is decoupled into 
 3. **The Muscle (AJA)**: High-performance Native Core. Handles execution and state management.
 
 **Performance Impact**: This separation allows the "Voice" (AJA) to remain responsive during heavy "Muscle" (AJA) operations, while both share a **Zero-Copy Memory Layer (LanceDB/Arrow)** to eliminate communication latency.
+
+---
+
+## 6. V1 Runtime Reliability Roadmap (COMPLETE)
+
+The following 6-phase roadmap was completed to bring AJA to V1 certification with a **replay-authoritative event-sourced architecture**.
+
+### Phase 1: Canonical Execution Transport [DONE]
+- **Goal**: Single owner for subprocess lifecycle.
+- **Action**: Built `ExecutionManager`, `PTYTransport` (POSIX + Windows ConPTY), `PipeTransport`, `ExecutionSession` FSM, `StreamNormalizer`, `EventSequencer`, `TelemetryEmitter`.
+
+### Phase 2: Durable Execution & ActivityContext [DONE]
+- **Goal**: Crash-safe, idempotent step execution.
+- **Action**: Built `ActivityContext` (`ContextVar`-based), `ReplayDivergenceError`, journal-intercepted replay. Every mission step is wrapped and persisted before returning.
+
+### Phase 3: Event-Sourced Mission State [DONE]
+- **Goal**: The journal is the source of truth.
+- **Action**: Implemented append-only `.jsonl` journal, `MissionReducer` (pure function), and journal→projection pipeline. LanceDB tables are now derived read-projections only.
+
+### Phase 4: Projection Rebuild & Chaos Resilience [DONE]
+- **Goal**: State can always be reconstructed from scratch.
+- **Action**: Implemented `aja rebuild-projections` CLI. Chaos tests verify crash recovery, concurrent lock semantics, and cross-test isolation.
+
+### Phase 5: Scheduler Event Sourcing [DONE]
+- **Goal**: Scheduler job state is journal-rehydrated, not projection-first.
+- **Action**: Integrated `CronScheduler` with the event journal. Job state on startup is always rehydrated by replaying job events, not by reading the LanceDB projection directly.
+
+### Phase 6: Schema Versioning & Migration [DONE]
+- **Goal**: Old journals replay correctly after schema upgrades.
+- **Action**: Implemented `event_schema.py` with `JournalEvent`, versioned `EVENT_SCHEMAS`, `MIGRATIONS` table, and `VersionedEventRehydrator`. Verified with `test_phase6_schema_versioning.py`.
+
+### V1 Certification Result
+- **Test suite**: 223 passed, 2 skipped, 0 failures
+- **M1–M8 milestones**: All verified
+- **Release blockers**: All 6 resolved
+- **Status**: ✅ V1 CERTIFIED

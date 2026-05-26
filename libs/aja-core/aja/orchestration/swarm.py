@@ -72,6 +72,19 @@ class SwarmEngine:
         console.print(f"\n[bold cyan]🔧 [Direct Mode] Starting In-Process Execution for:[/] [italic]{objective}[/]")
         
         # 1. Initialize Direct Tool Executor
+        from aja.runtime.execution.activity import ActivityContext, set_activity_context
+        from aja.runtime.execution.sequencer import TelemetryEmitter, EventSequencer
+        from aja.config import PROJECT_ROOT
+        
+        direct_root = PROJECT_ROOT / ".aja" / "executions" / "direct"
+        sequencer = EventSequencer("direct")
+        emitter = TelemetryEmitter(direct_root, sequencer)
+        
+        from aja.runtime.replay_guards import derive_run_id
+        run_id = derive_run_id(objective, 0)
+        ctx = ActivityContext(is_replay=False, emitter=emitter, run_id=run_id)
+        set_activity_context(ctx)
+
         from aja.orchestration.tools.executor import ToolExecutor
         executor = ToolExecutor()
         
@@ -339,17 +352,33 @@ class SwarmEngine:
             print("Planning failed. Defaulting to single-step execution.")
             plan = [{"id": 1, "task": objective}]
 
+        import hashlib
+        if not run_id:
+            h = hashlib.sha256(objective.encode("utf-8")).hexdigest()[:16]
+            run_id = f"run-{h}"
+
         results = []
         for task in plan:
             task_worker_id = f"worker-{task['id']}"
             print(f"  - Dispatching Worker {task_worker_id}: {task['task']}")
-            baton_id = f"baton_{task_worker_id}_{int(time.time())}.arrow"
+            baton_id = f"baton_{task_worker_id}_{task['id']}.arrow"
             baton_path = self.baton_dir / baton_id
+            
+            from aja.runtime.replay_guards import derive_session_id, derive_trace_id
+            session_id = derive_session_id(run_id, str(task['id']))
+            trace_id = derive_trace_id(run_id)
+            
             baton_data = {
                 "objective": task['task'],
                 "status": "pending",
                 "stage": "init",
-                "delegated_worker": task_worker_id
+                "delegated_worker": task_worker_id,
+                "run_id": run_id,
+                "metadata": {
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "run_id": run_id,
+                }
             }
             write_baton(baton_path, baton_data)
             
@@ -391,6 +420,21 @@ class SwarmEngine:
 
         start_time = time.time()
         from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
+        from aja.observability.telemetry import get_trace_id
+
+        # Phase 2: Plumb session_id and trace_id to ensure worker receives correct ActivityContext
+        metadata = baton_data.get("metadata", {})
+        trace_id = metadata.get("trace_id") or get_trace_id()
+        session_id = metadata.get("session_id")
+        run_id = metadata.get("run_id") or baton_data.get("run_id")
+
+        env = {}
+        if trace_id:
+            env["AJA_TRACE_ID"] = trace_id
+        if session_id:
+            env["AJA_EXECUTION_SESSION_ID"] = session_id
+        if run_id:
+            env["AJA_RUN_ID"] = run_id
 
         worker_cmd = f'"{PYTHON}" -m aja.agents.worker "{baton_path}"'
         process = await get_default_execution_manager().run(
@@ -398,7 +442,11 @@ class SwarmEngine:
                 command=worker_cmd,
                 timeout=180,
                 workspace_mode="direct",
-                metadata={"legacy_api": "SwarmEngine._execute_baton_worker"},
+                env=env,
+                metadata={
+                    "legacy_api": "SwarmEngine._execute_baton_worker",
+                    "session_id": session_id,
+                },
             )
         )
         latency = time.time() - start_time

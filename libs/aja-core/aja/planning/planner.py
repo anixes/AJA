@@ -340,6 +340,7 @@ class Planner:
         self.method_threshold = method_threshold
         self.use_method_routing = use_method_routing
         self.knowledge_base = None
+        self._diversity_beta = AJA_DIVERSITY_BETA
 
     def bias(self, knowledge_base: Any):
         """
@@ -352,8 +353,14 @@ class Planner:
         Part C, G & G - Strategy Retrieval, Trusted Memory, and Explore vs Exploit
         """
         from aja.learning.exploration import exploration_controller
+        from aja.runtime.execution.activity import get_activity_context
+        act_ctx = get_activity_context()
+        run_id = act_ctx.run_id if (act_ctx and act_ctx.run_id) else "unmanaged"
         
-        if exploration_controller.should_explore(is_sandbox, risk_level):
+        if run_id != "unmanaged":
+            exploration_controller.load_from_mission(run_id)
+        
+        if exploration_controller.should_explore(is_sandbox, risk_level, run_id=run_id):
             print("[Planner] EXPLORATION triggered. Focusing on experimental strategies.")
             # Part F - Experimental Strategy Pool preferred during exploration
             self.trusted_strategies = []
@@ -683,11 +690,11 @@ class Planner:
                 return True
             return False
 
-        if aja.config.AJA_DIVERSITY_BETA and should_disable_beta(metrics):
+        if self._diversity_beta and should_disable_beta(metrics):
             print("[Planner] [BETA] Auto-disabling beta due to metric degradation.")
-            aja.config.AJA_DIVERSITY_BETA = False
+            self._diversity_beta = False
 
-        if not aja.config.AJA_DIVERSITY_BETA:
+        if not self._diversity_beta:
             return self._original_decompose(goal, current_state)
 
         from aja.planning.scorer import estimate_complexity, COMPLEXITY_LOW
@@ -732,8 +739,12 @@ class Planner:
                         config = dict(config)
                         config["temperature"] = min(1.0, config["temperature"] + 0.2) # noise
                     
-                    import random
-                    use_history = history[-2:] if random.random() < 0.5 else None
+                    from aja.runtime.execution.activity import get_activity_context
+                    from aja.runtime.replay_guards import replay_safe_random
+                    act_ctx = get_activity_context()
+                    run_id = act_ctx.run_id if (act_ctx and act_ctx.run_id) else "unmanaged"
+                    rand_val = replay_safe_random(run_id, attempt, f"history:{mode}")
+                    use_history = history[-2:] if rand_val < 0.5 else None
                     plan = self._decompose_single(goal, current_state, mode=mode, config=config, history=use_history)
                     object.__setattr__(plan, "_generation_mode", mode) if hasattr(plan, "__dataclass_fields__") else None
                     try:
@@ -896,15 +907,21 @@ class Planner:
             mc[sel_mode] = mc.get(sel_mode, 0) + 1
 
         # Phase 26: Exploration vs Exploitation
-        import random
         try:
             from aja.rl.policy_store import policy_store
-            if random.random() < policy_store.exploration_rate and len(plans) > 1:
+            from aja.runtime.execution.activity import get_activity_context
+            from aja.runtime.replay_guards import replay_safe_random
+            act_ctx = get_activity_context()
+            run_id = act_ctx.run_id if (act_ctx and act_ctx.run_id) else "unmanaged"
+            
+            rand_val = replay_safe_random(run_id, len(plans), "rl_exploration")
+            if rand_val < policy_store.exploration_rate and len(plans) > 1:
                 # Explore: pick a random plan instead of the best one
                 print("[Planner] [RL] Exploring new plan instead of best plan.")
                 candidates = [p for p in plans if p != best_plan]
                 if candidates:
-                    best_plan = random.choice(candidates)
+                    rand_choice_val = replay_safe_random(run_id, len(plans), "rl_choice")
+                    best_plan = candidates[int(rand_choice_val * len(candidates))]
                     
             # Part J - Telemetry + Metrics (Track)
             if hasattr(metrics_system, "metrics"):

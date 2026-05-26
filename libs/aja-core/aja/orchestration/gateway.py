@@ -120,6 +120,9 @@ class LLMGateway:
 
         return await self.chat(model=model, prompt=user, system=system, retries=retries, temperature=temperature)
 
+    from aja.runtime.execution.activity import durable_activity
+
+    @durable_activity("llm.chat")
     async def chat(
         self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None
     ):
@@ -220,6 +223,7 @@ class LLMGateway:
                 print(f"[Gateway] Google Error: {e}")
                 return None
 
+    @durable_activity("llm.embed")
     async def embed(self, model: str, text: str) -> list[float]:
         """Generate dense vector embedding for text."""
         if self.provider == "google":

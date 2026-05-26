@@ -1,6 +1,7 @@
 import asyncio
 import os
 from typing import Optional
+from aja.runtime.execution.transport import ExecutionTransport
 
 try:
     import pywinpty
@@ -8,18 +9,19 @@ except ImportError:
     pywinpty = None
 
 
-class WindowsPTYProcess:
+class WindowsPTYTransport(ExecutionTransport):
     """
-    Async wrapper around pywinpty to mimic asyncio.subprocess.Process.
-    This provides true ConPTY streaming semantics on Windows, enabling
-    interactive programs and full ANSI color preservation.
+    Async wrapper around pywinpty subclassing ExecutionTransport.
+    Provides true ConPTY streaming semantics on Windows, enabling
+    interactive programs, full ANSI color preservation, and cooperative thread cleanup.
     """
 
-    def __init__(self, cmd: str, cwd: str, env: dict):
+    def __init__(self, command: list[str] | str, cwd: str, env: dict):
+        super().__init__()
         if pywinpty is None:
             raise RuntimeError("pywinpty is required for Windows PTY execution.")
         
-        self.cmd = cmd
+        self.cmd = command if isinstance(command, str) else " ".join(command)
         self.cwd = cwd
         self.env = env
         self.pty = pywinpty.PTY(80, 24)
@@ -27,13 +29,12 @@ class WindowsPTYProcess:
         self.stdout = asyncio.StreamReader()
         self.stderr = None  # PTY multiplexes stderr into stdout
         
-        self.pid: Optional[int] = None
-        self.returncode: Optional[int] = None
         self._exited = asyncio.Event()
         self._read_task = None
         self._poll_task = None
+        self._cancelled = False
 
-    def start(self):
+    async def start(self) -> None:
         self.pty.spawn(
             app_name=None,
             cmdline=self.cmd,
@@ -60,13 +61,13 @@ class WindowsPTYProcess:
         
         self.stdin = PTYWriter(self.pty)
 
-    async def _read_loop(self):
-        while True:
+    async def _read_loop(self) -> None:
+        while not self._cancelled:
             try:
                 # pywinpty read is blocking, we use to_thread to prevent event loop stalls
-                data = await asyncio.to_thread(self.pty.read, 4096, True)
+                data = await asyncio.to_thread(self._safe_pty_read)
                 if not data:
-                    if not self.pty.isalive():
+                    if not getattr(self, 'pty', None) or not self.pty.isalive() or self._cancelled:
                         break
                     await asyncio.sleep(0.01)
                     continue
@@ -75,33 +76,53 @@ class WindowsPTYProcess:
                 break
         self.stdout.feed_eof()
 
-    async def _poll_loop(self):
-        while self.pty.isalive():
+    def _safe_pty_read(self) -> Optional[str]:
+        if self._cancelled or not getattr(self, 'pty', None):
+            return None
+        try:
+            return self.pty.read(4096, True)
+        except Exception:
+            return None
+
+    async def _poll_loop(self) -> None:
+        while getattr(self, 'pty', None) and self.pty.isalive() and not self._cancelled:
             await asyncio.sleep(0.1)
         
-        try:
-            exit_code = self.pty.get_exitstatus()
-            # None typically means 0 or it exited cleanly in some versions
-            self.returncode = 0 if exit_code is None else exit_code
-        except Exception:
-            self.returncode = 1
+        if not self._cancelled and getattr(self, 'pty', None):
+            try:
+                exit_code = self.pty.get_exitstatus()
+                self.returncode = 0 if exit_code is None else exit_code
+            except Exception:
+                self.returncode = 1
+        else:
+            self.returncode = -1
             
         self._exited.set()
+        self._cleanup_native()
+
+    def _cleanup_native(self) -> None:
+        if self._cancelled:
+            return
+        self._cancelled = True
         
-        try:
-            self.pty.close()
-        except Exception:
-            pass
+        if getattr(self, '_read_task', None) and not self._read_task.done():
+            self._read_task.cancel()
+        if getattr(self, '_poll_task', None) and not self._poll_task.done():
+            self._poll_task.cancel()
 
-    async def wait(self):
+        try:
+            if getattr(self, 'pty', None):
+                self.pty.close()
+        finally:
+            self.pty = None
+
+    async def wait(self) -> int:
         await self._exited.wait()
-        return self.returncode
+        return self.returncode or 0
 
-    def terminate(self):
-        try:
-            self.pty.close()
-        except Exception:
-            pass
+    def terminate(self) -> None:
+        self._cleanup_native()
+        self._exited.set()
 
-    def kill(self):
+    def kill(self) -> None:
         self.terminate()
