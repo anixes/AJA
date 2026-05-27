@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import os
 import json
 import argparse
@@ -77,7 +78,7 @@ def google_api_key(api_key: str = "") -> str:
 def load_config():
     """Load saved config from .aja/config.json."""
     try:
-        cfg_path = PROJECT_ROOT / ".aja" / "config.json"
+        cfg_path = DATA_DIR / "config.json"
         if cfg_path.exists():
             return json.loads(cfg_path.read_text(encoding="utf-8"))
     except Exception:

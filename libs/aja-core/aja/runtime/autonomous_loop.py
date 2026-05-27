@@ -3,8 +3,7 @@ import asyncio
 import os
 import sys
 
-# Set PYTHONPATH to current directory
-sys.path.append(os.getcwd())
+
 
 from aja.runtime.lancedb_logger import lancedb_logger
 from aja.runtime.lance_stores import LanceRuntimeStore

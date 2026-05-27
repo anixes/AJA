@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.observability.telemetry import get_trace_id
 from aja.runtime.event_bus import EVENTS, bus
 from aja.runtime.events import NullRuntimeEventSink, RuntimeEventSink
@@ -36,9 +36,10 @@ class ExecutionManager:
         event_sink: Optional[RuntimeEventSink] = None,
         workspace_manager: Optional[WorkspaceManager] = None,
         governance_policy: Optional[GovernancePolicy] = None,
+        base_dir: Optional[Path] = None,
     ):
         self.project_root = (project_root or PROJECT_ROOT).resolve()
-        self.base_dir = self.project_root / ".aja" / "executions"
+        self.base_dir = base_dir if base_dir is not None else DATA_DIR / "executions"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.event_sink = event_sink or NullRuntimeEventSink()
         self.workspace_manager = workspace_manager or WorkspaceManager(self.project_root)

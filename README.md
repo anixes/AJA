@@ -1,301 +1,211 @@
-# AJA Runtime
+# AJA
 
-**A local-first orchestration runtime and execution substrate for autonomous agents.**
+**A local-first durable execution runtime and replay-authoritative orchestration substrate for autonomous systems.**
 
-> **v1.0 — V1 Certified** · 223 tests passing · All M1–M8 milestones verified · Replay-authoritative event-sourced architecture
+<!-- BADGES PLACEHOLDER -->
+<!-- [![Build Status](https://img.shields.io/github/actions/workflow/status/org/aja/ci.yml?branch=main)](https://github.com/org/aja/actions) -->
+<!-- [![Version](https://img.shields.io/pypi/v/aja.svg)](https://pypi.org/project/aja/) -->
+<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) -->
+<!-- [![Rust: PyO3](https://img.shields.io/badge/Rust-PyO3-orange.svg)](https://pyo3.rs/) -->
 
----
-
-## 1. What AJA Runtime Is
-
-AJA Runtime is a persistent workflow engine and systems-level orchestration substrate. It provides the core execution infrastructure required to run autonomous agents reliably on local hardware.
-
-Instead of treating agents as transient chat loops, AJA treats agentic workflows as **standard scheduled compute**. It manages state persistence, process isolation, inter-process communication (IPC), deterministic scheduling, and execution telemetry, allowing developers to build robust AI agents without fighting the underlying infrastructure.
-
-### The Fundamental Guarantee
-
-AJA Runtime is now **replay-authoritative**. The `.jsonl` event journal is the single source of truth for all mission and task state. LanceDB tables (`aja_missions`, `aja_tasks`) are strictly derived **read-projections** rebuilt deterministically from journal events. This means:
-
-- State is never silently lost, even after a crash
-- Projections can always be rebuilt from scratch with `aja rebuild-projections`
-- Any divergence between runtime state and the journal is a fatal, detectable error
+AJA provides the execution infrastructure required to run autonomous workflows safely and deterministically on local hardware. It replaces fragile agentic scripts with a robust, event-sourced runtime that guarantees state persistence, deterministic replay, and crash-consistent recovery.
 
 ---
 
-## 2. What AJA Runtime is NOT
+## What AJA Is
 
-- **Not a chatbot or "Jarvis clone":** AJA is the runtime infrastructure *underneath* the assistant, not the conversational interface itself.
-- **Not a prompt-engineering framework:** AJA does not compete with LangChain or LlamaIndex. It focuses on the execution environment, not the LLM chain.
+AJA is a systems-level orchestration substrate designed for autonomous operations. It treats agentic workflows as long-running, durable compute processes rather than ephemeral chat loops.
+
+* **Local-First Durable Execution Runtime**: Ensures workflows can survive process restarts, system crashes, and network partitions without losing state.
+* **Replay-Authoritative Orchestration**: The system state is strictly derived from an append-only execution journal. If it isn't in the journal, it didn't happen.
+* **Event-Sourced Infrastructure**: Every decision, command, and side effect is durably journaled before execution, enabling deterministic reconstruction of any workflow.
+
+With AJA, operators can build research daemons, local infrastructure automation, and scheduled workflows that run continuously for days, surviving machine reboots and gracefully recovering from failures.
 
 ---
 
-## 3. Core Architecture
+## Why AJA Exists
 
-AJA's architecture enforces a strict separation between the runtime, the event journal, and the presentation layer.
+Most autonomous agent frameworks prioritize prompt engineering and LLM chain logic, leaving execution infrastructure as an afterthought. This results in:
+* **Fragile Scripts**: Workflows that restart from zero when an API call times out or a process crashes.
+* **Nondeterministic Execution**: Unpredictable loops where state mutations are lost in memory.
+* **Log-Only Observability**: Systems where debugging relies on grep-ing unstructured logs rather than inspecting deterministic execution graphs.
 
-```text
-  +-------------------+        +--------------------+
-  |  Clients / UIs    |        |  Scheduled Tasks   |
-  | (CLI, TUI, HTTP)  |        | (CronScheduler)    |
-  +--------+----------+        +---------+----------+
-           |                             |
-           v                             v
-  +-------------------------------------------------+
-  |                  AJA Runtime                    |
-  |  +-----------------+       +-----------------+  |
-  |  |  Orchestration  | ----> | Durable Journal |  |
-  |  |  + ActivityCtx  |       | (.jsonl — SoT)  |  |
-  |  +-----------------+       +-----------------+  |
-  |          |                         |            |
-  |          v                         v            |
-  |  +-----------------+       +-----------------+  |
-  |  | Rust Baton IPC  | ----> | Read Projections|  |
-  |  | (Arrow / PyO3)  |       | (LanceDB tables)|  |
-  |  +-----------------+       +-----------------+  |
-  +-----------+-------------------------------------+
-              |
-              v
-  +-------------------------------------------------+
-  |             Execution Workers                   |
-  |  [ PTY / Pipe Transport ]   [ Sandbox ]         |
-  +-------------------------------------------------+
+AJA exists to invert this model. It provides:
+* **Deterministic Replay**: The ability to reconstruct exact execution states by replaying the event journal.
+* **Crash Recovery**: Workflows resume exactly where they left off after a system interruption.
+* **Durable Side Effects**: External mutations are wrapped in durable activities, ensuring they are executed exactly once.
+* **Execution Lineage**: Strict isolation and auditable trails for every action taken by the system.
+
+---
+
+## Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Replay-Authoritative Orchestration** | The append-only `.jsonl` journal is the single source of truth. All runtime state is a derived projection. |
+| **Durable Activities** | Execution steps are wrapped in context managers that intercept live execution and safely replay historical results during recovery. |
+| **Event-Sourced Rehydration** | Deterministically reconstruct state from zero. Any divergence between live execution and historical replay is treated as a fatal error. |
+| **Rust Acceleration (PyO3/Arrow)** | High-performance, zero-copy inter-process communication for state transfer via Apache Arrow baton caches. |
+| **PTY Execution Runtime** | Unified async I/O transport providing cooperative PTY orchestration (ConPTY on Windows, POSIX PTYs on Linux/macOS). |
+| **Schema Versioning** | Forward-compatible event definitions ensuring historical journals can always be replayed safely as the platform evolves. |
+| **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), setup (`aja setup`), and rebuilding projections (`aja rebuild-projections`). |
+
+---
+
+## Quick Install
+
+AJA uses a unified `maturin` build system to compile the Rust native extensions and install the Python runtime simultaneously.
+
+### Prerequisites
+* Python 3.11+
+* Rust Stable Toolchain
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/aja.git
+cd aja
+
+# Install the build backend
+pip install maturin
+
+# Build and install the unified package
+maturin develop --release
+# Alternatively: pip install .[all]
 ```
 
-### Major Subsystems
-
-| Subsystem | Module | Responsibility |
-|---|---|---|
-| **Event Journal** | `aja/runtime/journal/` | Append-only `.jsonl` source of truth |
-| **Rehydrator** | `aja/runtime/execution/rehydrator.py` | Replays journals into `ActivityContext` |
-| **ActivityContext** | `aja/runtime/execution/activity.py` | `ContextVar`-based durable execution wrapper |
-| **Mission Reducer** | `aja/runtime/mission/reducer.py` | Pure-function event→state reducer |
-| **Schema Versioning** | `aja/runtime/journal/event_schema.py` | Versioned event types + `VersionedEventRehydrator` |
-| **ExecutionManager** | `aja/runtime/execution/manager.py` | Canonical subprocess lifecycle owner |
-| **CronScheduler** | `aja/scheduler/cron_scheduler.py` | LanceDB-backed deterministic job scheduling |
-| **Baton IPC** | `aja/runtime/handover.py` | Apache Arrow zero-copy state transfer |
-| **Trace Telemetry** | `aja/observability/telemetry.py` | Context-variable trace propagation |
-
----
-
-## 4. Replay-Authoritative Execution Model
-
-### Journal → Projection Pipeline
-
-```
-Event Occurs
-    │
-    ▼
-journal.append(event)          ← Always first, atomic write
-    │
-    ▼
-reducer.apply(event, state)    ← Pure function, no side effects
-    │
-    ▼
-projection.upsert(new_state)   ← LanceDB read-projection update
-```
-
-The reducer is a **pure function**: given the same sequence of journal events, it always produces identical state. LanceDB tables are projections only — they are never authoritative.
-
-### ActivityContext & Durable Activities
-
-Every execution step is wrapped by `ActivityContext`, a `ContextVar`-based manager that:
-- Intercepts live execution under a real context
-- Intercepts **replay execution** by returning stored results from the journal
-- Raises `ReplayDivergenceError` if a live result diverges from the logged replay result
-
-This provides Temporal-style durable execution semantics without an external workflow engine.
-
-### Schema Versioning
-
-Event schemas are versioned (`v1`, `v2`, …) via `event_schema.py`. The `VersionedEventRehydrator` handles forward-compatibility, allowing old journals to be replayed correctly even after schema upgrades. The `schema_version` field is embedded in every journal event.
-
----
-
-## 5. Runtime Execution Flow
-
-The canonical lifecycle of a task in AJA Runtime:
-
-1. **Task created** → persisted to LanceDB *and* appended to journal as `task_created` event.
-2. **Planner** evaluates objective and determines steps.
-3. **ActivityContext** wraps each step; on re-entry, replays from journal instead of re-executing.
-4. **Baton** (Arrow-serialized execution state + trace context) handed to worker.
-5. **Worker** executes via `ExecutionManager` → `PTYTransport` or `PipeTransport`.
-6. **Telemetry** (stdout, stderr, exit codes) written to `timeline.jsonl` under `.aja/executions/<session_id>/`.
-7. **State transition** event appended to mission journal; projection updated.
-
----
-
-## 6. Key Features
-
-- **Replay-Authoritative Journal**: `.jsonl` event log is the single source of truth; LanceDB tables are derived projections.
-- **Durable Activity Execution**: `ActivityContext` provides crash-safe, deterministic step re-execution via journal replay.
-- **Schema-Versioned Events**: All events carry `schema_version`; `VersionedEventRehydrator` ensures forward compatibility.
-- **Deterministic Projection Rebuild**: `aja rebuild-projections` replays the full journal to reconstruct all tables from scratch.
-- **Cron Scheduling**: LanceDB-backed deterministic job scheduling with 3-minute hard interrupt limits.
-- **Arrow IPC**: O(1) zero-copy state transfer overhead via Apache Arrow + Rust/PyO3.
-- **Trace Propagation**: Context-safe trace IDs propagated across async execution boundaries and into Arrow baton metadata.
-- **PTY/Pipe Transport**: Unified async I/O transport with cooperative PTY on Windows (ConPTY) and `loop.add_reader` on POSIX.
-- **Execution Replay Viewer**: Inspect manifests, timelines, diffs, and stream logs for any past session.
-
----
-
-## 7. CLI Reference
-
-### Diagnostics
+Verify the installation and runtime dependencies:
 ```bash
 python -m aja doctor
 ```
 
-### Run a Mission (Dry-Run)
-```bash
-python -m aja run "Perform project analysis" --dry-run
-```
+---
 
-### Rebuild LanceDB Projections from Journal
-```bash
-python -m aja rebuild-projections
-```
-Replays all journal events through the mission reducer and re-populates all LanceDB read-projection tables. Run this after schema migrations or to recover from projection corruption.
+## Quickstart
 
-### Execution History
-```bash
-python -m aja exec list
-python -m aja exec show <session_id>
-python -m aja exec timeline <session_id>
-python -m aja exec diff <session_id>
-python -m aja exec replay --latest
-python -m aja exec cleanup
-```
+### 1. Initialize the Runtime
+Initialize the runtime environment, which provisions the `AJA_DATA_DIR` and necessary LanceDB vector stores.
 
-### Interactive TUI Dashboard
-```bash
-python -m aja tui
-```
-
-### Setup Wizard
 ```bash
 python -m aja setup
 ```
+<!-- SUGGESTED SCREENSHOT: aja setup interactive CLI output -->
 
----
+### 2. Run a Simulated Workflow
+Run a dry-run simulation to audit potential shell executions against safety blocks without mutating local files.
 
-## 8. V1 Certification Status
-
-| Milestone | Description | Status |
-|---|---|---|
-| M1 | Journal is append-only; no mutation of existing events | ✅ Verified |
-| M2 | Reducer is a pure function (same inputs → same outputs) | ✅ Verified |
-| M3 | All state reads go through projections, not the journal | ✅ Verified |
-| M4 | `ActivityContext` intercepts replay correctly | ✅ Verified |
-| M5 | `ReplayDivergenceError` raised on divergence | ✅ Verified |
-| M6 | `VersionedEventRehydrator` handles schema upgrades | ✅ Verified |
-| M7 | `rebuild-projections` produces identical state to live | ✅ Verified |
-| M8 | Full test suite is green under global regression | ✅ 223 passed |
-
-**Certification**: All 6 release blockers resolved. Chaos test suite green. Release criteria documented and signed.
-
----
-
-## 9. Architecture Philosophy
-
-- **Event-Sourcing as the Foundation**: The journal is the system. Everything else is a derived view.
-- **Deterministic Orchestration**: The engine must predictably execute, timeout, or fail. LLM nondeterminism is bounded by deterministic runtime constraints.
-- **Observable Execution**: Every action, shell command, and decision is traced, journaled, and emittable to an event sink.
-- **Explicit Ownership**: Data has single owners. The journal owns state; projections own reads; clients own presentation.
-- **Infrastructure-First Design**: Fix system constraints (memory, IPC, sandbox) before adding AI features.
-
----
-
-## 10. Rust + Python Hybrid Design
-
-| Layer | Language | Responsibility |
-|---|---|---|
-| State serialization | Rust + PyO3 | Apache Arrow baton IPC, zero-copy memory mapping |
-| Orchestration | Python | asyncio scheduling, client adapters, shell semantics |
-| Persistence | Python + LanceDB | Event journals (`.jsonl`), projection tables |
-| Telemetry | Python | TraceContextManager, structured JSON event emission |
-
----
-
-## 11. Example Use Cases
-
-- **Research Daemons**: Long-running background processes that aggregate and synthesize information over days, surviving reboots via journal replay.
-- **Local Automation**: Safe, sandboxed scripts that manage local infrastructure or file systems with full audit trails.
-- **Scheduled Workflows**: Recurring AI tasks (e.g., daily briefings, repository audits) via the cron scheduler.
-- **Persistent Assistants**: Agents that retain long-term memory and context across reboots through event sourcing.
-- **Terminal-Native Orchestration**: Headless workflows triggered directly via CLI pipelines.
-
----
-
-## 12. Current Limitations
-
-- **Resource Governance**: While sandboxing limits process space, granular CPU limits and network egress filtering are not yet strictly enforced on all platforms.
-- **Copy-on-Write Overlays**: Complete filesystem isolation relies on patch-based diffs. Full `tmpfs` copy-on-write overlay support is pending.
-- **Distributed Journal Sync**: The journal is currently local-filesystem-only. Distributed multi-host journal replication is a planned future capability.
-
----
-
-## 13. Project Structure
-
+```bash
+python -m aja run "Perform repository analysis" --dry-run
 ```
-libs/
-  aja-core/
-    aja/
-      runtime/
-        execution/       ← ExecutionManager, ActivityContext, Rehydrator
-        journal/         ← Append-only event journal, event_schema.py
-        mission/         ← MissionReducer, projection logic
-        handover.py      ← Arrow Baton IPC (zero-copy)
-      scheduler/
-        cron_scheduler.py ← LanceDB-backed cron
-      observability/
-        telemetry.py     ← TraceContextManager
-      tui/
-        curses_tui.py    ← Live Curses dashboard
-  aja-native/            ← Rust PyO3 native module (Arrow IPC)
-tests/
-  python/                ← 223-test suite (all green)
-docs/
-  architecture/          ← ARCHITECTURE.md, EXECUTION_MODEL.md, etc.
+<!-- SUGGESTED SCREENSHOT: Curses TUI showing the HTN DAG and live execution stream -->
+
+### 3. Inspect Replay History
+View the deterministic execution timeline for past sessions.
+
+```bash
+python -m aja exec list
+python -m aja exec timeline <session_id>
 ```
 
 ---
 
-## 14. Development
+## Architecture Overview
 
-### Run Unit Tests
+AJA enforces a strict separation between orchestration, durable persistence, and execution transport.
 
-```powershell
-$env:PYTHONPATH="libs/aja-core"
-& "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests/python -v
-```
+<!-- SUGGESTED DIAGRAM: Layered architecture showing Orchestrator -> Journal -> Projections -> Execution Workers -->
 
-Expected: **223 passed, 2 skipped, 0 failures**
+* **Orchestration Layer**: Manages the deterministic sequencing of tasks and handles control flow, acting as the primary state machine.
+* **Durable Activity Layer**: Wraps side-effecting code. During normal execution, it runs the code and journals the result. During recovery, it returns the journaled result without re-executing.
+* **Journal & Replay Layer**: The append-only `.jsonl` event log acts as the absolute authority. The `EventRehydrator` replays this log to reconstruct state.
+* **Projection Layer**: LanceDB read-projections are deterministically built from the journal. They serve fast state queries but hold no authority.
+* **Execution Transport Layer**: Provides process isolation via PTY orchestration, safely running commands and capturing `stdout`/`stderr` lineage.
+* **Rust Acceleration Layer**: Handles heavy serialization and state transport using Apache Arrow IPC batons, bypassing Python's GIL for core I/O.
 
-### Run Dry-Run Simulation
+---
 
-```powershell
-$env:PYTHONIOENCODING="utf-8"
-$env:PYTHONPATH="libs/aja-core"
-& "C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe" -m aja run "Perform project analysis" --dry-run
-```
+## Durable Execution Model
 
-### Python Version
+The core invariant of AJA is **replay determinism**. 
 
-Always use the global Python 3.12.10 installation:
-```
-C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe
+1. **Event Sourcing**: When an execution step occurs, an event is atomically appended to the journal. The runtime state is then updated via a pure function reducer.
+2. **Crash Recovery**: If the system crashes, AJA does not restart the workflow. Instead, it replays the journal.
+3. **Durable Activities**: During replay, when the orchestrator encounters a previously completed side effect (e.g., a network call or shell command), the `ActivityContext` intercepts the call, prevents execution, and returns the historical result.
+4. **Lineage Isolation**: Every task execution is strictly scoped. Output payloads, exit codes, and trace IDs are durably logged, ensuring perfect audibility.
+
+---
+
+## Repository Structure
+
+```text
+aja/
+├── libs/
+│   └── aja-core/               # Core Python Orchestration Runtime
+│       ├── aja/runtime/        # Rehydrator, Journal, and Durable Activities
+│       ├── aja/scheduler/      # Deterministic Cron Execution
+│       └── aja/observability/  # TraceContextManager & Telemetry
+├── packages/
+│   └── aja-native/             # Rust acceleration layer (PyO3 + Apache Arrow)
+├── tests/
+│   └── python/                 # Pytest suite ensuring replay determinism
+├── docs/                       # Architecture specs and operator manuals
+├── tools/                      # Release and development tooling
+└── pyproject.toml              # Unified Maturin build manifest
 ```
 
 ---
 
-## 15. Changelog Highlights (v1.0)
+## Operator Tooling
 
-| Phase | Change |
-|---|---|
-| Phase 1 | Canonical Execution Transport (PTY/Pipe FSM, `ExecutionManager`) |
-| Phase 2 | Durable Execution (`ActivityContext`, `ContextVar` replay interception) |
-| Phase 3 | Event-Sourced Missions (append-only journal, `MissionReducer`) |
-| Phase 4 | Projection Rebuild CLI (`aja rebuild-projections`), chaos resilience |
-| Phase 5 | Scheduler event sourcing (job state rehydrated from journal) |
-| Phase 6 | Schema versioning (`event_schema.py`, `VersionedEventRehydrator`) |
+AJA includes built-in operational tooling designed for systems engineers managing local environments.
+
+* **`aja doctor`**: Validates the health of the host system, ensuring Rust native modules, vector stores, and required binaries are correctly mapped.
+* **`aja rebuild-projections`**: Discards all read-only LanceDB tables and deterministically rebuilds them from the append-only journal.
+* **`AJA_DATA_DIR`**: A strictly enforced environment boundary that contains all execution state, keeping the host system clean.
+* **`aja tui`**: A local curses-based dashboard providing real-time visibility into the HTN (Hierarchical Task Network) DAG, tailing logs, and system metrics.
+
+---
+
+## Development & Contributing
+
+### Local Setup
+Ensure you have Python 3.12+ and Rust installed. 
+```bash
+pip install -e .[dev]
+```
+
+### Testing
+AJA maintains a strict testing philosophy. Any change that breaks replay determinism is a failed build.
+```bash
+python -m pytest tests/python -v
+```
+
+### Replay Certification Philosophy
+We treat backwards compatibility of the event journal as a strict requirement. When altering core execution logic, you must ensure that historical journals can still be cleanly rehydrated by the `VersionedEventRehydrator`.
+
+---
+
+## Roadmap
+
+* **Replay Certification**: Formalized compliance tooling to verify older journals against newer schema definitions.
+* **Snapshotting**: Periodic state snapshots to reduce replay time on infinitely running research daemons.
+* **Deterministic Concurrency**: Multi-threaded durable activities with strictly ordered event interleaving.
+* **Release Engineering**: Pre-compiled binary distributions for isolated installation without a local Rust toolchain.
+* **Operational Hardening**: Granular network egress filtering and copy-on-write overlay filesystems for strict sandbox isolation.
+
+---
+
+## Acknowledgements
+
+AJA draws architectural inspiration from modern durable execution systems like Temporal, robust event-sourced architectures, and the Dapr runtime philosophy.
+
+---
+
+## License
+
+[MIT License](LICENSE)
+
+---
+*Generated for AJA Release v1.0*

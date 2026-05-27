@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -75,7 +75,7 @@ class MissionReducer:
 class MissionJournal:
     def __init__(self, mission_id: str):
         self.mission_id = mission_id
-        self.journal_dir = PROJECT_ROOT / ".aja" / "missions"
+        self.journal_dir = DATA_DIR / "missions"
         self.journal_dir.mkdir(parents=True, exist_ok=True)
         self.journal_path = self.journal_dir / f"mission_{mission_id}.jsonl"
 
@@ -154,7 +154,7 @@ def rebuild_mission_projections(mission_id: str) -> None:
         table.add([row])
 
 def rebuild_all_mission_projections() -> None:
-    journal_dir = PROJECT_ROOT / ".aja" / "missions"
+    journal_dir = DATA_DIR / "missions"
     if not journal_dir.exists():
         return
         

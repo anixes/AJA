@@ -7,7 +7,7 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
 from aja.orchestration.gateway import LLMGateway
 from aja.orchestration.registry import WorkerRegistry
@@ -59,7 +59,7 @@ class SwarmEngine:
             presenter = AJAPresenter()
         self.presenter = presenter
         # Using the unified BatonManager location
-        self.baton_dir = PROJECT_ROOT / ".aja" / "batons"
+        self.baton_dir = DATA_DIR / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
     async def execute_direct(self, objective: str):
@@ -74,9 +74,9 @@ class SwarmEngine:
         # 1. Initialize Direct Tool Executor
         from aja.runtime.execution.activity import ActivityContext, set_activity_context
         from aja.runtime.execution.sequencer import TelemetryEmitter, EventSequencer
-        from aja.config import PROJECT_ROOT
+        from aja.config import PROJECT_ROOT, DATA_DIR
         
-        direct_root = PROJECT_ROOT / ".aja" / "executions" / "direct"
+        direct_root = DATA_DIR / "executions" / "direct"
         sequencer = EventSequencer("direct")
         emitter = TelemetryEmitter(direct_root, sequencer)
         
@@ -196,7 +196,7 @@ class SwarmEngine:
             return json.load(f)
 
     def deploy_background_swarm(self):
-        print("--- AGENTX BACKGROUND SWARM DEPLOYMENT ---")
+        print("--- AJA BACKGROUND SWARM DEPLOYMENT ---")
         config = self.load_config()
         territories = config.get("territories", [])
         env = os.environ.copy()

@@ -54,8 +54,8 @@ class IntentEngine:
         self.success_count = 0
         self.recent_actions = []
         
-        from aja.config import PROJECT_ROOT
-        self.COOLDOWN_FILE = PROJECT_ROOT / ".aja" / "intent_cooldowns.json"
+        from aja.config import PROJECT_ROOT, DATA_DIR
+        self.COOLDOWN_FILE = DATA_DIR / "intent_cooldowns.json"
         self.load_cooldowns()
 
     def generate_intents(self, state: Dict[str, Any]) -> List[Intent]:

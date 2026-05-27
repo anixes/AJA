@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import random
 import json
 import logging
@@ -8,7 +9,7 @@ from aja.learning.strategy_store import strategy_store
 
 logger = logging.getLogger(__name__)
 
-EXPLORATION_STATE_FILE = aja.config.PROJECT_ROOT / ".aja" / "agent_exploration_state.json"
+EXPLORATION_STATE_FILE = aja.config.DATA_DIR / "agent_exploration_state.json"
 
 class ExplorationController:
     def __init__(self):

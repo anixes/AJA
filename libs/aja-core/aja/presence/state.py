@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import os
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -24,7 +25,7 @@ def get_system_state() -> dict:
     }
 
     try:
-        if os.path.exists(".aja/stop_loop"):
+        if os.path.exists(str(DATA_DIR / "stop_loop")):
             state["loop_status"] = "stopped (flagged)"
             state["circuit_breaker_triggered"] = True
 

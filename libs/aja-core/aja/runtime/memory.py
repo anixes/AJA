@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.memory.manager import list_tables_defensive
 
 class MemoryTree:
@@ -15,7 +15,7 @@ class MemoryTree:
     Replaces legacy LanceDB/Arrow with a columnar data store for maximum hardware efficiency.
     """
     def __init__(self, table_name: str = "agent_activity"):
-        self.db_path = PROJECT_ROOT / ".aja" / "lancedb"
+        self.db_path = DATA_DIR / "lancedb"
         self.db_path.mkdir(parents=True, exist_ok=True)
         self.uri = str(self.db_path)
         self.db = lancedb.connect(self.uri)

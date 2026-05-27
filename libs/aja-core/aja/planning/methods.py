@@ -1,8 +1,9 @@
+from aja.config import DATA_DIR
 import json
 import os
 from typing import Dict, List, Optional
 
-METHODS_FILE = os.path.join(".aja", "methods.json")
+METHODS_FILE = str(DATA_DIR / "methods.json")
 
 class MethodLibrary:
     """
@@ -12,7 +13,7 @@ class MethodLibrary:
 
     @staticmethod
     def _ensure_dir():
-        os.makedirs(".aja", exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def load(cls) -> Dict[str, List[str]]:

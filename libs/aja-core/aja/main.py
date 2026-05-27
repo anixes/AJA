@@ -36,7 +36,7 @@ from prompt_toolkit.key_binding import KeyBindings
 # Load environment secrets
 load_dotenv()
 
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.runtime.handover import BatonManager
 from aja.interface.modern import (
     console,
@@ -50,7 +50,9 @@ from aja.interface.modern import (
 )
 
 PYTHON = sys.executable
-CONFIG_PATH = PROJECT_ROOT / "aja.json"
+CONFIG_PATH = DATA_DIR / "aja.json"
+if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
+    CONFIG_PATH = PROJECT_ROOT / "aja.json"
 
 # ---------------------------------------------------------------------------
 # Core Commands
@@ -137,7 +139,7 @@ def cmd_status():
 
     # Active Batons
     batons = []
-    baton_dir = PROJECT_ROOT / ".aja" / "batons"
+    baton_dir = DATA_DIR / "batons"
     if baton_dir.exists():
         for b in baton_dir.glob("*.json"):
             try:
@@ -307,7 +309,7 @@ def cmd_chat():
 
     # Create Session
     session = PromptSession(
-        history=FileHistory(str(PROJECT_ROOT / ".aja_history")),
+        history=FileHistory(str(DATA_DIR / ".aja_history")),
         completer=completer,
         auto_suggest=AutoSuggestFromHistory(),
         key_bindings=kb,
@@ -334,7 +336,7 @@ def cmd_chat():
                 tasks = f"Tasks: {p} pending, {r} running"
                 health = "Health: [green]OK[/green]"
                 return HTML(
-                    f' <style bg="ansicyan" fg="ansiblack"> <b>AGENTX</b> </style> | Mode: {mode} | {tasks} | {health} '
+                    f' <style bg="ansicyan" fg="ansiblack"> <b>AJA</b> </style> | Mode: {mode} | {tasks} | {health} '
                 )
 
             user_input = session.prompt(
@@ -493,9 +495,9 @@ def cmd_setup():
         if not recreate:
             print_info("Skipping configuration generation. Verifying directories...")
             # Still initialize folders
-            baton_dir = PROJECT_ROOT / ".aja" / "batons"
+            baton_dir = DATA_DIR / "batons"
             baton_dir.mkdir(parents=True, exist_ok=True)
-            handover_dir = PROJECT_ROOT / ".aja" / "handovers"
+            handover_dir = DATA_DIR / "handovers"
             handover_dir.mkdir(parents=True, exist_ok=True)
             print_success("Setup and directories verified.")
             return
@@ -531,7 +533,7 @@ def cmd_setup():
             default="",
         )
         if api_key:
-            env_path = PROJECT_ROOT / ".env"
+            env_path = DATA_DIR / ".env"
             existing_lines = []
             if env_path.exists():
                 existing_lines = env_path.read_text(encoding="utf-8").splitlines()
@@ -575,9 +577,9 @@ def cmd_setup():
 
     # Validate with Pydantic
     try:
-        from aja.config_schema import AgentXConfig
+        from aja.config_schema import AJAConfig
 
-        AgentXConfig.model_validate(config_data)
+        AJAConfig.model_validate(config_data)
 
         # Write to file
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
@@ -589,9 +591,9 @@ def cmd_setup():
         return
 
     # Scaffold directories
-    baton_dir = PROJECT_ROOT / ".aja" / "batons"
+    baton_dir = DATA_DIR / "batons"
     baton_dir.mkdir(parents=True, exist_ok=True)
-    handover_dir = PROJECT_ROOT / ".aja" / "handovers"
+    handover_dir = DATA_DIR / "handovers"
     handover_dir.mkdir(parents=True, exist_ok=True)
     print_success("Vector store database directories successfully initialized.")
 
@@ -611,7 +613,7 @@ def cmd_exec(args: List[str]):
 
     manager = get_default_execution_manager()
     subcmd = args[0].lower() if args else "list"
-    exec_root = PROJECT_ROOT / ".aja" / "executions"
+    exec_root = DATA_DIR / "executions"
 
     if subcmd == "list":
         table = Table(title="Execution Sessions")

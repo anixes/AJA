@@ -32,8 +32,6 @@ def find_project_root():
 
 
 PROJECT_ROOT = find_project_root()
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
 
 from aja.security.stripper import CommandStripper
 from aja.security.command_guard import classify_command
@@ -64,7 +62,7 @@ class RiskPanel(Static):
             self.set_classes("")
 
 
-class AgentXShell(App):
+class AJAShell(App):
     """
     A premium TUI replacing 'SafeShellTUI'.
     Powered by AJA (Assistant of Joint Agents) and the AJA orchestration core.
@@ -306,5 +304,5 @@ if __name__ == "__main__":
     model = "gemini-2.0-flash"  # Use a stable default
     key = os.getenv("GEMINI_API_KEY") or "dummy"
 
-    app = AgentXShell(provider, key, model)
+    app = AJAShell(provider, key, model)
     app.run()

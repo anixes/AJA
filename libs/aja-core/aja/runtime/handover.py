@@ -6,10 +6,10 @@ import string
 import time
 import threading
 import contextlib
-import aja_native
+from aja import aja_native
 from pathlib import Path
 from typing import Dict, Any, Optional
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.runtime.baton_types import MissionBatonPayload, WorkerBatonPayload
 
 _IN_MEMORY_BATONS = {}
@@ -81,7 +81,7 @@ class HandoverManager:
     """Base class for handovers."""
 
     def __init__(self):
-        self.state_dir = PROJECT_ROOT / ".aja" / "handovers"
+        self.state_dir = DATA_DIR / "handovers"
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -93,7 +93,7 @@ class BatonManager(HandoverManager):
 
     def __init__(self):
         super().__init__()
-        self.baton_dir = PROJECT_ROOT / ".aja" / "batons"
+        self.baton_dir = DATA_DIR / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
 
     def _generate_code(self, length: int = 6) -> str:

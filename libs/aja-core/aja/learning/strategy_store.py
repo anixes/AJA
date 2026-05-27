@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import json
 import logging
 import uuid
@@ -9,7 +10,7 @@ from aja.llm import get_gateway_for_model
 
 logger = logging.getLogger(__name__)
 
-STRATEGY_FILE = aja.config.PROJECT_ROOT / ".aja" / "agent_strategies.json"
+STRATEGY_FILE = aja.config.DATA_DIR / "agent_strategies.json"
 
 import time
 

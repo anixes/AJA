@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.4
+FROM mcr.microsoft.com/devcontainers/python:1-3.11-bullseye
+
+# Install Rust toolchain for development
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh && \
+    sh rustup.sh -y --default-toolchain stable && \
+    rm rustup.sh
+
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Install maturin for compiling the PyO3 crate
+RUN pip install --no-cache-dir maturin pytest anyio psutil
+
+WORKDIR /workspace
+
+# Notice: We do not COPY the codebase here.
+# For local dev, the codebase should be volume-mounted at /workspace.
+
+CMD ["sleep", "infinity"]

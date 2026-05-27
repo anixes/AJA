@@ -128,8 +128,8 @@ def log_security_event(command: str, classification: Dict[str, Any], context: Op
         logger.info("✅ [Security Audit] Command ALLOWED: '%s'", command)
 
     # Persist security log to .aja/security_audit.log
-    from aja.config import PROJECT_ROOT
-    audit_log_path = PROJECT_ROOT / ".aja" / "security_audit.log"
+    from aja.config import PROJECT_ROOT, DATA_DIR
+    audit_log_path = DATA_DIR / "security_audit.log"
     try:
         audit_log_path.parent.mkdir(parents=True, exist_ok=True)
         with audit_log_path.open("a", encoding="utf-8") as f:

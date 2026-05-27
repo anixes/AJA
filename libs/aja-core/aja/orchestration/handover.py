@@ -3,9 +3,9 @@ import random
 import time
 from pathlib import Path
 from typing import Optional, Dict
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
-HANDOVER_DB = PROJECT_ROOT / ".aja" / "handover.json"
+HANDOVER_DB = DATA_DIR / "handover.json"
 
 class ClientHandoverManager:
     """

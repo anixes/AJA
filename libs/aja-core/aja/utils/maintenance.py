@@ -1,7 +1,7 @@
 import time
 import logging
 from aja.memory.secretary import get_aja_memory
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.persistence.tasks import cleanup_old_tasks as cleanup_core_tasks
 from aja.persistence.tools import cleanup_old_entries
 from aja.decision.feedback import cleanup_old_decisions
@@ -34,7 +34,7 @@ def run_maintenance():
             
             # Additional cleanup tasks could go here
             # (e.g. cleaning .aja/batons/ older than 24h)
-            baton_dir = PROJECT_ROOT / ".aja" / "batons"
+            baton_dir = DATA_DIR / "batons"
             if baton_dir.exists():
                 count = 0
                 now = time.time()

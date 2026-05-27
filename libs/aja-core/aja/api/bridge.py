@@ -4,11 +4,6 @@ import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-# Add package root to sys.path to allow absolute imports when launched directly.
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-if str(PACKAGE_ROOT) not in sys.path:
-    sys.path.append(str(PACKAGE_ROOT))
-
 import json
 import shutil
 import subprocess
@@ -22,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from aja.security.stripper import CommandStripper
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.api.routes import attach_route_groups
 from aja.api.services.command_policy import analyze_shell_command as analyze_shell_command_policy
 from aja.api.services.legacy_dashboard import dashboard_unavailable_payload
@@ -122,17 +117,17 @@ def list_available_tools():
     }
 
 
-RUNTIME_STATE_PATH = Path(".aja") / "runtime-state.json"  # debug export only
-BATON_DIR = PROJECT_ROOT / ".aja" / "batons"
+RUNTIME_STATE_PATH = DATA_DIR / "runtime-state.json"  # debug export only
+BATON_DIR = DATA_DIR / "batons"
 API_TOKEN = os.getenv("AJA_API_TOKEN", "dev-token-123")
-TELEGRAM_HISTORY_PATH = Path(".aja") / "telegram-history.jsonl"
-TELEGRAM_PENDING_PATH = Path(".aja") / "telegram-pending.json"  # debug export only
-APPROVAL_AUDIT_PATH = Path(".aja") / "approval-audit.jsonl"   # debug export only
+TELEGRAM_HISTORY_PATH = DATA_DIR / "telegram-history.jsonl"
+TELEGRAM_PENDING_PATH = DATA_DIR / "telegram-pending.json"  # debug export only
+APPROVAL_AUDIT_PATH = DATA_DIR / "approval-audit.jsonl"   # debug export only
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 TELEGRAM_COMMAND_TIMEOUT = int(os.getenv("TELEGRAM_COMMAND_TIMEOUT", "60"))
-AJA_MEMORY_DIR = Path(".aja") / "lancedb"
+AJA_MEMORY_DIR = DATA_DIR / "lancedb"
 
 DENY_BINARIES = {
     "dd": "Low-level disk writes can irreversibly destroy data.",
@@ -314,7 +309,7 @@ def load_telegram_pending():
 
 
 def save_telegram_pending(data: dict):
-    """No-op: Telegram approvals now live in agentx_approvals table."""
+    """No-op: Telegram approvals now live in aja_approvals table."""
     # Debug export only
     try:
         TELEGRAM_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -872,7 +867,7 @@ async def run_shell_command(command: str):
 async def run_file_guardian_check(command: str):
     def _run():
         return subprocess.run(
-            [resolve_npx_executable(), "tsx", "apps/cli-ts/src/telegram_file_guardian_check.ts", ".aja/telegram-command.txt", command],
+            [resolve_npx_executable(), "tsx", "apps/cli-ts/src/telegram_file_guardian_check.ts", str(DATA_DIR / "telegram-command.txt"), command],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
@@ -1040,7 +1035,7 @@ def get_telegram_message(update: dict):
     return update.get("message") or update.get("edited_message") or {}
 
 
-def build_agentx_chat_context(limit: int = 5):
+def build_aja_chat_context(limit: int = 5):
     memory = get_aja_memory()
     context: list[str] = []
     try:
@@ -1066,14 +1061,14 @@ def build_agentx_chat_context(limit: int = 5):
     return "\n".join(context) or "No current task context is available."
 
 
-def generate_agentx_chat_reply(text: str, user_id: int, chat_id: int | str):
+def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
     """
     Generate a natural language reply using the AJA Executive Brain (LLM).
     Context includes recent tasks, pending approvals, and chat history.
     """
     mem = get_aja_memory()
     # 1. Fetch Context
-    context_data = build_agentx_chat_context(limit=5)
+    context_data = build_aja_chat_context(limit=5)
     
     # 2. Fetch Recent History from LanceDB
     history_rows = mem.get_communication_history(f"telegram:{user_id}", limit=3)
@@ -1186,8 +1181,8 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
             return aja_reply
 
         # Fallback to general AI chat
-        reply = await asyncio.to_thread(generate_agentx_chat_reply, text, user_id, chat_id)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "agentx_chat"})
+        reply = await asyncio.to_thread(generate_aja_chat_reply, text, user_id, chat_id)
+        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "aja_chat"})
         return reply
 
     # If we are here, it's an 'execute' kind from build_supported_command
@@ -2402,7 +2397,7 @@ async def deny_pending():
 
 @app.get("/runtime/approvals/audit/{approval_id}", dependencies=[Depends(verify_token)])
 async def get_approval_audit_trail(approval_id: str):
-    """Return the append-only audit trail for a specific approval from agentx_approval_audit."""
+    """Return the append-only audit trail for a specific approval from aja_approval_audit."""
     trail = await asyncio.to_thread(get_aja_memory().list_approval_audit, approval_id)
     return {"approval_id": approval_id, "audit": trail}
 
@@ -2486,7 +2481,7 @@ def get_safety_history():
     return {"events": state.get("events", [])[:10]}
 
 
-CONFIG_PATH = Path(".aja") / "config.json"
+CONFIG_PATH = DATA_DIR / "config.json"
 
 
 def load_config():

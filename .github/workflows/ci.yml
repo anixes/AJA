@@ -49,14 +49,13 @@ jobs:
       - name: Install Maturin
         run: pip install maturin pytest anyio
 
-      - name: Build Crate Binary Extension
-        working-directory: packages/aja-native
-        run: maturin build --release --out ../../dist
+      - name: Build Unified Package
+        run: maturin build --release --out dist
 
       - name: Upload Built Wheels
         uses: actions/upload-artifact@v4
         with:
-          name: aja-native-wheels-${{ matrix.os }}
+          name: aja-wheels-${{ matrix.os }}
           path: dist/*.whl
 
   # Hardened Runtime Smoke Tests
@@ -68,33 +67,30 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Download compiled wheels
         uses: actions/download-artifact@v4
         with:
-          name: aja-native-wheels-${{ matrix.os }}
+          name: aja-wheels-${{ matrix.os }}
           path: dist
 
-      - name: Install Local Crate Wheel & Dev Dependencies
+      - name: Install Unified Package & Dev Dependencies
         run: |
-          pip install --find-links=dist aja-native
+          pip install --find-links=dist aja[all]
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
-        env:
-          PYTHONPATH: "libs/aja-core"
-        run: python -m aja doctor
+        run: aja doctor
 
-      - name: Run Execution Stream Transport Tests
-        env:
-          PYTHONPATH: "libs/aja-core"
-        run: python -m pytest tests/python/test_execution_stream_runtime.py
+      - name: Run Full Test Suite
+        run: pytest tests/python

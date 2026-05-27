@@ -5,7 +5,7 @@ import pyarrow as pa
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Dict
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.memory.manager import list_tables_defensive
 
 
@@ -21,7 +21,7 @@ class SkillStore:
 
     def __init__(self, db_path: Path | str = None):
         self.db_path = (
-            Path(db_path) if db_path else PROJECT_ROOT / ".aja" / "lancedb"
+            Path(db_path) if db_path else DATA_DIR / "lancedb"
         )
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = lancedb.connect(str(self.db_path))

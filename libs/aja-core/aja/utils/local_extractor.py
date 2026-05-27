@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import lancedb
 import pyarrow as pa
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class LocalExtractor:
         self.nodes = []
         self.edges = []
         self.seen_ids = set()
-        self.db_path = PROJECT_ROOT / ".aja" / "lancedb" / "structure"
+        self.db_path = DATA_DIR / "lancedb" / "structure"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = lancedb.connect(str(self.db_path))
         self._ensure_table()

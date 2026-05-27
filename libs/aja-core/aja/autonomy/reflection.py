@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, List
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.llm import get_gateway
 from aja.skills.skill_store import SkillStore
 
@@ -16,7 +16,7 @@ class ReflectionEngine:
     def __init__(self):
         self.gateway = get_gateway()
         self.skill_store = SkillStore()
-        self.baton_dir = PROJECT_ROOT / ".aja" / "batons"
+        self.baton_dir = DATA_DIR / "batons"
 
     async def reflect_on_completed_tasks(self):
         """Scan baton directory and synthesize skills from successful runs."""

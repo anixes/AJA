@@ -1,3 +1,56 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "aja"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "High-performance agentic AI workflow engine and CLI tool"
+dependencies = [
+    "pydantic>=2.0", 
+    "aiohttp>=3.9", 
+    "python-dotenv>=1.0",
+    "lancedb>=0.8", 
+    "rich>=13.0", 
+    "textual",
+    "pyarrow>=14.0",
+    "prompt_toolkit>=3.0", 
+    "anyio>=4.0", 
+    "requests>=2.31",
+    "openai>=1.0", 
+    "fastapi>=0.110", 
+    "uvicorn[standard]>=0.27",
+    "websockets>=12.0", 
+    "wsproto",
+    "python-telegram-bot>=20.0",
+    "croniter",
+    "platformdirs"
+]
+
+[project.optional-dependencies]
+embed   = ["sentence-transformers>=2.0"]
+metrics = ["psutil>=5.9"]
+pty-win = ["pywinpty>=2.0; sys_platform=='win32'"]
+discord = ["discord.py>=2.3"]
+slack   = ["slack-sdk>=3.27"]
+all     = ["aja[embed,metrics,pty-win,discord,slack]"]
+
+[project.scripts]
+aja = "aja.main:main"
+
+[project.entry-points."aja.model_providers"]
+google     = "aja.llm:GoogleModelProvider"
+openai     = "aja.llm:OpenAIModelProvider"
+openrouter = "aja.llm:OpenRouterModelProvider"
+llama_cpp  = "aja.llm:LlamaCppModelProvider"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "aja.aja_native"
+manifest-path = "packages/aja-native/Cargo.toml"
+python-source = "libs/aja-core"
+
 [tool.pytest.ini_options]
 pythonpath = [
   "libs/aja-core"

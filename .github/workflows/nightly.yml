@@ -1,0 +1,64 @@
+name: AJA Nightly Build
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight
+  workflow_dispatch:      # Allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  nightly_tests:
+    name: Nightly Integration Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, x86_64-apple-darwin
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            packages/aja-native/target/
+          key: cargo-nightly-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml') }}
+          restore-keys: cargo-nightly-${{ matrix.os }}-
+
+      - name: Install Maturin
+        run: pip install maturin pytest anyio psutil
+
+      - name: Build Crate Binary Extension
+        working-directory: packages/aja-native
+        run: maturin build --release --out ../../dist
+
+      - name: Install AJA
+        run: |
+          pip install --find-links=dist aja-native
+          pip install -e ./libs/aja-core[all]
+
+      - name: Diagnostic Verification (doctor checks)
+        run: aja doctor
+
+      - name: Run Full Test Suite
+        run: pytest tests/python

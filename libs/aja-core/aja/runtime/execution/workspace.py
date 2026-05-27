@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.runtime.execution.contracts import WorkspaceDiff, WorkspaceSnapshot
 
 
@@ -14,11 +14,11 @@ class WorkspaceManager:
 
     def __init__(self, project_root: Optional[Path] = None, base_dir: Optional[Path] = None):
         self.project_root = (project_root or PROJECT_ROOT).resolve()
-        self.base_dir = (base_dir or self.project_root / ".aja" / "workspaces").resolve()
+        self.base_dir = (base_dir or DATA_DIR / "workspaces").resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def create(self, session_id: str, mode: str = "isolated") -> WorkspaceSnapshot:
-        artifact_root = self.project_root / ".aja" / "executions" / session_id / "artifacts"
+        artifact_root = DATA_DIR / "executions" / session_id / "artifacts"
         artifact_root.mkdir(parents=True, exist_ok=True)
 
         if mode == "direct":
@@ -147,7 +147,7 @@ class WorkspaceManager:
             ".git",
             ".aja",
             ".pytest_cache",
-            ".pytest-agentx",
+            ".pytest-aja",
             "node_modules",
             "dist",
             "__pycache__",

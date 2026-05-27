@@ -80,7 +80,7 @@ class KanbanBoard:
             make_column("COMPLETED", completed_table, "green")
         )
 
-        return Panel(grid, title="[bold white]AGENTX MISSION CONTROL[/bold white]", border_style="bright_blue")
+        return Panel(grid, title="[bold white]AJA MISSION CONTROL[/bold white]", border_style="bright_blue")
 
 def live_kanban():
     """Starts a real-time Kanban telemetry loop."""

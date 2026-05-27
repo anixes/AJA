@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import time
 import json
 import uuid
@@ -12,7 +13,7 @@ from aja.memory.secretary import AJAMemory
 
 import aja.config
 
-GLOBAL_STATE_FILE = aja.config.PROJECT_ROOT / ".aja" / "agent_state.json"
+GLOBAL_STATE_FILE = aja.config.DATA_DIR / "agent_state.json"
 
 class Goal:
     def __init__(self, objective: str, priority: int, deadline: float = None, is_sandbox: bool = False):

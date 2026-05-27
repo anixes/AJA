@@ -1,3 +1,5 @@
+from __future__ import annotations
+from aja.config import DATA_DIR
 """
 aja/planning/method_store.py
 ================================
@@ -26,8 +28,6 @@ Schema
 }
 """
 
-from __future__ import annotations
-
 import json
 import os
 import tempfile
@@ -36,7 +36,7 @@ from typing import Dict, List, Optional
 from aja.embeddings.index import VectorIndex
 from aja.embeddings.service import EmbeddingService
 
-METHODS_FILE = os.path.join(".aja", "methods.json")
+METHODS_FILE = str(DATA_DIR / "methods.json")
 
 
 class MethodStore:
@@ -57,7 +57,7 @@ class MethodStore:
 
     @staticmethod
     def _ensure_dir() -> None:
-        os.makedirs(".aja", exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def _methods_path(cls) -> str:

@@ -4,7 +4,7 @@ import uuid
 import httpx
 from pathlib import Path
 from typing import Optional
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class VisionBridge:
 
     def __init__(self, cache_dir: Optional[str] = None):
         if cache_dir is None:
-            cache_dir = os.path.join(PROJECT_ROOT, ".aja", "gateway", "cache", "images")
+            cache_dir = str(DATA_DIR / "gateway" / "cache" / "images")
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

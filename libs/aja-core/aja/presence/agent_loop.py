@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import time
 import os
 import signal
@@ -105,7 +106,7 @@ current_backoff = 0        # dynamically added to sleep interval
 
 # Stop flag checking
 def _check_stop_flag() -> bool:
-    if os.path.exists(".aja/stop_loop"):
+    if os.path.exists(str(DATA_DIR / "stop_loop")):
         return True
     return False
 
@@ -113,7 +114,7 @@ def _trigger_circuit_breaker(reason: str):
     print(f"\n[AgentLoop] 🚨 CIRCUIT_BREAKER_TRIGGERED: {reason}")
     log_event("CIRCUIT_BREAKER_TRIGGERED", {"reason": reason})
     send_notification("CIRCUIT_BREAKER_TRIGGERED", {"reason": reason})
-    with open(".aja/stop_loop", "w") as f:
+    with open(str(DATA_DIR / "stop_loop"), "w") as f:
         f.write(f"Circuit breaker tripped: {reason}")
 
 # Graceful shutdown flag

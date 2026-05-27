@@ -268,12 +268,12 @@ class ReActExecutor:
                         trace_id = getattr(self.session, "trace_id", None) if self.session else None
                         run_id = getattr(self.session, "run_id", None) if self.session else None
 
-                        from aja.config import PROJECT_ROOT
+                        from aja.config import PROJECT_ROOT, DATA_DIR
                         if session_id:
-                            session_root = PROJECT_ROOT / ".aja" / "executions" / session_id
+                            session_root = DATA_DIR / "executions" / session_id
                             node_emitter = TelemetryEmitter(session_root, EventSequencer(session_id, trace_id))
                         else:
-                            direct_root = PROJECT_ROOT / ".aja" / "executions" / "direct"
+                            direct_root = DATA_DIR / "executions" / "direct"
                             node_emitter = TelemetryEmitter(direct_root, EventSequencer("direct"))
 
                         node_ctx = ActivityContext(is_replay=False, emitter=node_emitter, run_id=run_id)

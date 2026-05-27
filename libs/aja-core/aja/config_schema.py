@@ -34,7 +34,7 @@ class SwarmSettings(BaseModel):
             raise ValueError(f"operating_mode must be one of {allowed}, got '{v}'")
         return v.lower()
 
-class AgentXConfig(BaseModel):
+class AJAConfig(BaseModel):
     project_name: str = "AJA"
     territories: List[TerritoryConfig] = Field(default_factory=list)
     swarm_settings: SwarmSettings = Field(default_factory=SwarmSettings)

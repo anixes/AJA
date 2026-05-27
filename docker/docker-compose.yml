@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # Development environment
+  aja-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      - ..:/workspace
+      # Map the data directory out to a local folder so LanceDB persists across container restarts
+      - aja-data:/workspace/.data/aja
+    environment:
+      - AJA_DATA_DIR=/workspace/.data/aja
+    tty: true
+
+  # Production-like environment
+  aja-prod:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - aja-prod-data:/data/aja
+    environment:
+      - AJA_DATA_DIR=/data/aja
+
+volumes:
+  aja-data:
+  aja-prod-data:

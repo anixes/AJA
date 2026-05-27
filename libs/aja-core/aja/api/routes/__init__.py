@@ -17,5 +17,5 @@ ROUTE_GROUPS = {
 
 def attach_route_groups(app):
     """Attach route ownership metadata to the compatibility bridge app."""
-    app.state.agentx_route_groups = ROUTE_GROUPS
+    app.state.aja_route_groups = ROUTE_GROUPS
     return app

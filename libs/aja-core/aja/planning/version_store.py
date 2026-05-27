@@ -24,11 +24,11 @@ import json
 import os
 from typing import List, Optional
 
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.planning.models import PlanGraph, PlanVersion
 
 # Storage root
-_VERSIONS_DIR = PROJECT_ROOT / ".aja" / "plan_versions"
+_VERSIONS_DIR = DATA_DIR / "plan_versions"
 
 
 def _plan_dir(plan_id: str):

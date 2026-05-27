@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import List, Tuple
 
-from aja.config import PROJECT_ROOT, CONFIG
+from aja.config import PROJECT_ROOT, DATA_DIR, CONFIG
 from aja.memory.manager import get_memory_manager, list_tables_defensive
 
 logger = logging.getLogger("aja.diagnostics")
@@ -17,23 +17,26 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
     checks = []
 
     # 1. Config Validation
-    config_path = PROJECT_ROOT / "aja.json"
+    config_path = DATA_DIR / "aja.json"
+    if not config_path.exists() and (PROJECT_ROOT / "aja.json").exists():
+        config_path = PROJECT_ROOT / "aja.json"
+
     if not config_path.exists():
-        checks.append(("Config File", False, f"Missing aja.json in project root: {PROJECT_ROOT}"))
+        checks.append(("Config File", False, f"Missing aja.json in {DATA_DIR}"))
     else:
         try:
-            from aja.config_schema import AgentXConfig
+            from aja.config_schema import AJAConfig
             import json
             with config_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-            AgentXConfig.model_validate(data)
+            AJAConfig.model_validate(data)
             checks.append(("Config Validation", True, "aja.json is fully valid against Pydantic schema"))
         except Exception as e:
             checks.append(("Config Validation", False, f"Invalid aja.json: {e}"))
 
     # 2. Native Rust Engine (aja-native)
     try:
-        import aja_native
+        from aja import aja_native
         has_write = hasattr(aja_native, "write_baton")
         has_read = hasattr(aja_native, "read_baton")
         has_batch = hasattr(aja_native, "PyTrajectoryManager")
@@ -118,7 +121,7 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
             cpu_count = psutil.cpu_count(logical=True)
             ram = psutil.virtual_memory()
             total_ram_gb = ram.total / (1024 ** 3)
-            disk = psutil.disk_usage(str(PROJECT_ROOT))
+            disk = psutil.disk_usage(str(DATA_DIR))
             free_disk_gb = disk.free / (1024 ** 3)
             sys_details = f"CPUs: {cpu_count} | RAM: {total_ram_gb:.1f} GB | Free Disk: {free_disk_gb:.1f} GB"
             # Check system requirements (minimum 1GB free ram, 2GB disk recommended for local RAG)
@@ -126,7 +129,7 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
         else:
             cpu_count = os.cpu_count() or 1
             import shutil
-            disk = shutil.disk_usage(str(PROJECT_ROOT))
+            disk = shutil.disk_usage(str(DATA_DIR))
             free_disk_gb = disk.free / (1024 ** 3)
             sys_details = f"CPUs: {cpu_count} | RAM: N/A (psutil missing) | Free Disk: {free_disk_gb:.1f} GB"
             has_min_resources = free_disk_gb > 2.0

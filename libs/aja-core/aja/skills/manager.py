@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import os
 import json
 import logging
@@ -102,7 +103,7 @@ class SkillManager:
     def __init__(self, skills_dir: Optional[Path] = None):
         if skills_dir is None:
             # Default to .aja/skills in the project root
-            self.skills_dir = Path(".aja/skills")
+            self.skills_dir = DATA_DIR / "skills"
         else:
             self.skills_dir = skills_dir
             

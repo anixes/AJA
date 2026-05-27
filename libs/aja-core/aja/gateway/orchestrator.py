@@ -7,8 +7,8 @@ import logging
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional, Set
-import aja_native
-from aja.config import PROJECT_ROOT, TELEGRAM_ALLOWED_USER_ID
+from aja import aja_native
+from aja.config import PROJECT_ROOT, DATA_DIR, TELEGRAM_ALLOWED_USER_ID
 from aja.runtime.memory import MemoryTree
 from aja.runtime.handover import BatonManager
 from aja.memory.vector import VectorMemory
@@ -55,7 +55,7 @@ class UnifiedGateway:
         self.telegram_adapter: Optional[TelegramAdapter] = None
         self.active_telemetry_bridges: Set[str] = set()
 
-    async def initialize(self, semantic_db_path: str = "./.aja/memory.lancedb"):
+    async def initialize(self, semantic_db_path: str = str(DATA_DIR / "memory.lancedb")):
         """Initializes the AJA native Rust semantic store."""
         try:
             aja_native.init_semantic(semantic_db_path)
@@ -172,7 +172,7 @@ class UnifiedGateway:
         tail = messages[end:]
         middle = messages[start:end]
 
-        summary_text = f"[AGENTX COMPRESSION: {len(middle)} turns offloaded to LanceDB Semantic Store]"
+        summary_text = f"[AJA COMPRESSION: {len(middle)} turns offloaded to LanceDB Semantic Store]"
 
         # Offload middle to VectorMemory
         for turn in middle:

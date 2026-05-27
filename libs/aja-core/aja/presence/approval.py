@@ -1,3 +1,4 @@
+from aja.config import DATA_DIR
 import time
 import os
 import json
@@ -12,7 +13,7 @@ try:
 except ImportError:
     def send_notification(e, p): pass
 
-APPROVAL_DIR = ".aja/approvals"
+APPROVAL_DIR = str(DATA_DIR / "approvals")
 
 def request_approval(task_id: int, objective: str, payload: dict = None) -> dict:
     """

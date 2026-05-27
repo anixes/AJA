@@ -7,7 +7,7 @@ from pathlib import Path
 from aja.config import PROJECT_ROOT
 
 try:
-    import aja_native
+    from aja import aja_native
 except ImportError:
     aja_native = None
 

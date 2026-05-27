@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import lancedb
 import pyarrow as pa
-from aja.config import PROJECT_ROOT
+from aja.config import PROJECT_ROOT, DATA_DIR
 
 logger = logging.getLogger("aja.memory.secretary")
 
@@ -155,7 +155,7 @@ class AJAMemory:
     Utilizes LanceDB/Arrow for high-speed, zero-copy storage.
     """
 
-    def __init__(self, db_path: str = "./.aja/lancedb"):
+    def __init__(self, db_path: str = str(DATA_DIR / "lancedb")):
         self.db = lancedb.connect(db_path)
         self._init_tables()
 
@@ -821,6 +821,6 @@ _instance: Optional[AJAMemory] = None
 def get_aja_memory() -> AJAMemory:
     global _instance
     if _instance is None:
-        db_path = f"{PROJECT_ROOT}/.aja/lancedb"
+        db_path = f"{DATA_DIR}/lancedb"
         _instance = AJAMemory(db_path)
     return _instance
