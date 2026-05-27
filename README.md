@@ -206,6 +206,3 @@ AJA draws architectural inspiration from modern durable execution systems like T
 ## License
 
 [MIT License](LICENSE)
-
----
-*Generated for AJA Release v1.0*
