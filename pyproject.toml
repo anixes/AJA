@@ -26,7 +26,8 @@ dependencies = [
     "python-telegram-bot>=20.0",
     "croniter",
     "platformdirs",
-    "pandas>=2.0"
+    "pandas>=2.0",
+    "mcp"
 ]
 
 [project.optional-dependencies]
