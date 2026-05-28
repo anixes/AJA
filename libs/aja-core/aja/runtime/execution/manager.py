@@ -178,6 +178,8 @@ class ExecutionManager:
 
             command, shell = self._command_for_request(session.request, workspace, limits)
             creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
             
             # Apply POSIX resource limits if executing locally without Docker
             preexec_fn = create_posix_preexec_fn(limits) if not limits.use_docker else (None if os.name == "nt" else os.setsid)

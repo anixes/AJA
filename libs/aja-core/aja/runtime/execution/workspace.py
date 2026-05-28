@@ -98,7 +98,15 @@ class WorkspaceManager:
                 timeout=20,
             )
         if root.exists():
-            shutil.rmtree(root, ignore_errors=False)
+            import time
+            for _ in range(5):
+                try:
+                    shutil.rmtree(root, ignore_errors=False)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                shutil.rmtree(root, ignore_errors=True)
 
     def cleanup_stale(self) -> List[str]:
         removed: List[str] = []

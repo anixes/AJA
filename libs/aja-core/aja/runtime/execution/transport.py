@@ -63,6 +63,10 @@ class PipeTransport(ExecutionTransport):
             self.preexec_fn = preexec_fn
             
         self.creationflags = creationflags
+        if sys.platform == "win32" and self.creationflags == 0:
+            import subprocess
+            self.creationflags = subprocess.CREATE_NO_WINDOW
+            
         self._proc: Optional[asyncio.subprocess.Process] = None
 
     async def start(self) -> None:
