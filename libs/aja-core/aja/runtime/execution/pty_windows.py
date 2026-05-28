@@ -91,7 +91,7 @@ class WindowsPTYTransport(ExecutionTransport):
         if not self._cancelled and getattr(self, 'pty', None):
             try:
                 exit_code = self.pty.get_exitstatus()
-                self.returncode = 0 if exit_code is None else exit_code
+                self.returncode = -1 if exit_code is None else exit_code
             except Exception:
                 self.returncode = 1
         else:

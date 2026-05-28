@@ -39,7 +39,7 @@ COPY libs/aja-core /app/libs/aja-core
 
 # Install aja-native wheel, then aja-core
 RUN pip install --no-cache-dir --find-links=/app/dist aja-native && \
-    pip install --no-cache-dir -e /app/libs/aja-core[all]
+    pip install --no-cache-dir -e /app[all]
 
 # Set standard data directory for the container environment
 ENV AJA_DATA_DIR=/data/aja

@@ -192,11 +192,11 @@ class ExecutionManager:
             proc = None
             if getattr(session.request, "use_pty", False) and os.name == "nt":
                 try:
-                    from aja.runtime.execution.pty_windows import WindowsPTYProcess, pywinpty
+                    from aja.runtime.execution.pty_windows import WindowsPTYTransport, pywinpty
                     if pywinpty is not None:
                         cmd_str = command if isinstance(command, str) else " ".join(shlex.quote(str(p)) for p in command)
-                        proc = WindowsPTYProcess(cmd=cmd_str, cwd=str(cwd), env=env)
-                        proc.start()
+                        proc = WindowsPTYTransport(command=cmd_str, cwd=str(cwd), env=env)
+                        await proc.start()
                 except Exception as e:
                     pass  # Graceful fallback to subprocess
 

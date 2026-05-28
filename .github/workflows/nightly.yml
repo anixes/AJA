@@ -55,7 +55,7 @@ jobs:
       - name: Install AJA
         run: |
           pip install --find-links=dist aja-native
-          pip install -e ./libs/aja-core[all]
+          pip install -e .[all]
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor

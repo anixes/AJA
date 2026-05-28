@@ -27,7 +27,7 @@
   },
 
   // Build the local pyo3 binary wheel extension automatically on environment creation
-  "postCreateCommand": "pip install --upgrade pip maturin pytest anyio psutil && maturin develop --manifest-path packages/aja-native/Cargo.toml && pip install -e libs/aja-core[all]",
+  "postCreateCommand": "pip install --upgrade pip maturin pytest anyio psutil && maturin develop && pip install -e .[all]",
 
   // Define environment variables
   "remoteEnv": {

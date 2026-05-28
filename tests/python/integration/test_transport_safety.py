@@ -45,7 +45,8 @@ def test_conpty_resource_exhaustion(tmp_path):
         for i in range(10):
             req = ExecutionRequest(
                 command=py_cmd("import time; time.sleep(5.0)"),
-                timeout=0.2
+                timeout=0.2,
+                use_pty=True
             )
             session = await manager.start(req)
             result = await manager.wait(session.session_id)
