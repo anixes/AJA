@@ -14,9 +14,9 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir maturin
 
-# Build the Rust extension
-WORKDIR /build/packages/aja-native
-COPY packages/aja-native/ .
+# Build the Rust extension AND Python package
+WORKDIR /build
+COPY . .
 RUN maturin build --release --out /build/dist
 
 # ---------------------------------------------------------
@@ -33,12 +33,8 @@ WORKDIR /app
 # Copy built wheels from builder
 COPY --from=builder /build/dist /app/dist
 
-# Copy core Python package
-COPY libs/aja-core /app/libs/aja-core
-
-# Install aja-native wheel, then aja-core
-RUN pip install --no-cache-dir --find-links=/app/dist aja-native && \
-    pip install --no-cache-dir -e /app[all]
+# Install the built wheel
+RUN pip install --no-cache-dir /app/dist/aja*.whl[all]
 
 # Set standard data directory for the container environment
 ENV AJA_DATA_DIR=/data/aja
