@@ -72,8 +72,9 @@ class PipeTransport(ExecutionTransport):
             "stdin": asyncio.subprocess.PIPE,
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
-            "creationflags": self.creationflags,
         }
+        if self.creationflags:
+            kwargs["creationflags"] = self.creationflags
         if self.preexec_fn is not None:
             kwargs["preexec_fn"] = self.preexec_fn
 

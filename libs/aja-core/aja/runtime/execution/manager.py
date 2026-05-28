@@ -177,7 +177,7 @@ class ExecutionManager:
             await self._set_state(session, "running", "Execution session running")
 
             command, shell = self._command_for_request(session.request, workspace, limits)
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            creationflags = 0
             
             # Apply POSIX resource limits if executing locally without Docker
             preexec_fn = create_posix_preexec_fn(limits) if not limits.use_docker else (None if os.name == "nt" else os.setsid)
@@ -206,8 +206,9 @@ class ExecutionManager:
                 "stdin": asyncio.subprocess.PIPE,
                 "stdout": asyncio.subprocess.PIPE,
                 "stderr": asyncio.subprocess.PIPE,
-                "creationflags": creationflags,
             }
+            if creationflags:
+                kwargs["creationflags"] = creationflags
             if preexec_fn is not None:
                 kwargs["preexec_fn"] = preexec_fn
 
@@ -278,9 +279,12 @@ class ExecutionManager:
             error = error or "Execution cancelled."
             exit_code = -1
         except Exception as exc:
+            import traceback
             final_state = "failed"
             error = str(exc)
-            await self._emit(session, "EXECUTION_ERROR", error, {"error": error}, level="error")
+            full_error = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            await self._emit(session, "EXECUTION_ERROR", error, {"error": full_error}, level="error")
+            session.stderr_path.write_text(full_error, encoding="utf-8")
         finally:
             workspace_diff = None
             if session.workspace:
