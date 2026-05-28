@@ -85,8 +85,7 @@ jobs:
           path: dist
 
       - name: Install Unified Package & Dev Dependencies
-        run: |
-          pip install --find-links=dist aja[all]
+          pip install --find-links=dist "aja[all]==0.1.0"
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)

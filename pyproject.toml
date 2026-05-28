@@ -25,7 +25,8 @@ dependencies = [
     "wsproto",
     "python-telegram-bot>=20.0",
     "croniter",
-    "platformdirs"
+    "platformdirs",
+    "pandas>=2.0"
 ]
 
 [project.optional-dependencies]
