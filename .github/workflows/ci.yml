@@ -86,8 +86,10 @@ jobs:
           path: dist
 
       - name: Install Unified Package & Dev Dependencies
+        shell: bash
         run: |
-          pip install --find-links=dist "aja[all]"
+          WHEEL=$(ls dist/aja*.whl | head -n 1)
+          pip install "${WHEEL}[all]"
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
