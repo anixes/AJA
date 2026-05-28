@@ -291,6 +291,63 @@ class LlamaCppModelProvider(BaseModelProvider):
         return True
 
 
+class CopilotModelProvider(BaseModelProvider):
+    def chat_completions(
+        self, 
+        messages: List[Dict[str, str]], 
+        tools: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        from aja.copilot_auth import resolve_copilot_token, get_copilot_api_token, copilot_request_headers, copilot_device_code_login
+        
+        raw_token = self.config.get("api_key")
+        if not raw_token:
+            raw_token, _ = resolve_copilot_token()
+        
+        if not raw_token:
+            print("[Copilot] No GitHub token found in environment. Initiating device code login...")
+            raw_token = copilot_device_code_login()
+            if not raw_token:
+                raise ValueError("Copilot authentication failed. Please provide a valid GitHub token.")
+                
+        api_token = get_copilot_api_token(raw_token)
+        headers = copilot_request_headers()
+        
+        base_url = self.config.get("base_url") or "https://api.githubcopilot.com"
+        model = self.config.get("model", "gpt-4o")
+        temperature = self.config.get("temperature")
+        
+        gw = LLMGateway(provider="copilot", api_key=api_token, base_url=base_url, extra_headers=headers)
+        
+        system = "You are a helpful assistant."
+        contents = []
+        for m in messages:
+            if m.get("role") == "system":
+                system = m.get("content", m.get("text", ""))
+            else:
+                contents.append(m)
+        
+        res = run_async_synchronously(gw.chat(
+            model=model,
+            prompt=contents,
+            system=system,
+            temperature=temperature
+        ))
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": res
+                    }
+                }
+            ]
+        }
+
+    def check_requirements(self) -> bool:
+        return True
+
+
+
 # --- Dynamic/Lazy Provider Registry ---
 
 class ModelProviderRegistry:
@@ -313,6 +370,7 @@ provider_registry.register("google", GoogleModelProvider)
 provider_registry.register("openai", OpenAIModelProvider)
 provider_registry.register("openrouter", OpenRouterModelProvider)
 provider_registry.register("llama_cpp", LlamaCppModelProvider)
+provider_registry.register("copilot", CopilotModelProvider)
 
 def discover_providers():
     """Discover and register extension model providers dynamically via entry_points."""

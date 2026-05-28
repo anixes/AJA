@@ -96,7 +96,7 @@ class LLMGateway:
     PROVIDERS = load_providers()
 
     def __init__(
-        self, provider: str = None, api_key: str = None, base_url: Optional[str] = None
+        self, provider: str = None, api_key: str = None, base_url: Optional[str] = None, extra_headers: Optional[Dict[str, str]] = None
     ):
         cfg = load_config()
         self.provider = (provider or cfg.get("provider", "openrouter")).lower()
@@ -105,7 +105,10 @@ class LLMGateway:
             if self.provider == "google"
             else api_key or cfg.get("api_key", "")
         )
-        self.base_url = base_url or self.PROVIDERS.get(self.provider)
+        # Ensure copilot defaults to its specific api base URL if not in PROVIDERS
+        default_url = "https://api.githubcopilot.com" if self.provider == "copilot" else self.PROVIDERS.get(self.provider)
+        self.base_url = base_url or default_url
+        self.extra_headers = extra_headers or {}
 
         if not self.base_url:
             raise ValueError(
@@ -154,13 +157,16 @@ class LLMGateway:
                 if temperature is not None:
                     kwargs["temperature"] = temperature
 
+                headers = {
+                    "HTTP-Referer": "https://github.com/aja",
+                    "X-Title": "AJA Swarm Toolkit",
+                }
+                headers.update(self.extra_headers)
+
                 async with AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    default_headers={
-                        "HTTP-Referer": "https://github.com/aja",
-                        "X-Title": "AJA Swarm Toolkit",
-                    },
+                    default_headers=headers,
                 ) as client:
                     response = await client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content
@@ -232,13 +238,16 @@ class LLMGateway:
             return []
 
         try:
+            headers = {
+                "HTTP-Referer": "https://github.com/aja",
+                "X-Title": "AJA Swarm Toolkit",
+            }
+            headers.update(self.extra_headers)
+            
             async with AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                default_headers={
-                    "HTTP-Referer": "https://github.com/aja",
-                    "X-Title": "AJA Swarm Toolkit",
-                },
+                default_headers=headers,
             ) as client:
                 response = await client.embeddings.create(input=text, model=model)
                 return response.data[0].embedding

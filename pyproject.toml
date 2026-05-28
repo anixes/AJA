@@ -47,6 +47,7 @@ google     = "aja.llm:GoogleModelProvider"
 openai     = "aja.llm:OpenAIModelProvider"
 openrouter = "aja.llm:OpenRouterModelProvider"
 llama_cpp  = "aja.llm:LlamaCppModelProvider"
+copilot    = "aja.llm:CopilotModelProvider"
 
 [tool.maturin]
 features = ["pyo3/extension-module", "pyo3/abi3-py311"]
