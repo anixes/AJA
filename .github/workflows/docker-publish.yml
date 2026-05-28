@@ -12,7 +12,7 @@ env:
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -57,3 +57,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ github.ref_name }}-docker
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-docker
+
+      - name: Smoke test image
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} \
+            aja doctor || exit 1

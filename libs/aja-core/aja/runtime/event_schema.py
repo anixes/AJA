@@ -75,6 +75,22 @@ def reduce_session_finished_v1_0(session: Any, event: Dict[str, Any], context: D
     session.ended_at = event.get("timestamp")
     context["duration_ms"] = event.get("duration_ms", 0)
 
+def reduce_workspace_diff_v1_0(session: Any, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """No-op: workspace diff is loaded separately from workspace_diff.json."""
+    pass
+
+def reduce_workspace_cleaned_v1_0(session: Any, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """No-op: cleanup is a side-effect event; no state change needed."""
+    pass
+
+def reduce_workspace_diff_failed_v1_0(session: Any, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+    pass
+
+def reduce_workspace_cleanup_failed_v1_0(session: Any, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Mark cleanup failure in session state."""
+    # Handled by final_state setting in manager.py
+    pass
+
 REDUCERS: Dict[Tuple[str, str], Callable[[Any, Dict[str, Any], Dict[str, Any]], None]] = {
     ("EXECUTION_STATE_CHANGED", "1.0"): reduce_state_changed_v1_0,
     ("EXECUTION_SESSION_CRASHED", "1.0"): reduce_session_crashed_v1_0,
@@ -85,4 +101,8 @@ REDUCERS: Dict[Tuple[str, str], Callable[[Any, Dict[str, Any], Dict[str, Any]], 
     ("EXECUTION_STDERR", "1.0"): reduce_stderr_v1_0,
     ("EXECUTION_ERROR", "1.0"): reduce_error_v1_0,
     ("EXECUTION_SESSION_FINISHED", "1.0"): reduce_session_finished_v1_0,
+    ("EXECUTION_WORKSPACE_DIFF", "1.0"): reduce_workspace_diff_v1_0,
+    ("EXECUTION_WORKSPACE_CLEANED", "1.0"): reduce_workspace_cleaned_v1_0,
+    ("EXECUTION_WORKSPACE_DIFF_FAILED", "1.0"): reduce_workspace_diff_failed_v1_0,
+    ("EXECUTION_WORKSPACE_CLEANUP_FAILED", "1.0"): reduce_workspace_cleanup_failed_v1_0,
 }

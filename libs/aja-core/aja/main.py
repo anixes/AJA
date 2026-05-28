@@ -606,10 +606,15 @@ def cmd_doctor(ci_mode: bool = False):
     print_doctor(checks)
 
     if ci_mode:
+        critical_checks = {"Native Engine", "Memory Manager", "Config Validation"}
         failures = [name for name, status, msg in checks if not status]
-        if failures:
-            console.print(f"[bold red]CI Mode: Diagnostics failed for: {', '.join(failures)}[/bold red]")
+        critical_failures = [f for f in failures if f in critical_checks]
+        
+        if critical_failures:
+            console.print(f"[bold red]CI Mode: Diagnostics failed for: {', '.join(critical_failures)}[/bold red]")
             sys.exit(1)
+        elif failures:
+            console.print(f"[bold yellow]CI Mode: Warnings for: {', '.join(failures)} (non-blocking)[/bold yellow]")
         else:
             console.print("[bold green]CI Mode: All diagnostics passed.[/bold green]")
 

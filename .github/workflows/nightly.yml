@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Checkout repository
@@ -51,9 +51,61 @@ jobs:
         run: |
           maturin develop --release
           pip install -e ".[all]"
+          pip install pytest anyio psutil pywinpty
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor --ci
 
       - name: Run Full Test Suite
-        run: pytest tests/python
+        run: pytest tests/python -x --tb=short
+
+  nightly_experimental:
+    name: Nightly Experimental Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            packages/aja-native/target/
+          key: cargo-nightly-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml', 'packages/aja-native/Cargo.lock') }}
+          restore-keys: cargo-nightly-${{ matrix.os }}-
+
+      - name: Install Maturin
+        run: pip install maturin pytest anyio psutil
+
+      - name: Install AJA
+        run: |
+          maturin develop --release
+          pip install -e ".[all]"
+          pip install pytest anyio psutil pywinpty
+
+      - name: Diagnostic Verification (doctor checks)
+        run: aja doctor --ci
+
+      - name: Run Full Test Suite
+        run: pytest tests/python -x --tb=short

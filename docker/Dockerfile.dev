@@ -13,11 +13,22 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-RUN chmod -R a+rx /usr/local/cargo /usr/local/rustup
+RUN chmod -R a+rwx /usr/local/cargo /usr/local/rustup
 
 RUN pip install --no-cache-dir maturin pytest anyio psutil
 
 WORKDIR /workspace
+
+# Add bootstrap script
+RUN cat > /workspace/bootstrap.sh << 'EOF'
+#!/usr/bin/env bash
+set -e
+echo "=== AJA Dev Bootstrap ==="
+maturin develop --release
+pip install -e ".[all]"
+echo "=== Bootstrap complete. Run: aja doctor ==="
+EOF
+RUN chmod +x /workspace/bootstrap.sh
 
 # Codebase is volume-mounted at /workspace for local dev.
 CMD ["sleep", "infinity"]

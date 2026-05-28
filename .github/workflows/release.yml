@@ -55,9 +55,49 @@ jobs:
           name: aja-wheels-${{ matrix.os }}
           path: dist/*.whl
 
+  validate_wheels:
+    name: Runtime Integration (${{ matrix.os }})
+    needs: build_wheels
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Download compiled wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: aja-wheels-${{ matrix.os }}
+          path: dist
+
+      - name: Install Unified Package & Dev Dependencies
+        shell: bash
+        run: |
+          WHEEL=$(ls dist/aja-*.whl | grep -v aja_native | head -n 1)
+          pip install "${WHEEL}[all]"
+          pip install pytest anyio psutil pywinpty
+
+      - name: Diagnostic Verification (doctor checks)
+        run: aja doctor --ci
+
+      - name: Run Full Test Suite
+        run: pytest tests/python -x --tb=short
+
   release:
     name: Create GitHub Release
-    needs: build_wheels
+    needs: validate_wheels
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -73,5 +113,5 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.whl
+          files: dist/aja-*.whl
           generate_release_notes: true

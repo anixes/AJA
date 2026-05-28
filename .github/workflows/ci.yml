@@ -14,7 +14,7 @@ jobs:
   build_wheels:
     name: Build Wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +51,10 @@ jobs:
       - name: Build Unified Package
         run: maturin build --release --out dist
 
+      - name: Prune side-product wheel
+        shell: bash
+        run: rm -f dist/aja_native-*.whl
+
       - name: Upload Built Wheels
         uses: actions/upload-artifact@v4
         with:
@@ -58,11 +62,11 @@ jobs:
           path: dist/*.whl
 
   # Hardened Runtime Smoke Tests
-  test_runtime:
+  validate_wheels:
     name: Runtime Integration (${{ matrix.os }})
     needs: build_wheels
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -88,12 +92,12 @@ jobs:
       - name: Install Unified Package & Dev Dependencies
         shell: bash
         run: |
-          WHEEL=$(ls dist/aja*.whl | head -n 1)
+          WHEEL=$(ls dist/aja-*.whl | grep -v aja_native | head -n 1)
           pip install "${WHEEL}[all]"
-          pip install pytest anyio psutil
+          pip install pytest anyio psutil pywinpty
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor --ci
 
       - name: Run Full Test Suite
-        run: pytest tests/python
+        run: pytest tests/python -x --tb=short

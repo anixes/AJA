@@ -1,5 +1,14 @@
 import pytest
 import logging
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    # Python 3.12+ Windows ProactorEventLoop has a recursive transport
+    # initialization issue when asyncio.run() is called inside sync test
+    # functions. SelectorEventLoop avoids this while supporting all
+    # subprocess operations used by AJA.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain stable --no-modify-path && \
+    sh -s -- -y --default-toolchain 1.77.2 --no-modify-path && \
     chmod -R a+w /usr/local/rustup /usr/local/cargo
 
 RUN pip install --no-cache-dir maturin
@@ -33,7 +33,8 @@ COPY libs/ ./libs/
 # Build the unified wheel
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/packages/aja-native/target \
-    maturin build --release --out /build/dist
+    maturin build --release --out /build/dist && \
+    rm -f /build/dist/aja_native-*.whl
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
@@ -49,7 +50,9 @@ RUN chown aja:aja /app
 
 COPY --from=builder /build/dist /app/dist
 
-RUN WHEEL=$(ls /app/dist/aja*.whl | head -1) && \
+RUN set -ex && \
+    WHEEL=$(ls /app/dist/aja-*.whl | grep -v aja_native | head -1) && \
+    test -n "${WHEEL}" && \
     pip install --no-cache-dir "${WHEEL}[all]"
 
 ENV AJA_DATA_DIR=/data/aja

@@ -20,6 +20,7 @@ ExecutionState = Literal[
     "cancelled",
     "timeout",
     "cleanup_failed",
+    "crashed",
 ]
 
 
@@ -237,6 +238,7 @@ ALLOWED_TRANSITIONS: Dict[ExecutionState, set[ExecutionState]] = {
     "cancelled": set(),
     "timeout": set(),
     "cleanup_failed": set(),
+    "crashed": set(),
 }
 
 
