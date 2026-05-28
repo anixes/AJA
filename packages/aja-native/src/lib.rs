@@ -165,7 +165,7 @@ fn init_semantic(db_path: &str) -> PyResult<()> {
 /// Translate OpenAI/Generic request format to Anthropic format
 #[pyfunction]
 fn translate_to_anthropic(request_json: &str) -> PyResult<String> {
-    let mut parsed: Value = serde_json::from_str(request_json)
+    let parsed: Value = serde_json::from_str(request_json)
         .map_err(|e| PyValueError::new_err(format!("Invalid JSON request in translate: {}", e)))?;
     
     let model = parsed.get("model").and_then(|v| v.as_str()).unwrap_or("claude-3-5-sonnet");
