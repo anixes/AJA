@@ -200,28 +200,27 @@ class ExecutionManager:
                 except Exception as e:
                     pass  # Graceful fallback to subprocess
 
+            kwargs = {
+                "cwd": str(cwd),
+                "env": env,
+                "stdin": asyncio.subprocess.PIPE,
+                "stdout": asyncio.subprocess.PIPE,
+                "stderr": asyncio.subprocess.PIPE,
+                "creationflags": creationflags,
+            }
+            if preexec_fn is not None:
+                kwargs["preexec_fn"] = preexec_fn
+
             if proc is None:
                 if shell:
                     proc = await asyncio.create_subprocess_shell(
                         command if isinstance(command, str) else " ".join(shlex.quote(str(p)) for p in command),
-                        cwd=str(cwd),
-                        env=env,
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        creationflags=creationflags,
-                        preexec_fn=preexec_fn,
+                        **kwargs
                     )
                 else:
                     proc = await asyncio.create_subprocess_exec(
                         *command,
-                        cwd=str(cwd),
-                        env=env,
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        creationflags=creationflags,
-                        preexec_fn=preexec_fn,
+                        **kwargs
                     )
 
             session.process = proc

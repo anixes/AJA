@@ -66,28 +66,27 @@ class PipeTransport(ExecutionTransport):
         self._proc: Optional[asyncio.subprocess.Process] = None
 
     async def start(self) -> None:
+        kwargs = {
+            "cwd": self.cwd,
+            "env": self.env,
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+            "creationflags": self.creationflags,
+        }
+        if self.preexec_fn is not None:
+            kwargs["preexec_fn"] = self.preexec_fn
+
         if self.shell:
             cmd_str = self.command if isinstance(self.command, str) else " ".join(self.command)
             self._proc = await asyncio.create_subprocess_shell(
                 cmd_str,
-                cwd=self.cwd,
-                env=self.env,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                creationflags=self.creationflags,
-                preexec_fn=self.preexec_fn,
+                **kwargs
             )
         else:
             self._proc = await asyncio.create_subprocess_exec(
                 *self.command,
-                cwd=self.cwd,
-                env=self.env,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                creationflags=self.creationflags,
-                preexec_fn=self.preexec_fn,
+                **kwargs
             )
 
         self.pid = self._proc.pid
