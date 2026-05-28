@@ -46,7 +46,7 @@ openrouter = "aja.llm:OpenRouterModelProvider"
 llama_cpp  = "aja.llm:LlamaCppModelProvider"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "pyo3/abi3-py311"]
 module-name = "aja.aja_native"
 manifest-path = "packages/aja-native/Cargo.toml"
 python-source = "libs/aja-core"
