@@ -14,19 +14,24 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+import importlib.resources
+import filelock
+
 def find_project_root():
-    """Finds the AJA project root by looking for aja.json or .git."""
-    # Start from this file's location (aja/config.py)
+    """
+    Finds the AJA project root.
+
+    Priority:
+    1. Traverse up from __file__ looking for aja.json or .git (source-tree / dev mode).
+    2. Fall back to the platform data directory (installed-wheel context).
+    """
     current = Path(__file__).resolve().parent
-    # Check up to 4 levels up
-    for _ in range(4):
-        if (current / "aja.json").exists():
-            return current
-        if (current / ".git").exists():
+    for _ in range(6):
+        if (current / "aja.json").exists() or (current / ".git").exists():
             return current
         current = current.parent
-    # Fallback to current working directory if nothing found
-    return Path(os.getcwd())
+    # Installed-wheel fallback: use the user data directory as the project root
+    return Path(platformdirs.user_data_dir("AJA", "Anixes"))
 
 
 import platformdirs
@@ -45,15 +50,17 @@ def _get_data_dir() -> Path:
     new_dir = Path(platformdirs.user_data_dir("AJA", "Anixes"))
     
     if legacy_dir.exists() and legacy_dir.is_dir() and not new_dir.exists():
-        logger.info(f"Migrating legacy data directory from {legacy_dir} to {new_dir}")
-        print(f"[*] Migrating legacy data directory from {legacy_dir} to {new_dir}...")
+        lock_path = new_dir.parent / ".aja_migration.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            # Ensure parent exists
-            new_dir.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(legacy_dir), str(new_dir))
+            with filelock.FileLock(str(lock_path), timeout=10):
+                # Re-check inside the lock to handle parallel worker races
+                if legacy_dir.exists() and not new_dir.exists():
+                    logger.info("Migrating legacy data directory from %s to %s", legacy_dir, new_dir)
+                    new_dir.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(legacy_dir), str(new_dir))
         except Exception as e:
-            logger.error(f"Failed to migrate legacy directory: {e}")
-            # Fallback to legacy dir if migration fails
+            logger.error("Failed to migrate legacy directory: %s", e)
             return legacy_dir
             
     return new_dir
@@ -74,8 +81,13 @@ def load_and_validate_config() -> AJAConfig:
             return AJAConfig.model_validate(data)
         except Exception as e:
             logger.error("Configuration validation failed for %s: %s", config_path, e)
-            print(f"\n[red]Configuration Validation Error:[/] Malformed config in {config_path}")
-            print(f"[red]{e}[/]\n")
+            try:
+                from rich import print as rprint
+                rprint(f"\n[bold red]Configuration Validation Error:[/] Malformed config in {config_path}")
+                rprint(f"[bold red]{e}[/]\n")
+            except ImportError:
+                print(f"\nConfiguration Validation Error: Malformed config in {config_path}")
+                print(f"{e}\n")
             return AJAConfig()
     return AJAConfig()
 

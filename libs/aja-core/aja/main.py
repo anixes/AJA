@@ -598,12 +598,20 @@ def cmd_setup():
     print_success("Vector store database directories successfully initialized.")
 
 
-def cmd_doctor():
+def cmd_doctor(ci_mode: bool = False):
     """System health checks and diagnostics."""
     from aja.utils.diagnostics import run_diagnostics
 
     checks = run_diagnostics()
     print_doctor(checks)
+
+    if ci_mode:
+        failures = [name for name, status, msg in checks if not status]
+        if failures:
+            console.print(f"[bold red]CI Mode: Diagnostics failed for: {', '.join(failures)}[/bold red]")
+            sys.exit(1)
+        else:
+            console.print("[bold green]CI Mode: All diagnostics passed.[/bold green]")
 
 
 def cmd_exec(args: List[str]):
@@ -822,7 +830,8 @@ def main():
     elif cmd == "setup":
         cmd_setup()
     elif cmd == "doctor":
-        cmd_doctor()
+        ci_mode = "--ci" in args
+        cmd_doctor(ci_mode=ci_mode)
     elif cmd == "exec":
         cmd_exec(args[1:])
     elif cmd == "live":

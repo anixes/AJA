@@ -1,19 +1,51 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use tiktoken_rs::cl100k_base;
+use tiktoken_rs::CoreBPE;
 use arrow::array::{StringArray, Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use arrow_ipc::writer::FileWriter;
 use arrow_ipc::reader::FileReader;
 use std::fs::File;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use serde_json::Value;
+use base64::Engine;
+
+/// Lazily-initialized offline tokenizer
+fn get_bpe() -> Result<&'static CoreBPE, String> {
+    static BPE: OnceLock<CoreBPE> = OnceLock::new();
+    let bpe = BPE.get_or_init(|| {
+        let cl100k_base = include_str!("../vendor/cl100k_base.tiktoken");
+        let mut encoder = rustc_hash::FxHashMap::default();
+        for line in cl100k_base.lines() {
+            let mut parts = line.split(' ');
+            let raw = parts.next().unwrap();
+            let token = base64::engine::general_purpose::STANDARD
+                .decode(raw)
+                .expect("Base64 decode failed");
+            let rank: usize = parts.next().unwrap().parse().unwrap();
+            encoder.insert(token, rank);
+        }
+        
+        let mut special_tokens = rustc_hash::FxHashMap::default();
+        special_tokens.insert(String::from("<|endoftext|>"), 100257);
+        special_tokens.insert(String::from("<|fim_prefix|>"), 100258);
+        special_tokens.insert(String::from("<|fim_middle|>"), 100259);
+        special_tokens.insert(String::from("<|fim_suffix|>"), 100260);
+        special_tokens.insert(String::from("<|endofprompt|>"), 100276);
+        
+        let pattern = "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+";
+        
+        CoreBPE::new(encoder, special_tokens, pattern)
+            .expect("CoreBPE creation failed")
+    });
+    Ok(bpe)
+}
 
 /// High-performance token counter using tiktoken-rs (cl100k_base for OpenAI models)
 #[pyfunction]
 fn count_tokens(text: &str) -> PyResult<usize> {
-    let bpe = cl100k_base().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
+    let bpe = get_bpe().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
     let tokens = bpe.encode_with_special_tokens(text);
     Ok(tokens.len())
 }
@@ -21,7 +53,7 @@ fn count_tokens(text: &str) -> PyResult<usize> {
 /// Batch version of token counter to reduce boundary-crossing overhead
 #[pyfunction]
 fn count_tokens_batch(texts: Vec<String>) -> PyResult<Vec<usize>> {
-    let bpe = cl100k_base().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
+    let bpe = get_bpe().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
     let mut results = Vec::with_capacity(texts.len());
     for text in texts {
         let tokens = bpe.encode_with_special_tokens(&text);
@@ -244,7 +276,7 @@ impl PyTrajectoryManager {
         let messages: Vec<serde_json::Value> = serde_json::from_str(messages_json)
             .map_err(|e| PyValueError::new_err(format!("Invalid JSON in analyze: {}", e)))?;
         
-        let bpe = cl100k_base().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
+        let bpe = get_bpe().map_err(|e| PyValueError::new_err(format!("Failed to load tokenizer: {}", e)))?;
         let mut total_tokens = 0;
         
         for msg in &messages {

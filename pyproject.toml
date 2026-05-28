@@ -27,7 +27,8 @@ dependencies = [
     "croniter",
     "platformdirs",
     "pandas>=2.0",
-    "mcp"
+    "mcp",
+    "filelock>=3.12"
 ]
 
 [project.optional-dependencies]
@@ -56,7 +57,4 @@ python-source = "libs/aja-core"
 [tool.pytest.ini_options]
 testpaths = [
   "tests/python"
-]
-addopts = [
-  "--basetemp=libs/aja-core/temp_batons/pytest-full"
 ]

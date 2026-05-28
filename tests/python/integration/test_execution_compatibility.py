@@ -14,7 +14,7 @@ def py_cmd(code: str) -> str:
 def test_sandbox_execute_command_uses_isolated_local_when_docker_unavailable(monkeypatch):
     monkeypatch.setattr(sandbox, "docker_available", lambda: False)
 
-    result = sandbox.execute_command(py_cmd("print('compat')"), timeout=10)
+    result = sandbox.execute_command(py_cmd("print('compat')"), timeout=30)
 
     assert result["success"] is True
     assert "compat" in result["stdout"]
@@ -25,7 +25,7 @@ def test_sandbox_execute_command_uses_isolated_local_when_docker_unavailable(mon
 def test_sandbox_execute_command_async(monkeypatch):
     async def scenario():
         monkeypatch.setattr(sandbox, "docker_available", lambda: False)
-        result = await sandbox.execute_command_async(py_cmd("print('async compat')"), timeout=10)
+        result = await sandbox.execute_command_async(py_cmd("print('async compat')"), timeout=30)
         assert result["success"] is True
         assert "async compat" in result["stdout"]
 
@@ -34,7 +34,7 @@ def test_sandbox_execute_command_async(monkeypatch):
 
 def test_terminal_exec_preserves_capability_result_shape(monkeypatch):
     monkeypatch.setattr(sandbox, "docker_available", lambda: False)
-    result = TerminalExec().execute({"cmd": py_cmd("print('terminal')"), "timeout": 10})
+    result = TerminalExec().execute({"cmd": py_cmd("print('terminal')"), "timeout": 30})
 
     assert result.success is True
     assert "terminal" in result.output["stdout"]

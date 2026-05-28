@@ -1,44 +1,62 @@
-FROM rust:1.85-slim as builder
+# syntax=docker/dockerfile:1.6
+# ── Stage 1: Builder ─────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
     pkg-config \
     libssl-dev \
-    python3 \
-    python3-pip \
-    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up virtual environment and install maturin
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install Rust via rustup with a pinned toolchain version
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --no-modify-path && \
+    chmod -R a+w /usr/local/rustup /usr/local/cargo
+
 RUN pip install --no-cache-dir maturin
 
-# Build the Rust extension AND Python package
 WORKDIR /build
-COPY . .
-RUN maturin build --release --out /build/dist
 
-# ---------------------------------------------------------
-# Production image
-# ---------------------------------------------------------
-FROM python:3.11-slim as runtime
+# Copy Rust source separately to maximize layer cache reuse.
+# Changes to Python source will NOT invalidate the Rust compile cache.
+COPY packages/ ./packages/
+COPY pyproject.toml ./
 
-RUN apt-get update && apt-get install -y \
+# Copy Python source (invalidates only pip install step, not Rust compile)
+COPY libs/ ./libs/
+
+# Build the unified wheel
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/packages/aja-native/target \
+    maturin build --release --out /build/dist
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash aja
 WORKDIR /app
+RUN chown aja:aja /app
 
-# Copy built wheels from builder
 COPY --from=builder /build/dist /app/dist
 
-# Install the built wheel
-RUN pip install --no-cache-dir /app/dist/aja*.whl[all]
+RUN WHEEL=$(ls /app/dist/aja*.whl | head -1) && \
+    pip install --no-cache-dir "${WHEEL}[all]"
 
-# Set standard data directory for the container environment
 ENV AJA_DATA_DIR=/data/aja
-RUN mkdir -p /data/aja
+RUN mkdir -p /data/aja && chown aja:aja /data/aja
 
-# Default command
-CMD ["aja", "run", "--help"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD aja doctor || exit 1
+
+USER aja
+CMD ["aja", "--help"]

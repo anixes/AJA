@@ -4,10 +4,6 @@
   
   // Install global OS utilities and Rust toolchains
   "features": {
-    "ghcr.io/devcontainers/features/rust:1": {
-      "version": "latest",
-      "profile": "minimal"
-    },
     "ghcr.io/devcontainers/features/git:1": {
       "version": "latest"
     }
@@ -27,7 +23,7 @@
   },
 
   // Build the local pyo3 binary wheel extension automatically on environment creation
-  "postCreateCommand": "pip install --upgrade pip maturin pytest anyio psutil && maturin develop && pip install -e .[all]",
+  "postCreateCommand": "pip install --upgrade pip && maturin develop --release && pip install -e '.[all]'",
 
   // Define environment variables
   "remoteEnv": {

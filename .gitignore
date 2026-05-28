@@ -103,6 +103,10 @@ target/
 *.dylib
 *.lib
 *.pdb
+# Maturin in-tree native extension outputs (never commit)
+libs/**/*.pyd
+libs/**/*.pdb
+libs/**/*.so
 **/*.rs.bk
 
 # --- Databases & Replay Data (Operator Assets Only) ---

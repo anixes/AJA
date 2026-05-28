@@ -31,7 +31,9 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "arrow-ipc",
+ "base64 0.21.7",
  "pyo3",
+ "rustc-hash",
  "serde",
  "serde_json",
  "tiktoken-rs",

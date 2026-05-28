@@ -12,6 +12,7 @@ jobs:
   build_wheels:
     name: Build Wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -29,8 +30,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, x86_64-apple-darwin
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -41,7 +40,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             packages/aja-native/target/
-          key: cargo-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml') }}
+          key: cargo-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml', 'packages/aja-native/Cargo.lock') }}
           restore-keys: cargo-${{ matrix.os }}-
 
       - name: Install Maturin
@@ -60,6 +59,7 @@ jobs:
     name: Create GitHub Release
     needs: build_wheels
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
           merge-multiple: true
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*.whl
           generate_release_notes: true

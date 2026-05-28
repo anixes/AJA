@@ -14,6 +14,7 @@ jobs:
   build_wheels:
     name: Build Wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +32,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, x86_64-apple-darwin
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -43,7 +42,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             packages/aja-native/target/
-          key: cargo-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml') }}
+          key: cargo-${{ matrix.os }}-${{ hashFiles('packages/aja-native/Cargo.toml', 'packages/aja-native/Cargo.lock') }}
           restore-keys: cargo-${{ matrix.os }}-
 
       - name: Install Maturin
@@ -63,11 +62,12 @@ jobs:
     name: Runtime Integration (${{ matrix.os }})
     needs: build_wheels
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12"]  # v0.1.0 official support only — ABI3 loads on 3.13 but not officially tested yet
 
     steps:
       - name: Checkout repository
@@ -77,6 +77,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
       - name: Download compiled wheels
         uses: actions/download-artifact@v4
@@ -86,11 +87,11 @@ jobs:
 
       - name: Install Unified Package & Dev Dependencies
         run: |
-          pip install --find-links=dist "aja[all]==0.1.0"
+          pip install --find-links=dist --no-index "aja[all]"
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
-        run: aja doctor
+        run: aja doctor --ci
 
       - name: Run Full Test Suite
         run: pytest tests/python

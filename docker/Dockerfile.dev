@@ -1,19 +1,23 @@
 # syntax=docker/dockerfile:1.4
+# Dev image: based on rust:stable so cargo/rustup are pre-installed & verified
+FROM rust:stable AS rust-toolchain
+
 FROM mcr.microsoft.com/devcontainers/python:1-3.11-bullseye
 
-# Install Rust toolchain for development
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh && \
-    sh rustup.sh -y --default-toolchain stable && \
-    rm rustup.sh
+# Copy the pre-verified Rust toolchain from the official image
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 
-ENV PATH="/root/.cargo/bin:$PATH"
+# Make Rust available to ALL users including vscode
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
 
-# Install maturin for compiling the PyO3 crate
+RUN chmod -R a+rx /usr/local/cargo /usr/local/rustup
+
 RUN pip install --no-cache-dir maturin pytest anyio psutil
 
 WORKDIR /workspace
 
-# Notice: We do not COPY the codebase here.
-# For local dev, the codebase should be volume-mounted at /workspace.
-
+# Codebase is volume-mounted at /workspace for local dev.
 CMD ["sleep", "infinity"]
