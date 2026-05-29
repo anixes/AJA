@@ -94,7 +94,7 @@ jobs:
         run: |
           WHEEL=$(ls dist/aja-*.whl | grep -v aja_native | head -n 1)
           pip install "${WHEEL}[all]"
-          pip install pytest anyio psutil pywinpty
+          pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor --ci

@@ -51,7 +51,7 @@ jobs:
         run: |
           maturin develop --release
           pip install -e ".[all]"
-          pip install pytest anyio psutil pywinpty
+          pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor --ci
@@ -102,7 +102,7 @@ jobs:
         run: |
           maturin develop --release
           pip install -e ".[all]"
-          pip install pytest anyio psutil pywinpty
+          pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
         run: aja doctor --ci

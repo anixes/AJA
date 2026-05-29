@@ -15,7 +15,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain 1.77.2 --no-modify-path && \
+    sh -s -- -y --default-toolchain stable --no-modify-path && \
     chmod -R a+w /usr/local/rustup /usr/local/cargo
 
 RUN pip install --no-cache-dir maturin
