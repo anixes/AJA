@@ -143,3 +143,4 @@ start_llama_*.bat
 benchmark_*.log
 docs/archive/
 agents.md
+.tmp_ci_env/
