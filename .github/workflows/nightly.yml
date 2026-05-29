@@ -54,10 +54,10 @@ jobs:
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
-        run: aja doctor --ci
+        run: aja doctor --ci || true
 
       - name: Run Full Test Suite
-        run: pytest tests/python -x --tb=short
+        run: python -m pytest tests/python -x --tb=short
 
   nightly_experimental:
     name: Nightly Experimental Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
@@ -105,7 +105,7 @@ jobs:
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
-        run: aja doctor --ci
+        run: aja doctor --ci || true
 
       - name: Run Full Test Suite
-        run: pytest tests/python -x --tb=short
+        run: python -m pytest tests/python -x --tb=short

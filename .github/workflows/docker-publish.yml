@@ -60,5 +60,6 @@ jobs:
 
       - name: Smoke test image
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} \
+          IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm ${IMAGE}:sha-${{ github.sha }} \
             aja doctor || exit 1

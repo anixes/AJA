@@ -1,5 +1,5 @@
 [package]
-name = "aja-native"
+name = "aja"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,7 +8,7 @@ name = "aja_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "=0.20.3", features = ["extension-module", "abi3-py311"] }
+pyo3 = { version = "=0.21.2", features = ["extension-module", "abi3-py311"] }
 arrow = "58.0.0"
 arrow-ipc = "58.0.0"
 tiktoken-rs = "0.5.8"

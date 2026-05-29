@@ -15,6 +15,7 @@ def test_sandbox_execute_command_uses_isolated_local_when_docker_unavailable(mon
     monkeypatch.setattr(sandbox, "docker_available", lambda: False)
 
     result = sandbox.execute_command(py_cmd("print('compat')"), timeout=30)
+    print("DEBUG_RESULT:", result)
 
     assert result["success"] is True
     assert "compat" in result["stdout"]
