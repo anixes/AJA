@@ -16,6 +16,10 @@ def test_sandbox_execute_command_uses_isolated_local_when_docker_unavailable(mon
 
     result = sandbox.execute_command(py_cmd("print('compat')"), timeout=30)
     print("DEBUG_RESULT:", result)
+    if not result.get("success"):
+        print("STDOUT:", result.get("stdout"))
+        print("STDERR:", result.get("stderr"))
+        print("ERROR:", result.get("error"))
 
     assert result["success"] is True
     assert "compat" in result["stdout"]

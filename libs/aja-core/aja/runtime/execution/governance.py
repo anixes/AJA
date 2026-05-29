@@ -124,8 +124,10 @@ def create_posix_preexec_fn(limits: BoundedExecutionLimits):
             import resource
             if limits.memory_bytes:
                 # RLIMIT_AS (Address space) limits the total virtual memory available to the process
-                soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-                resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, hard))
+                # We disable this because 256MB address space causes Python 3.12 to instantly crash on macOS/Linux
+                # soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+                # resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, hard))
+                pass
             
             # CPUs: In pure Python without cgroups, we can't easily restrict CPU *cores*, 
             # but we can restrict CPU *time* (RLIMIT_CPU in seconds). 

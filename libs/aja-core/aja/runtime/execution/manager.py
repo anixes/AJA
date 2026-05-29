@@ -45,7 +45,8 @@ class ExecutionManager:
         self.workspace_manager = workspace_manager or WorkspaceManager(self.project_root)
         self.governance = governance_policy or GovernancePolicy()
         self._sessions: Dict[str, ExecutionSession] = {}
-        self._lock = asyncio.Lock()
+        import threading
+        self._lock = threading.Lock()
         # Phase 1: Detect sessions that died without writing a terminal event.
         # This runs synchronously at construction; it only reads/writes disk
         # and does not interact with the event loop.
@@ -74,7 +75,7 @@ class ExecutionManager:
             stdout_path=root / "stdout.log",
             stderr_path=root / "stderr.log",
         )
-        async with self._lock:
+        with self._lock:
             self._sessions[session_id] = session
         session.task = asyncio.create_task(self._run_session(session), name=f"aja-execution-{session_id}")
         return session
@@ -317,7 +318,7 @@ class ExecutionManager:
             duration_ms = self._duration_ms(session.started_at or started, ended)
             stdout = "".join(stdout_chunks)
             stderr = "".join(stderr_chunks)
-            if error and final_state in {"timeout", "cancelled"} and not stderr:
+            if error and final_state in {"timeout", "cancelled", "failed"} and not stderr:
                 stderr = error
                 self._append_text(session.stderr_path, stderr + "\n")
 
