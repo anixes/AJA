@@ -154,25 +154,15 @@ class WorkspaceManager:
             return False
 
     def _copy_workspace(self, execution_root: Path) -> None:
-        ignore = shutil.ignore_patterns(
-            ".git",
-            ".aja",
-            ".pytest_cache",
-            ".pytest-aja",
-            ".pytest-tmp",
-            ".pytest-agentx",
-            "node_modules",
-            "dist",
-            "__pycache__",
-            "venv",
-            ".venv",
-            ".tmp_ci_env",
-            ".understand-anything",
-            "gh_*.txt",
-            "gh_api_runs.json",
-            "job_log.txt",
-        )
-        shutil.copytree(self.project_root, execution_root, ignore=ignore)
+        def _ignore_patterns(path, names):
+            ignore_list = [
+                ".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache",
+                "node_modules", "target", ".pytest-tmp", ".pytest-aja", ".gsd", "temp_batons",
+                ".aja", "workspaces", "graphify-out"
+            ]
+            return [n for n in names if any(n == i or n.startswith(i + "/") for i in ignore_list) or n.endswith(".log") or n.endswith(".tmp") or n == "scratch"]
+        
+        shutil.copytree(self.project_root, execution_root, ignore=_ignore_patterns)
 
     def _run_git(self, cwd: Path, args: List[str]) -> str:
         try:
