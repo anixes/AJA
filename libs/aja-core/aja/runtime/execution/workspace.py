@@ -123,6 +123,9 @@ class WorkspaceManager:
         return removed
 
     def _can_use_worktree(self) -> bool:
+        import os
+        if os.name == 'nt':
+            return False
         if not (self.project_root / ".git").exists():
             return False
         try:
@@ -156,9 +159,18 @@ class WorkspaceManager:
             ".aja",
             ".pytest_cache",
             ".pytest-aja",
+            ".pytest-tmp",
+            ".pytest-agentx",
             "node_modules",
             "dist",
             "__pycache__",
+            "venv",
+            ".venv",
+            ".tmp_ci_env",
+            ".understand-anything",
+            "gh_*.txt",
+            "gh_api_runs.json",
+            "job_log.txt",
         )
         shutil.copytree(self.project_root, execution_root, ignore=ignore)
 

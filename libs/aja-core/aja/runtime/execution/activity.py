@@ -73,6 +73,24 @@ def reset_activity_context(token: Any) -> None:
 def get_activity_context() -> Optional[ActivityContext]:
     return _activity_ctx.get()
 
+def _safe_serialize(obj: Any) -> Any:
+    try:
+        if hasattr(obj, "snapshot") and callable(obj.snapshot):
+            return obj.snapshot()
+        if hasattr(obj, "to_dict") and callable(obj.to_dict):
+            return obj.to_dict()
+        if type(obj).__module__ in ("builtins", "datetime", "pathlib", "enum"):
+            return str(obj)
+    except Exception:
+        pass
+    return f"<{type(obj).__name__}>"
+
+def _safe_format_args(args: Any, kwargs: Any) -> tuple[Any, Any]:
+    try:
+        return [f"<{type(a).__name__}>" for a in args], {k: f"<{type(v).__name__}>" for k, v in kwargs.items()}
+    except Exception:
+        return "<args_error>", "<kwargs_error>"
+
 def durable_activity(name: str):
     """
     Decorator for non-idempotent side-effects.
@@ -119,11 +137,12 @@ def durable_activity(name: str):
                     if dataclasses.is_dataclass(serializable_result):
                         serializable_result = dataclasses.asdict(serializable_result)
                         
-                    safe_args = json.loads(json.dumps(args, default=str))
-                    safe_kwargs = json.loads(json.dumps(kwargs, default=str))
-                    safe_result = json.loads(json.dumps(serializable_result, default=str))
+                    safe_args = json.loads(json.dumps(args, default=_safe_serialize))
+                    safe_kwargs = json.loads(json.dumps(kwargs, default=_safe_serialize))
+                    safe_result = json.loads(json.dumps(serializable_result, default=_safe_serialize))
                 except Exception:
-                    safe_args, safe_kwargs, safe_result = str(args), str(kwargs), str(result)
+                    s_args, s_kwargs = _safe_format_args(args, kwargs)
+                    safe_args, safe_kwargs, safe_result = s_args, s_kwargs, f"<{type(result).__name__}>"
                 
                 if ctx.emitter:
                     ctx.emitter.emit("EXECUTION_ACTIVITY", {
@@ -178,11 +197,12 @@ def durable_activity(name: str):
                     if dataclasses.is_dataclass(serializable_result):
                         serializable_result = dataclasses.asdict(serializable_result)
                         
-                    safe_args = json.loads(json.dumps(args, default=str))
-                    safe_kwargs = json.loads(json.dumps(kwargs, default=str))
-                    safe_result = json.loads(json.dumps(serializable_result, default=str))
+                    safe_args = json.loads(json.dumps(args, default=_safe_serialize))
+                    safe_kwargs = json.loads(json.dumps(kwargs, default=_safe_serialize))
+                    safe_result = json.loads(json.dumps(serializable_result, default=_safe_serialize))
                 except Exception:
-                    safe_args, safe_kwargs, safe_result = str(args), str(kwargs), str(result)
+                    s_args, s_kwargs = _safe_format_args(args, kwargs)
+                    safe_args, safe_kwargs, safe_result = s_args, s_kwargs, f"<{type(result).__name__}>"
                 
                 if ctx.emitter:
                     ctx.emitter.emit("EXECUTION_ACTIVITY", {

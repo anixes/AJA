@@ -144,3 +144,11 @@ benchmark_*.log
 docs/archive/
 agents.md
 .tmp_ci_env/
+# --- Temporary Local Files ---
+gh_*.txt
+gh_*.json
+job_log.txt
+test_repro.py
+test_shell.py
+test_subprocess.py
+.pytest-agentx/
