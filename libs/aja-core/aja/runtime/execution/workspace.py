@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import stat
 import shutil
 import subprocess
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -33,7 +35,13 @@ class WorkspaceManager:
 
         execution_root = self.base_dir / session_id
         if execution_root.exists():
-            shutil.rmtree(execution_root, ignore_errors=True)
+            def remove_readonly(func, path, _):
+                os.chmod(path, stat.S_IWRITE)
+                try:
+                    func(path)
+                except Exception:
+                    pass
+            shutil.rmtree(execution_root, onerror=remove_readonly)
 
         if self._can_use_worktree():
             created = self._create_worktree(execution_root)
@@ -98,10 +106,16 @@ class WorkspaceManager:
                 timeout=20,
             )
         if root.exists():
+            def remove_readonly(func, path, _):
+                os.chmod(path, stat.S_IWRITE)
+                try:
+                    func(path)
+                except Exception:
+                    pass
             import time
             for _ in range(5):
                 try:
-                    shutil.rmtree(root, ignore_errors=False)
+                    shutil.rmtree(root, onerror=remove_readonly)
                     break
                 except Exception:
                     time.sleep(0.2)
@@ -112,11 +126,17 @@ class WorkspaceManager:
         removed: List[str] = []
         if not self.base_dir.exists():
             return removed
+        def remove_readonly(func, path, _):
+            os.chmod(path, stat.S_IWRITE)
+            try:
+                func(path)
+            except Exception:
+                pass
         for path in self.base_dir.iterdir():
             if not path.is_dir():
                 continue
             try:
-                shutil.rmtree(path)
+                shutil.rmtree(path, onerror=remove_readonly)
                 removed.append(path.name)
             except Exception:
                 continue
@@ -163,6 +183,13 @@ class WorkspaceManager:
             return [n for n in names if any(n == i or n.startswith(i + "/") for i in ignore_list) or n.endswith(".log") or n.endswith(".tmp") or n == "scratch"]
         
         shutil.copytree(self.project_root, execution_root, ignore=_ignore_patterns)
+        
+        if not (execution_root / ".git").exists() and shutil.which("git"):
+            self._run_git(execution_root, ["init"])
+            self._run_git(execution_root, ["config", "user.email", "test@example.com"])
+            self._run_git(execution_root, ["config", "user.name", "Test"])
+            self._run_git(execution_root, ["add", "-A"])
+            self._run_git(execution_root, ["commit", "-m", "init"])
 
     def _run_git(self, cwd: Path, args: List[str]) -> str:
         try:
