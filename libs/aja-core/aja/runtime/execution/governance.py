@@ -134,7 +134,7 @@ def create_posix_preexec_fn(limits: BoundedExecutionLimits):
             # We don't map `cpus: float` directly to RLIMIT_CPU because it's not a 1:1 map, 
             # but we could enforce the timeout as a CPU time limit as a secondary fail-safe.
             if limits.timeout > 0:
-                cpu_seconds = int(limits.timeout)
+                cpu_seconds = max(1, int(limits.timeout))
                 soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
                 resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, hard))
         except Exception:
