@@ -77,7 +77,7 @@ def test_execution_timeout_attribution(tmp_path):
         result = await manager.run(ExecutionRequest(command=py_cmd("import time; time.sleep(10)"), timeout=0.2))
 
         assert result.success is False
-        assert result.state == "timeout"
+        assert result.state == "timeout", f"Expected timeout, got {result.state}. Error: {result.error}. Stderr: {result.stderr}. Stdout: {result.stdout}"
         assert "timed out" in result.stderr.lower()
 
     asyncio.run(scenario())
