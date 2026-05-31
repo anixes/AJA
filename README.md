@@ -50,6 +50,7 @@ AJA exists to invert this model. It provides:
 | **PTY Execution Runtime** | Unified async I/O transport providing cooperative PTY orchestration (ConPTY on Windows, POSIX PTYs on Linux/macOS). |
 | **Schema Versioning** | Forward-compatible event definitions ensuring historical journals can always be replayed safely as the platform evolves. |
 | **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), setup (`aja setup`), and rebuilding projections (`aja rebuild-projections`). |
+| **Conversational Assistant** | Interactive conversational loop (`aja chat`) with slash commands, Kanban task management, and system diagnostics. |
 
 ---
 
@@ -104,6 +105,25 @@ View the deterministic execution timeline for past sessions.
 python -m aja exec list
 python -m aja exec timeline <session_id>
 ```
+
+---
+
+## CLI Command Suite
+
+AJA provides a comprehensive CLI for managing autonomous operations, execution sessions, and system health.
+
+* **`aja run <objective>`**: Execute an autonomous mission. Supports `--dry-run` for safe simulation and background execution.
+* **`aja chat`**: Launch the interactive conversational assistant loop. Features a built-in Kanban task manager and slash commands (`/kanban`, `/todo`, `/doctor`, etc.).
+* **`aja pickup <code>`**: Resume a mission from a high-performance Apache Arrow baton transfer.
+* **`aja status`**: Real-time overview of swarm health, active batons, and pending LanceDB tasks.
+* **`aja exec <subcommand>`**: Inspect and manage canonical execution sessions.
+  * `list`: List all execution sessions and their states.
+  * `show / timeline`: Inspect the events and artifact manifests of a session.
+  * `diff`: Show the JSON diff of changes made during an execution.
+  * `apply`: Validate and safely apply patch diffs from an isolated execution workspace to the main project using `git apply`.
+  * `replay`: Visually replay the events of a session in a TUI viewer (`replay_viewer`).
+* **`aja doctor`**: Run system health checks (CPU, RAM, GPU, native modules).
+* **`aja setup`**: Interactive wizard to scaffold configuration and data directories.
 
 ---
 
