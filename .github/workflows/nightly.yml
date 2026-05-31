@@ -48,9 +48,11 @@ jobs:
         run: pip install maturin pytest anyio psutil
 
       - name: Install AJA
+        shell: bash
         run: |
-          maturin develop --release
-          pip install -e ".[all]"
+          maturin build --release --out dist
+          WHEEL=$(ls dist/aja-*.whl | grep -v aja_native | head -n 1)
+          pip install "${WHEEL}[all]"
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
@@ -99,9 +101,11 @@ jobs:
         run: pip install maturin pytest anyio psutil
 
       - name: Install AJA
+        shell: bash
         run: |
-          maturin develop --release
-          pip install -e ".[all]"
+          maturin build --release --out dist
+          WHEEL=$(ls dist/aja-*.whl | grep -v aja_native | head -n 1)
+          pip install "${WHEEL}[all]"
           pip install pytest anyio psutil
 
       - name: Diagnostic Verification (doctor checks)
