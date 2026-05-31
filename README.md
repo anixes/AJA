@@ -68,12 +68,8 @@ AJA uses a unified `maturin` build system to compile the Rust native extensions 
 git clone https://github.com/your-org/aja.git
 cd aja
 
-# Install the build backend
-pip install maturin
-
-# Build and install the unified package
-maturin develop --release
-# Alternatively: pip install .[all]
+# Build and install the unified package in editable mode
+pip install -e ".[all]"
 ```
 
 Verify the installation and runtime dependencies:

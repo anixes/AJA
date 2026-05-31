@@ -24,7 +24,6 @@ RUN cat > /workspace/bootstrap.sh << 'EOF'
 #!/usr/bin/env bash
 set -e
 echo "=== AJA Dev Bootstrap ==="
-maturin develop --release
 pip install -e ".[all]"
 echo "=== Bootstrap complete. Run: aja doctor ==="
 EOF

@@ -24,9 +24,9 @@ We include a standard cloud-agnostic `.devcontainer/devcontainer.json` workspace
 ## 2. Compiling & Developing
 
 ### Local Editable Installs
-To compile and mount the Rust module dynamically into your local Python development environment:
+To compile and mount both the core Python runtime and the Rust native module dynamically into your local development environment, run from the repository root:
 ```bash
-maturin develop --manifest-path packages/aja-native/Cargo.toml
+pip install -e ".[all]"
 ```
 
 ### Compiling Production Wheels

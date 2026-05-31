@@ -16,10 +16,8 @@ You can install AJA as a standard Python package.
 git clone https://github.com/your-org/aja.git
 cd aja
 
-# Install with Maturin
-pip install maturin
-maturin develop --release
-# Alternatively: pip install .[all]
+# Install the unified package in editable mode
+pip install -e ".[all]"
 ```
 
 Verify the installation:
