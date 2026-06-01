@@ -9,8 +9,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from aja.config_schema import AJAConfig
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (override stale OS variables)
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 

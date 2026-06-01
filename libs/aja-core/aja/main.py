@@ -273,7 +273,7 @@ def cmd_chat():
 
     print_banner()
     console.print(
-        "[bold cyan]AJA:[/] Greetings. I am AJA, your Assistant of Joint Agents. How can I assist you today?"
+        "[bold cyan][Agent] AJA:[/] Greetings. I am AJA, your Assistant of Joint Agents. How can I assist you today?"
     )
     console.print(
         "[dim]Tip: Use Alt+Enter for multiline input. Type '/' for commands.[/]"
@@ -282,10 +282,13 @@ def cmd_chat():
     # Slash command completer
     completer = WordCompleter(
         [
-            "/run",
+            "/swarm",
+            "/goal",
+            "/schedule",
             "/status",
             "/doctor",
             "/mode",
+            "/models",
             "/metrics",
             "/exit",
             "/clear",
@@ -332,11 +335,11 @@ def cmd_chat():
             pending_count, running_count = task_manager.get_counts()
 
             def get_toolbar(p=pending_count, r=running_count):
-                mode = "NORMAL"
+                engine = "Agent"
                 tasks = f"Tasks: {p} pending, {r} running"
                 health = "Health: [green]OK[/green]"
                 return HTML(
-                    f' <style bg="ansicyan" fg="ansiblack"> <b>AJA</b> </style> | Mode: {mode} | {tasks} | {health} '
+                    f' <style bg="ansicyan" fg="ansiblack"> <b>AJA</b> </style> | Engine: {engine} | {tasks} | {health} '
                 )
 
             user_input = session.prompt(
@@ -417,11 +420,119 @@ def cmd_chat():
                         f"[bold cyan]AJA:[/] Current mode is set via aja.json. Use '/mode <type>' (offline/online/hybrid). [dim](Manual switch coming soon)[/]"
                     )
                     continue
-                elif cmd == "/run":
+                elif cmd == "/models":
+                    if args:
+                        parts = args.split()
+                        p_model = parts[0]
+                        w_model = parts[1] if len(parts) > 1 else parts[0]
+                    else:
+                        from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL
+                        console.print(f"\n[bold cyan]Engine: Swarm Agents (Planner):[/] {AJA_PLANNER_MODEL}")
+                        console.print(f"[bold cyan]Engine: Single Agent (Worker):[/] {AJA_WORKER_MODEL}")
+                        console.print("[dim]Tip: Swarm Planner manages complex project breakdowns (use smart models). Single Agent Worker executes hands-on tools (use fast models).[/dim]\n")
+                        choices_map = {
+                            "1": "copilot:gpt-4o",
+                            "2": "copilot:gpt-4o-mini",
+                            "3": "copilot:gpt-5.4-mini",
+                            "4": "copilot:gpt-5-mini",
+                            "5": "copilot:gpt-5.4",
+                            "6": "copilot:gpt-5.2",
+                            "7": "copilot:gpt-5.3-codex",
+                            "8": "copilot:gpt-5.5",
+                            "9": "copilot:claude-haiku-4.5",
+                            "10": "copilot:claude-sonnet-4.5",
+                            "11": "copilot:claude-sonnet-4.6",
+                            "12": "copilot:claude-opus-4.7",
+                            "13": "copilot:claude-opus-4.8",
+                            "14": "copilot:gemini-3.5-flash",
+                            "15": "Custom / Type your own",
+                            "16": "Cancel"
+                        }
+                        
+                        console.print("[bold]Select new models from Copilot:[/bold]")
+                        for k, v in choices_map.items():
+                            console.print(f"  {k}) {v}")
+                            
+                        from rich.prompt import Prompt
+                        p_choice = Prompt.ask("\nSelect [bold cyan]Swarm Planner[/] option", choices=list(choices_map.keys()), default="16")
+                        
+                        if p_choice == "16":
+                            continue
+                        elif p_choice == "15":
+                            p_model = Prompt.ask("Enter Planner model (e.g. copilot:gpt-4o)")
+                        else:
+                            p_model = choices_map[p_choice]
+                            
+                        w_choice = Prompt.ask("Select [bold cyan]Single Agent Worker[/] option (Press Enter to use same)", choices=list(choices_map.keys()) + [""], default="")
+                        
+                        if w_choice == "" or w_choice == p_choice:
+                            w_model = p_model
+                        elif w_choice == "16":
+                            continue
+                        elif w_choice == "15":
+                            w_model = Prompt.ask("Enter Worker model (e.g. copilot:gpt-4o-mini)")
+                        else:
+                            w_model = choices_map[w_choice]
+                        
+                    cfg_path = DATA_DIR / "aja.json"
+                    data = {}
+                    if cfg_path.exists():
+                        with open(cfg_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                    
+                    if "swarm_settings" not in data:
+                        data["swarm_settings"] = {}
+                    if "models" not in data["swarm_settings"]:
+                        data["swarm_settings"]["models"] = {}
+                    
+                    data["swarm_settings"]["models"]["planner"] = p_model
+                    data["swarm_settings"]["models"]["worker"] = w_model
+                    
+                    with open(cfg_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=4)
+                    
+                    # Update live runtime config
+                    import aja.config
+                    aja.config.AJA_PLANNER_MODEL = p_model
+                    aja.config.AJA_WORKER_MODEL = w_model
+                    
+                    console.print(f"[green]Successfully updated models![/green]")
+                    console.print(f"[bold cyan]Engine: Swarm Agents (Planner):[/] {p_model}")
+                    console.print(f"[bold cyan]Engine: Single Agent (Worker):[/] {w_model}")
+                    continue
+                elif cmd == "/swarm":
                     console.print(
-                        f"[bold cyan]🚀 Executing mission: {args}[/bold cyan]"
+                        f"[bold magenta]🚀 [Swarm] Executing mission: {args}[/bold magenta]"
                     )
                     cmd_run(args)
+                    continue
+                elif cmd == "/goal":
+                    if args:
+                        console.print(f"[bold magenta]🚀 [Goal] Executing persistent background mission: {args}[/bold magenta]")
+                        cmd_run(args, background=True)
+                    else:
+                        console.print("[red]Usage: /goal <objective>[/red]")
+                    continue
+                elif cmd == "/schedule":
+                    from rich.prompt import Prompt
+                    objective = args
+                    if not objective:
+                        objective = Prompt.ask("Enter objective for the scheduled task")
+                    if not objective:
+                        continue
+                    expr = Prompt.ask("Enter schedule expression (e.g., 'every 2h', '0 0 * * *')")
+                    if not expr:
+                        continue
+                    try:
+                        from aja.scheduler.cron_scheduler import CronScheduler
+                        scheduler = CronScheduler()
+                        scheduler.add_job(objective, expr)
+                        console.print(f"[green]Successfully scheduled task![/green]")
+                        console.print(f"  [bold]Objective:[/] {objective}")
+                        console.print(f"  [bold]Schedule:[/] {expr}")
+                        console.print("[yellow]Note: The task will be picked up by the autonomous loop/scheduler daemon.[/yellow]")
+                    except Exception as e:
+                        console.print(f"[red]Failed to schedule task:[/] {e}")
                     continue
                 elif cmd == "/doctor":
                     cmd_doctor()
@@ -434,7 +545,7 @@ def cmd_chat():
                 state = get_system_state()
                 intent = parse_intent(user_input, history, system_state=state)
 
-                console.print(f"[bold cyan]AJA:[/] {intent['response']}")
+                console.print(f"[bold cyan][Agent] AJA:[/] {intent['response']}")
 
                 # Update conversation history
                 history.append({"role": "user", "content": user_input})
@@ -443,11 +554,29 @@ def cmd_chat():
                 )
                 history = history[-15:]
 
-                if intent["type"] == "goal" and intent["goal"]:
-                    if Confirm.ask(
-                        f"Shall I initiate mission: '[italic]{intent['goal']}[/]'?"
-                    ):
-                        cmd_run(intent["goal"])
+                if intent["type"] == "terminal" and intent.get("command"):
+                    console.print(f"[*] Executing terminal command: [bold]{intent['command']}[/]")
+                    try:
+                        from aja.orchestration.tools.executor import ToolExecutor
+                        executor = ToolExecutor()
+                        res = executor.execute(intent["command"], workspace_mode="direct")
+                        output_str = ""
+                        if res.get("status") == "success":
+                            output_str = res.get("stdout", "")
+                            console.print(output_str)
+                        else:
+                            output_str = res.get("stderr") or res.get("message", "Error executing command")
+                            console.print(f"[red]Error:[/] {output_str}")
+                        
+                        # Feed the raw output back into conversation history so the LLM remembers it
+                        history.append({"role": "system", "content": f"Command '{intent['command']}' executed. Output:\n{output_str}"})
+                        history = history[-15:]
+                    except Exception as e:
+                        console.print(f"[red]Failed to execute command:[/] {e}")
+
+                elif intent["type"] == "goal" and intent.get("goal"):
+                    console.print(f"[yellow]Notice: To launch a full Swarm mission for complex goals, please prefix your request with /swarm (e.g., /swarm {intent['goal']})[/yellow]")
+
                 elif intent["type"] == "control" and intent["command"]:
                     console.print(
                         f"[*] Executing control command: [bold]{intent['command']}[/]"
@@ -476,6 +605,7 @@ def cmd_setup():
     """Guided onboarding setup wizard for AJA."""
     from rich.panel import Panel
     from rich.prompt import Prompt, Confirm
+    import shutil
 
     console.print(
         Panel(
@@ -486,6 +616,13 @@ def cmd_setup():
             border_style="cyan",
         )
     )
+
+    # Copy .env.example to .env if .env doesn't exist
+    env_path = DATA_DIR / ".env"
+    env_example_path = DATA_DIR / ".env.example"
+    if not env_path.exists() and env_example_path.exists():
+        console.print("[dim]No .env file found. Copying from .env.example...[/dim]")
+        shutil.copy(env_example_path, env_path)
 
     # Check if config already exists
     if CONFIG_PATH.exists():
@@ -502,54 +639,94 @@ def cmd_setup():
             print_success("Setup and directories verified.")
             return
 
+    # Helper function to prompt for provider and model
+    def ask_for_model(role_name: str):
+        console.print(f"\n[bold magenta]--- Setup {role_name} ---[/bold magenta]")
+        providers = {
+            "1": "copilot",
+            "2": "openai",
+            "3": "anthropic",
+            "4": "google",
+            "5": "llama_cpp"
+        }
+        console.print("Select Provider:")
+        for k, v in providers.items():
+            console.print(f"  {k}) {v}")
+        p_choice = Prompt.ask("Provider Option", choices=list(providers.keys()), default="1")
+        provider = providers[p_choice]
+
+        if provider == "copilot":
+            models = ["gpt-4o", "gpt-4o-mini", "claude-haiku-4.5", "claude-sonnet-4.6"]
+        elif provider == "openai":
+            models = ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"]
+        elif provider == "anthropic":
+            models = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
+        elif provider == "google":
+            models = ["gemini-2.5-flash", "gemini-2.5-pro"]
+        elif provider == "llama_cpp":
+            # For local, just prompt for free text
+            model_name = Prompt.ask(f"Enter Local Model name for {role_name} (e.g. gemma-2-9b-it)")
+            return f"{provider}:{model_name}", provider
+            
+        console.print(f"Select Top {provider.capitalize()} Model:")
+        for i, m in enumerate(models, 1):
+            console.print(f"  {i}) {m}")
+        console.print(f"  {len(models) + 1}) Custom / Type your own")
+        
+        m_choice = Prompt.ask("Model Option", choices=[str(i) for i in range(1, len(models) + 2)], default="1")
+        if int(m_choice) <= len(models):
+            model_name = models[int(m_choice) - 1]
+        else:
+            model_name = Prompt.ask(f"Enter Custom {provider} Model name")
+            
+        return f"{provider}:{model_name}", provider
+
+    # Helper function to securely update .env keys
+    def update_env_key(key: str, value: str):
+        if not value: return
+        if not env_path.exists():
+            env_path.touch()
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        new_lines = [l for l in lines if not l.startswith(f"{key}=")]
+        new_lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
     # Prompt for configuration values
-    project_name = Prompt.ask("Enter Project Name", default="AJA")
+    project_name = Prompt.ask("\nEnter Project Name", default="AJA")
 
     operating_mode = Prompt.ask(
         "Choose Operating Mode",
         choices=["offline", "online", "hybrid"],
-        default="offline",
+        default="hybrid",
     )
-
-    # Models defaults
-    if operating_mode == "offline":
-        planner_model = "llama_cpp:gemma"
-        worker_model = "llama_cpp:gemma"
-        critic_model = "llama_cpp:gemma"
-    else:
-        planner_model = "google:gemini-2.0-flash"
-        worker_model = "google:gemini-2.0-flash"
-        critic_model = "google:gemini-2.0-flash"
-
-    planner = Prompt.ask("Planner Model", default=planner_model)
-    worker = Prompt.ask("Worker Model", default=worker_model)
-    critic = Prompt.ask("Critic Model", default=critic_model)
-
-    # Let's write API Keys to .env if needed
-    if operating_mode in ("online", "hybrid"):
-        api_key = Prompt.ask(
-            "Enter GEMINI_API_KEY (leave empty to keep existing or skip)",
-            password=True,
-            default="",
-        )
-        if api_key:
-            env_path = DATA_DIR / ".env"
-            existing_lines = []
-            if env_path.exists():
-                existing_lines = env_path.read_text(encoding="utf-8").splitlines()
-
-            # Remove existing GEMINI_API_KEY / GOOGLE_API_KEY to avoid duplicates
-            new_lines = []
-            for line in existing_lines:
-                if not (
-                    line.startswith("GEMINI_API_KEY=")
-                    or line.startswith("GOOGLE_API_KEY=")
-                ):
-                    new_lines.append(line)
-            new_lines.append(f"GEMINI_API_KEY={api_key}")
-            new_lines.append(f"GOOGLE_API_KEY={api_key}")
-            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-            print_success("Saved API keys to .env")
+    
+    console.print("\n[dim]The Swarm Planner orchestrates high-level tasks, while the Single Agent Worker executes individual steps.[/dim]")
+    planner_model, planner_provider = ask_for_model("Swarm Planner")
+    console.print("[dim]* Note: The Swarm Critic model is automatically linked to your Planner model for onboarding simplicity. Separating the roles guarantees opposing system prompts (Builder vs Attacker) for higher quality results.[/dim]")
+    worker_model, worker_provider = ask_for_model("Single Agent Worker")
+    
+    # Handle API Keys
+    console.print("\n[bold magenta]--- API Key Validation ---[/bold magenta]")
+    required_providers = set([planner_provider, worker_provider])
+    if "openai" in required_providers:
+        if not os.environ.get("OPENAI_API_KEY"):
+            val = Prompt.ask("Enter OPENAI_API_KEY (or press Enter to skip)", password=True, default="")
+            update_env_key("OPENAI_API_KEY", val)
+    if "anthropic" in required_providers:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            val = Prompt.ask("Enter ANTHROPIC_API_KEY (or press Enter to skip)", password=True, default="")
+            update_env_key("ANTHROPIC_API_KEY", val)
+    if "google" in required_providers:
+        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+            val = Prompt.ask("Enter GEMINI_API_KEY (or press Enter to skip)", password=True, default="")
+            update_env_key("GEMINI_API_KEY", val)
+            update_env_key("GOOGLE_API_KEY", val)
+            
+    # Handle Integrations
+    console.print("\n[bold magenta]--- Platform Integrations ---[/bold magenta]")
+    if Confirm.ask("Do you want to configure a Telegram Bot token now?", default=False):
+        t_token = Prompt.ask("Enter TELEGRAM_BOT_TOKEN", password=True)
+        update_env_key("TELEGRAM_BOT_TOKEN", t_token)
 
     # Generate config dictionary
     config_data = {
@@ -570,7 +747,7 @@ def cmd_setup():
             "offline_mode": operating_mode == "offline",
             "max_agents": 5,
             "check_interval": 30,
-            "models": {"planner": planner, "worker": worker, "critic": critic},
+            "models": {"planner": planner_model, "worker": worker_model, "critic": planner_model},
             "operating_mode": operating_mode,
         },
     }
@@ -585,7 +762,7 @@ def cmd_setup():
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2)
 
-        print_success(f"Successfully generated and validated {CONFIG_PATH}")
+        print_success(f"\nSuccessfully generated and validated {CONFIG_PATH}")
     except Exception as e:
         print_error(f"Failed to validate generated configuration: {e}")
         return
@@ -596,6 +773,7 @@ def cmd_setup():
     handover_dir = DATA_DIR / "handovers"
     handover_dir.mkdir(parents=True, exist_ok=True)
     print_success("Vector store database directories successfully initialized.")
+    console.print("\n[bold green]Setup Complete! You can now run `aja chat`.[/bold green]")
 
 
 def cmd_doctor(ci_mode: bool = False):
@@ -771,7 +949,7 @@ def show_help():
 
     help_text = """
 [bold cyan]Core Mission Commands[/]
-[green]run[/] <objective> [--dry-run] → Start a mission (with optional simulation)
+[green]swarm[/] <objective> [--dry-run] → Start a mission (with optional simulation)
 [green]chat[/]              → Interactive conversational loop
 [green]status[/]            → Show swarm health
 [green]pickup[/] <code>      → Resume a mission

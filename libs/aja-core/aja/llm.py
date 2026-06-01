@@ -72,6 +72,8 @@ def get_gateway_for_model(model_str):
             provider = "google"
         elif "gemma" in model_str.lower() or "llama" in model_str.lower():
             provider = "llama_cpp"
+        elif "copilot" in model_str.lower():
+            provider = "copilot"
 
     # 2. Apply Operating Mode Override
     if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter"]:
@@ -303,17 +305,28 @@ class CopilotModelProvider(BaseModelProvider):
         if not raw_token:
             raw_token, _ = resolve_copilot_token()
         
-        if not raw_token:
-            print("[Copilot] No GitHub token found in environment. Initiating device code login...")
+        # Test if the token actually has Copilot scopes by exchanging it
+        api_token = None
+        if raw_token:
+            try:
+                from aja.copilot_auth import exchange_copilot_token
+                api_token, _ = exchange_copilot_token(raw_token)
+            except Exception:
+                raw_token = None
+                
+        if not raw_token or not api_token:
+            print("\n[Copilot] No valid GitHub token found (or token lacks Copilot scopes). Initiating device code login...")
             raw_token = copilot_device_code_login()
             if not raw_token:
                 raise ValueError("Copilot authentication failed. Please provide a valid GitHub token.")
-                
-        api_token = get_copilot_api_token(raw_token)
+            from aja.copilot_auth import exchange_copilot_token
+            api_token, _ = exchange_copilot_token(raw_token)
         headers = copilot_request_headers()
         
         base_url = self.config.get("base_url") or "https://api.githubcopilot.com"
         model = self.config.get("model", "gpt-4o")
+        if model == "copilot" or model == "github-copilot":
+            model = "gpt-4o"
         temperature = self.config.get("temperature")
         
         gw = LLMGateway(provider="copilot", api_key=api_token, base_url=base_url, extra_headers=headers)
@@ -422,6 +435,8 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
             provider = "google"
         elif "gemma" in model.lower() or "llama" in model.lower():
             provider = "llama_cpp"
+        elif "copilot" in model.lower():
+            provider = "copilot"
             
     # Try dynamic provider registry first
     provider_cls = provider_registry.get(provider)

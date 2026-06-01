@@ -51,6 +51,7 @@ AJA exists to invert this model. It provides:
 | **Schema Versioning** | Forward-compatible event definitions ensuring historical journals can always be replayed safely as the platform evolves. |
 | **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), setup (`aja setup`), and rebuilding projections (`aja rebuild-projections`). |
 | **Conversational Assistant** | Interactive conversational loop (`aja chat`) with slash commands, Kanban task management, and system diagnostics. |
+| **Native Agentic Engine** | SwarmEngine acts as Manager, using strict JSON-schema tool calling via `NativeToolRegistry` to delegate to the Worker Loop safely without brittle shell parsing. |
 
 ---
 
@@ -113,7 +114,7 @@ python -m aja exec timeline <session_id>
 AJA provides a comprehensive CLI for managing autonomous operations, execution sessions, and system health.
 
 * **`aja run <objective>`**: Execute an autonomous mission. Supports `--dry-run` for safe simulation and background execution.
-* **`aja chat`**: Launch the interactive conversational assistant loop. Features a built-in Kanban task manager and slash commands (`/kanban`, `/todo`, `/doctor`, etc.).
+* **`aja chat`**: Launch the interactive conversational assistant loop. Features a built-in Kanban task manager and slash commands (`/kanban`, `/todo`, `/doctor`, `/goal`, `/schedule`, etc.).
 * **`aja pickup <code>`**: Resume a mission from a high-performance Apache Arrow baton transfer.
 * **`aja status`**: Real-time overview of swarm health, active batons, and pending LanceDB tasks.
 * **`aja exec <subcommand>`**: Inspect and manage canonical execution sessions.

@@ -16,8 +16,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# OAuth device code flow constants (same client ID as opencode/Copilot CLI)
-COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz"
+# OAuth device code flow constants
+COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 _CLASSIC_PAT_PREFIX = "ghp_"
 COPILOT_ENV_VARS = ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
 _DEVICE_CODE_POLL_INTERVAL = 5
@@ -30,7 +30,10 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
     if not token:
         return False, "Empty token"
     if token.startswith(_CLASSIC_PAT_PREFIX):
-        return False, "Classic PATs (ghp_*) are not supported. Use device code or fine-grained PAT."
+        return (
+            False,
+            "Classic PATs (ghp_*) are not supported. Use device code or fine-grained PAT.",
+        )
     return True, "OK"
 
 
@@ -46,12 +49,8 @@ def resolve_copilot_token() -> tuple[str, str]:
                 continue
             return val, env_var
 
-    # 2. Try gh auth token (fallback)
-    token = _try_gh_cli_token()
-    if token:
-        valid, msg = validate_copilot_token(token)
-        if valid:
-            return token, "gh auth token"
+    # Note: We intentionally skip gh cli fallback because it often returns
+    # generic tokens that lack the Copilot device code scope, causing 404s.
 
     return "", ""
 
@@ -66,20 +65,28 @@ def _gh_cli_candidates() -> list[str]:
         "/usr/local/bin/gh",
         str(Path.home() / ".local" / "bin" / "gh"),
     ):
-        if candidate not in candidates and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        if (
+            candidate not in candidates
+            and os.path.isfile(candidate)
+            and os.access(candidate, os.X_OK)
+        ):
             candidates.append(candidate)
     return candidates
 
 
 def _try_gh_cli_token() -> Optional[str]:
     hostname = os.getenv("COPILOT_GH_HOST", "").strip()
-    clean_env = {k: v for k, v in os.environ.items() if k not in {"GITHUB_TOKEN", "GH_TOKEN"}}
+    clean_env = {
+        k: v for k, v in os.environ.items() if k not in {"GITHUB_TOKEN", "GH_TOKEN"}
+    }
     for gh_path in _gh_cli_candidates():
         cmd = [gh_path, "auth", "token"]
         if hostname:
             cmd += ["--hostname", hostname]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=clean_env)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=5, env=clean_env
+            )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
         if result.returncode == 0 and result.stdout.strip():
@@ -87,7 +94,9 @@ def _try_gh_cli_token() -> Optional[str]:
     return None
 
 
-def copilot_device_code_login(host: str = "github.com", timeout_seconds: float = 300) -> Optional[str]:
+def copilot_device_code_login(
+    host: str = "github.com", timeout_seconds: float = 300
+) -> Optional[str]:
     """Run the GitHub OAuth device code flow for Copilot."""
     import urllib.request
     import urllib.parse
@@ -96,7 +105,9 @@ def copilot_device_code_login(host: str = "github.com", timeout_seconds: float =
     device_code_url = f"https://{domain}/login/device/code"
     access_token_url = f"https://{domain}/login/oauth/access_token"
 
-    data = urllib.parse.urlencode({"client_id": COPILOT_OAUTH_CLIENT_ID, "scope": "read:user"}).encode()
+    data = urllib.parse.urlencode(
+        {"client_id": COPILOT_OAUTH_CLIENT_ID, "scope": "read:user"}
+    ).encode()
     req = urllib.request.Request(
         device_code_url,
         data=data,
@@ -110,7 +121,9 @@ def copilot_device_code_login(host: str = "github.com", timeout_seconds: float =
         print(f"[Copilot] Failed to start device authorization: {exc}")
         return None
 
-    verification_uri = device_data.get("verification_uri", "https://github.com/login/device")
+    verification_uri = device_data.get(
+        "verification_uri", "https://github.com/login/device"
+    )
     user_code = device_data.get("user_code", "")
     device_code = device_data.get("device_code", "")
     interval = max(device_data.get("interval", _DEVICE_CODE_POLL_INTERVAL), 1)
@@ -126,11 +139,13 @@ def copilot_device_code_login(host: str = "github.com", timeout_seconds: float =
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         time.sleep(interval + _DEVICE_CODE_POLL_SAFETY_MARGIN)
-        poll_data = urllib.parse.urlencode({
-            "client_id": COPILOT_OAUTH_CLIENT_ID,
-            "device_code": device_code,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-        }).encode()
+        poll_data = urllib.parse.urlencode(
+            {
+                "client_id": COPILOT_OAUTH_CLIENT_ID,
+                "device_code": device_code,
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            }
+        ).encode()
         poll_req = urllib.request.Request(
             access_token_url,
             data=poll_data,
@@ -144,8 +159,27 @@ def copilot_device_code_login(host: str = "github.com", timeout_seconds: float =
             continue
 
         if result.get("access_token"):
-            print(" ✓\n")
-            return result["access_token"]
+            try:
+                print(" ✓\n")
+            except UnicodeEncodeError:
+                print(" OK\n")
+            
+            token = result["access_token"]
+            try:
+                from aja.config import PROJECT_ROOT
+                env_path = PROJECT_ROOT / ".env"
+                existing_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+                new_lines = [line for line in existing_lines if not line.startswith("COPILOT_GITHUB_TOKEN=")]
+                new_lines.append(f"COPILOT_GITHUB_TOKEN={token}")
+                env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                
+                # Update current session environment so it works immediately
+                import os
+                os.environ["COPILOT_GITHUB_TOKEN"] = token
+            except Exception as e:
+                print(f"[Copilot] Warning: Could not save token to .env: {e}")
+                
+            return token
 
         error = result.get("error", "")
         if error == "authorization_pending":
@@ -170,12 +204,14 @@ _TOKEN_EXCHANGE_URL = "https://api.github.com/copilot_internal/v2/token"
 
 def _token_fingerprint(raw_token: str) -> str:
     import hashlib
+
     return hashlib.sha256(raw_token.encode()).hexdigest()[:16]
 
 
 def exchange_copilot_token(raw_token: str, timeout: float = 10.0) -> tuple[str, float]:
     """Exchange a raw GitHub token for a Copilot API token."""
     import urllib.request
+
     fp = _token_fingerprint(raw_token)
 
     cached = _jwt_cache.get(fp)

@@ -128,13 +128,13 @@ class LLMGateway:
 
     @durable_activity("llm.chat")
     async def chat(
-        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None
+        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None
     ):
         """Simple chat completion with backoff retries."""
         for attempt in range(1, retries + 1):
             try:
                 if self.provider == "google":
-                    return await self._google_generate_content(model, prompt, system, temperature)
+                    return await self._google_generate_content(model, prompt, system, temperature, tools)
 
                 if isinstance(prompt, list):
                     prompt_messages = []
@@ -156,6 +156,8 @@ class LLMGateway:
                 }
                 if temperature is not None:
                     kwargs["temperature"] = temperature
+                if tools is not None:
+                    kwargs["tools"] = tools
 
                 headers = {
                     "HTTP-Referer": "https://github.com/aja",
@@ -169,14 +171,26 @@ class LLMGateway:
                     default_headers=headers,
                 ) as client:
                     response = await client.chat.completions.create(**kwargs)
-                return response.choices[0].message.content
+                
+                msg = response.choices[0].message
+                if tools is not None:
+                    tool_calls = []
+                    if msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            tool_calls.append({
+                                "id": tc.id,
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            })
+                    return {"content": msg.content or "", "tool_calls": tool_calls}
+                return msg.content or ""
             except Exception as e:
                 print(f"[Gateway] Error on attempt {attempt}: {e}")
                 if attempt == retries:
                     return None
                 await asyncio.sleep(2 ** attempt)
 
-    async def _google_generate_content(self, model: str, prompt: Any, system: str, temperature: Optional[float] = None):
+    async def _google_generate_content(self, model: str, prompt: Any, system: str, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None):
         model_name = normalize_google_model(model)
         api_key = google_api_key(self.api_key)
         if not api_key:
@@ -213,6 +227,15 @@ class LLMGateway:
         }
         if temperature is not None:
             payload["generationConfig"] = {"temperature": temperature}
+        if tools is not None:
+            google_tools = []
+            for t in tools:
+                google_tools.append({
+                    "name": t["function"]["name"],
+                    "description": t["function"].get("description", ""),
+                    "parameters": t["function"].get("parameters", {})
+                })
+            payload["tools"] = [{"functionDeclarations": google_tools}]
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -224,8 +247,24 @@ class LLMGateway:
                     
                     data = await response.json()
                     parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    text_parts = [part.get("text", "") for part in parts if part.get("text")]
-                    return "\n".join(text_parts).strip() or None
+                    if tools is not None:
+                        content = ""
+                        tool_calls = []
+                        import json
+                        for p in parts:
+                            if "text" in p:
+                                content += p["text"]
+                            if "functionCall" in p:
+                                fc = p["functionCall"]
+                                tool_calls.append({
+                                    "id": fc.get("name"),
+                                    "name": fc.get("name"),
+                                    "arguments": json.dumps(fc.get("args", {}))
+                                })
+                        return {"content": content.strip(), "tool_calls": tool_calls}
+                    else:
+                        text_parts = [part.get("text", "") for part in parts if part.get("text")]
+                        return "\n".join(text_parts).strip() or None
             except Exception as e:
                 print(f"[Gateway] Google Error: {e}")
                 return None

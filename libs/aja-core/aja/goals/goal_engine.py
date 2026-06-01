@@ -311,57 +311,6 @@ class GoalEngine:
         if goal.failures > 2 and goal.retries > 0:
             self.modify_goal_strategy(goal)
             
-        force_swarm = getattr(goal, "metadata", {}).get("force_swarm", False)
-        if not force_swarm and self._is_safe_read_only(goal.objective):
-            print(f"[GoalEngine] Safe read-only command detected: {goal.objective}. Bypassing planner.")
-            try:
-                import subprocess
-                res = subprocess.run(goal.objective, shell=True, capture_output=True, text=True, timeout=10)
-                output = res.stdout + res.stderr
-                goal.progress["completed_steps"].append("fast_path_read_only")
-                goal.progress["current_state"] = f"Success (Fast-path): {goal.objective}"
-                goal.status = "DONE"
-                self.save_state()
-                
-                # Emit events and record to LanceDB
-                self.memory.record_scheduler_event(
-                    kind="MISSION_RESULT",
-                    target=goal.id,
-                    metadata={"message": f"Result for '{goal.objective}':\n{output}", "output": output},
-                    status=True
-                )
-                bus.publish(EVENTS["MISSION_RESULT"], {
-                    "mission_id": goal.id,
-                    "message": f"Result for '{goal.objective}':\n{output}"
-                })
-                # Signal mission done
-                self.memory.record_scheduler_event(
-                    kind="MISSION_DONE",
-                    target=goal.id,
-                    metadata={"message": f"Goal completed successfully: {goal.objective}"},
-                    status=True
-                )
-                bus.publish(EVENTS["NODE_SUCCESS"], {
-                    "mission_id": goal.id,
-                    "message": f"Goal completed successfully: {goal.objective}"
-                })
-                return
-            except Exception as e:
-                print(f"[GoalEngine] Safe command fast-path failed: {e}")
-                self.memory.record_scheduler_event(
-                    kind="NODE_FAILED",
-                    target=goal.id,
-                    metadata={"message": f"Safe command fast-path failed: {e}"},
-                    status=False
-                )
-                bus.publish(EVENTS["NODE_FAILED"], {
-                    "mission_id": goal.id,
-                    "message": f"Safe command fast-path failed: {e}"
-                })
-                goal.status = "FAILED"
-                self.save_state()
-                return
-
         print(f"\n[GoalEngine] Executing next step for goal: {goal.objective}")
         try:
             plan = self.expand_goal(goal)
@@ -415,7 +364,12 @@ class GoalEngine:
                 self.paused_mission_ids.add(goal.id) # Pause this specific mission
                 return
 
-            execute_routed_node(node)
+            from aja.orchestration.swarm import SwarmEngine
+            import asyncio
+            engine = SwarmEngine()
+            task_str = getattr(node, 'task', goal.objective)
+            asyncio.run(engine.execute_direct(task_str))
+            
             self.update_goal_state(goal, {"success": True}, getattr(node, "id", "unknown_node"))
             
             # Phase 26: RL-lite Policy Update

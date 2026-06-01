@@ -88,6 +88,9 @@ class SwarmEngine:
         from aja.orchestration.tools.executor import ToolExecutor
         executor = ToolExecutor()
         
+        from aja.orchestration.tools.native import NativeToolRegistry
+        native_registry = NativeToolRegistry()
+        
         # 2. Build client-specific prompt through the presenter boundary.
         system_prompt = self.presenter.direct_system_prompt
 
@@ -106,7 +109,8 @@ class SwarmEngine:
                 response = await self.gateway.chat(
                     model=self.model,
                     prompt=history,
-                    system=system_prompt
+                    system=system_prompt,
+                    tools=native_registry.get_schemas()
                 )
             except Exception as e:
                 console.print(f"[red][Direct Mode] LLM Chat Error: {e}[/red]")
@@ -118,29 +122,59 @@ class SwarmEngine:
             if not response:
                 console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
                 break
+                
+            if isinstance(response, dict):
+                content = response.get("content", "")
+                tool_calls = response.get("tool_calls", [])
+            else:
+                content = response
+                tool_calls = []
 
-            self.presenter.assistant(response)
+            if content:
+                self.presenter.assistant(content)
+                history.append({"role": "assistant", "content": content})
+            elif tool_calls:
+                # No text content, but we have tool calls. Still need to append the assistant message so the API doesn't complain about role alternation.
+                # Actually, some APIs require the tool_calls to be in the assistant message, but since we are maintaining simple string history for now:
+                history.append({"role": "assistant", "content": f"[Invoking {len(tool_calls)} tool(s)]"})
             
-            # Record LLM's response to history
-            history.append({"role": "assistant", "content": response})
+            # Execute Native Tools if any
+            tools_executed = False
+            for tc in tool_calls:
+                tools_executed = True
+                t_name = tc.get("name")
+                t_args_str = tc.get("arguments", "{}")
+                try:
+                    t_args = json.loads(t_args_str) if isinstance(t_args_str, str) else t_args_str
+                except Exception:
+                    t_args = {}
+                    
+                console.print(f"[bold cyan]⚙ Calling Tool:[/] {t_name}")
+                t_result = native_registry.execute(t_name, t_args)
+                if t_result.startswith("Error") or t_result.startswith("Tool Execution Error"):
+                    console.print(f"[bold red]✘ Tool failed:[/] {t_result.splitlines()[0]}[/bold red]")
+                else:
+                    console.print(f"[bold green]✔ Tool succeeded[/bold green]")
+                
+                history.append({"role": "user", "content": f"Tool '{t_name}' result:\n{t_result}"})
 
             # Check for bash/sh command blocks
             commands = []
-            if "```bash" in response:
-                parts = response.split("```bash")
+            if "```bash" in content:
+                parts = content.split("```bash")
                 for part in parts[1:]:
                     cmd = part.split("```")[0].strip()
                     if cmd:
                         commands.append(cmd)
-            elif "```sh" in response:
-                parts = response.split("```sh")
+            elif "```sh" in content:
+                parts = content.split("```sh")
                 for part in parts[1:]:
                     cmd = part.split("```")[0].strip()
                     if cmd:
                         commands.append(cmd)
             
-            if not commands:
-                # No more commands suggested; direct execution has finished.
+            if not commands and not tools_executed:
+                # No more commands or tools suggested; direct execution has finished.
                 console.print(f"\n[bold green][+] Direct In-Process task completed successfully.[/bold green]")
                 break
             
@@ -285,9 +319,8 @@ class SwarmEngine:
             f"Objective: '{objective}'\n\n"
             f"CODEBASE CONTEXT (RAG):\n{rag_context}\n\n"
             f"AVAILABLE SKILLS:\n{skills_context}\n\n"
-            "Plan the steps to achieve this. You can suggest shell commands in ```bash blocks. "
-            "Break it into 2-3 independent sub-tasks if needed. "
-            "Return a JSON list with 'id', 'task', and 'suggested_commands'."
+            "Plan the steps to achieve this objective. Break it into 2-3 independent sub-tasks if needed. "
+            "Return ONLY a JSON list with 'id' and 'task' keys for each sub-task."
         )
         
         try:
@@ -296,7 +329,7 @@ class SwarmEngine:
             if self.dry_run:
                 print(f"[DRY-RUN] LLM Planning failed or is unauthenticated ({e}). Simulating a default safe plan.")
                 plan_str = json.dumps([
-                    {"id": 1, "task": f"Mock analysis: {objective}", "suggested_commands": ["grep -rn \"TODO\" ."]}
+                    {"id": 1, "task": f"Mock analysis: {objective}"}
                 ])
             else:
                 raise e
@@ -305,7 +338,7 @@ class SwarmEngine:
             if self.dry_run:
                 print("[DRY-RUN] LLM returned empty plan. Simulating a default safe plan.")
                 plan_str = json.dumps([
-                    {"id": 1, "task": f"Mock analysis: {objective}", "suggested_commands": ["grep -rn \"TODO\" ."]}
+                    {"id": 1, "task": f"Mock analysis: {objective}"}
                 ])
             else:
                 plan_str = ""
@@ -313,31 +346,6 @@ class SwarmEngine:
         # ── Power 2: Autonomous Tool Loop ──
         if self.dry_run:
             print("[DRY-RUN] Simulating tool planning and verification. No physical system changes will be made.")
-            commands = []
-            if "```bash" in plan_str:
-                parts = plan_str.split("```bash")
-                for part in parts[1:]:
-                    cmd = part.split("```")[0].strip()
-                    if cmd:
-                        commands.append(cmd)
-            elif "```sh" in plan_str:
-                parts = plan_str.split("```sh")
-                for part in parts[1:]:
-                    cmd = part.split("```")[0].strip()
-                    if cmd:
-                        commands.append(cmd)
-            for cmd in commands:
-                from aja.security.command_guard import classify_command
-                classification = classify_command(cmd)
-                print(f"[DRY-RUN SIMULATION] Auditing command: '{cmd}' | Safety: {classification['decision'].upper()} (Risk: {classification['risk_level']})")
-            tool_results = []
-        else:
-            from aja.orchestration.tools.executor import ToolExecutor
-            executor = ToolExecutor()
-            # Parse suggested commands from the planning stage
-            tool_results = executor.parse_and_run(plan_str)
-            if tool_results:
-                print(f"🔧 Executed {len(tool_results)} autonomous prep-tools.")
 
         try:
             plan_str = plan_str.strip().replace("```json", "").replace("```", "")

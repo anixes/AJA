@@ -27,21 +27,7 @@ def route(node: Any) -> str:
 
 def execute_routed_node(node: Any):
     """
-    Simulates executing a node on the routed device.
+    [DEPRECATED] Execution is now handled dynamically by the Native Tool Registry via SwarmEngine.execute_direct.
     """
-    device = route(node)
-    
-    if device == "pc":
-        # run_on_pc(node)
-        print(f"[Router] Routing node '{node.id}' to PC.")
-        return True
-    elif device == "cloud":
-        # run_cloud(node)
-        print(f"[Router] Routing node '{node.id}' to Cloud.")
-        return True
-    elif device == "phone":
-        # request_user(node)
-        print(f"[Router] Routing node '{node.id}' to Phone (requesting user).")
-        return True
-        
+    print(f"[Router] WARNING: execute_routed_node is deprecated. Use SwarmEngine.execute_direct instead.")
     return False

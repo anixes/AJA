@@ -45,7 +45,7 @@ AJA_BANNER = """
 def print_banner():
     console.print(
         Panel(
-            Text(AJA_BANNER, justify="center", style="bold cyan"), border_style="cyan"
+            Text.from_markup(AJA_BANNER, justify="center"), border_style="cyan"
         )
     )
 

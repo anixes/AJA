@@ -53,6 +53,10 @@ Upgrade AJA into a "premium" high-performance orchestration framework—compleme
 - **Tech**: HTN Sanitizer, Multi-Run Consensus, Semantic Healing
 - **Action**: Implemented a structural healing layer for HTN plan graphs. Hallucinated dependencies are automatically mapped to valid leaf nodes. Added a multi-run consensus phase to the planner to ensure high-precision mission logic.
 
+### Phase 13: Native Agentic Engine [DONE]
+- **Tech**: Manager vs Worker, JSON-schema Tool Calling, NativeToolRegistry
+- **Action**: Completely overhauled the Swarm Engine execution pipeline to use Native Tool Calling (`SwarmEngine.execute_direct`). Bypasses brittle string-parsing and unsafe shell-command paths for high-reliability local execution. Added `/goal` and `/schedule` for background task dispatch and persistent cron routines.
+
 ## 3. Success Criteria
 - [x] Pytest suite returns 100% success with Pydantic models.
 - [x] Dashboard passes a visual "premium" audit.

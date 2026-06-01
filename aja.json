@@ -17,9 +17,9 @@
     "max_agents": 5,
     "check_interval": 30,
     "models": {
-      "planner": "llama_cpp:gemma",
-      "worker": "llama_cpp:gemma",
-      "critic": "llama_cpp:gemma"
+      "planner": "copilot",
+      "worker": "copilot",
+      "critic": "copilot"
     },
     "operating_mode": "offline"
   }
