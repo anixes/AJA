@@ -40,7 +40,7 @@ def run_intent_test(intent):
     print("-" * 30)
 
 if __name__ == "__main__":
-    print("--- AGENTX HUMAN INTENT INTEGRATION TEST ---")
+    print("--- AJA HUMAN INTENT INTEGRATION TEST ---")
     run_intent_test("list all files")
     run_intent_test("delete the temp folder")
     run_intent_test("check network connections")

@@ -151,4 +151,4 @@ job_log.txt
 test_repro.py
 test_shell.py
 test_subprocess.py
-.pytest-agentx/
+.pytest-aja/
