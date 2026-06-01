@@ -15,6 +15,7 @@ class NativeToolRegistry:
         self.tools["write_file"] = self.write_file
         self.tools["grep_search"] = self.grep_search
         self.tools["multi_replace"] = self.multi_replace
+        self.tools["sleep"] = self.sleep
 
     def get_schemas(self) -> List[Dict[str, Any]]:
         return [
@@ -84,6 +85,20 @@ class NativeToolRegistry:
                             }
                         },
                         "required": ["path", "replacements"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "sleep",
+                    "description": "Pause execution for a specified number of seconds. Use this when you need to wait for a background process, server, or test to finish.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "duration_seconds": {"type": "integer", "description": "Number of seconds to wait."}
+                        },
+                        "required": ["duration_seconds"]
                     }
                 }
             }
@@ -172,3 +187,13 @@ class NativeToolRegistry:
             return f"Successfully applied replacements to {path}"
         except Exception as e:
             return f"Error replacing text: {e}"
+
+    def sleep(self, duration_seconds: int) -> str:
+        try:
+            import time
+            duration = int(duration_seconds)
+            time.sleep(duration)
+            return f"Successfully paused execution for {duration} seconds."
+        except Exception as e:
+            return f"Error during sleep: {e}"
+
