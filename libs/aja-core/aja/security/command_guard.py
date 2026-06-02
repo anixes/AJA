@@ -92,7 +92,7 @@ def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     if root in {"powershell", "pwsh"}:
         return bool(
             re.search(
-                r"\b(get-childitem|get-content|get-process|where-object|select-object)\b",
+                r"\b(get-childitem|get-content|get-process|where-object|select-object|invoke-webrequest|invoke-restmethod|get-wmiobject|get-ciminstance|systeminfo|tasklist|netstat|ping|ipconfig|start-process|stop-process)\b",
                 command,
                 re.IGNORECASE,
             )
