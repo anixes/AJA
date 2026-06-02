@@ -138,7 +138,8 @@ class UnifiedGateway:
 
         # 3. Perform the actual chat call
         # AJA persona is used for the conversational layer
-        response_text = completion(
+        response_text = await asyncio.to_thread(
+            completion,
             prompt=messages,
             system_prompt=(
                 "You are AJA (Assistant of Joint Agents), a highly capable, premium AI assistant and personal secretary "
@@ -407,7 +408,7 @@ class UnifiedGateway:
             response = status_report
         else:
             # Simple Chat Reasoning
-            response = await self.chat(content_stripped, chat_history=session["history"])
+            response = await self.chat(content_stripped, history=session["history"])
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
