@@ -140,25 +140,37 @@ class SwarmEngine:
             
             # Execute Native Tools if any
             tools_executed = False
-            for tc in tool_calls:
+            if tool_calls:
                 tools_executed = True
-                t_name = tc.get("name")
-                t_args_str = tc.get("arguments", "{}")
-                try:
-                    t_args = json.loads(t_args_str) if isinstance(t_args_str, str) else t_args_str
-                except Exception:
-                    t_args = {}
-                    
-                console.print(f"[bold cyan]⚙ Calling Tool:[/] {t_name}")
-                t_result = native_registry.execute(t_name, t_args)
-                if t_result.startswith("Error") or t_result.startswith("Tool Execution Error"):
-                    console.print(f"[bold red]✘ Tool failed:[/] {t_result.splitlines()[0]}[/bold red]")
-                else:
-                    console.print(f"[bold green]✔ Tool succeeded[/bold green]")
+                formatted_calls = []
+                for tc in tool_calls:
+                    t_name = tc.get("name")
+                    t_args_str = tc.get("arguments", "{}")
+                    try:
+                        t_args = json.loads(t_args_str) if isinstance(t_args_str, str) else t_args_str
+                    except Exception:
+                        t_args = {}
+                    formatted_calls.append({"tool": t_name, "args": t_args})
                 
-                history.append({"role": "user", "content": f"Tool '{t_name}' result:\n{t_result}"})
+                console.print(f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s)...[/]")
+                from aja.observability.telemetry import get_trace_id
+                results = await executor.dispatch_tool_calls(
+                    tool_calls=formatted_calls,
+                    trace_id=get_trace_id(),
+                    dry_run=self.dry_run,
+                )
+                for r in results:
+                    if r.success:
+                        console.print(f"[bold green]✔ Tool '{r.tool}' succeeded[/bold green]")
+                        if r.data:
+                            console.print(f"[dim]{r.data}[/dim]")
+                    else:
+                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {r.error or r.data}[/bold red]")
+                    
+                    obs = f"Tool '{r.tool}' result:\n{r.data or r.error}"
+                    history.append({"role": "user", "content": obs})
 
-            # Check for bash/sh command blocks
+            # Check for legacy bash/sh command blocks
             commands = []
             if "```bash" in content:
                 parts = content.split("```bash")

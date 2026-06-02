@@ -177,10 +177,14 @@ class WorkspaceManager:
         def _ignore_patterns(path, names):
             ignore_list = [
                 ".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache",
-                "node_modules", "target", ".pytest-tmp", ".pytest-aja", ".gsd", "temp_batons",
-                ".aja", "workspaces", "graphify-out"
+                "node_modules", "target", ".pytest-tmp", ".pytest-aja", ".pytest-agentx",
+                ".gsd", "temp_batons", ".aja", "workspaces", "graphify-out",
             ]
-            return [n for n in names if any(n == i or n.startswith(i + "/") for i in ignore_list) or n.endswith(".log") or n.endswith(".tmp") or n == "scratch"]
+            return [
+                n for n in names
+                if any(n == i or n.startswith(i) for i in ignore_list)
+                or n.endswith(".log") or n.endswith(".tmp") or n == "scratch"
+            ]
         
         shutil.copytree(self.project_root, execution_root, ignore=_ignore_patterns)
         

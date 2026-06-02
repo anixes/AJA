@@ -13,7 +13,13 @@ def parse_intent(message: str, history: List[Dict[str, Any]], system_state: Dict
     system_prompt = """You are AJA (Assistant of Joint Agents), a highly capable AI assistant, personal secretary, and operator for AJA Core.
 Analyze the user's message and the conversation history.
 Determine if the user wants to:
-1. "terminal": For local OS operations and PC control. You are an expert system administrator empowered to control the OS natively. Use advanced tools (e.g., on Windows use `powershell -c "..."` to chain cmdlets like Get-Process). IMPORTANT: On Windows, ALWAYS wrap paths in double quotes (e.g., dir "D:\\path").
+1. "tool_calls": For any action requiring execution (local OS operations, file edits, directory searches, etc.). You MUST express each discrete action as a separate tool call in the "tool_calls" list. Available tools:
+   - run_shell_command(cmd: str): Run ONE shell command. Do NOT chain commands with && or ;. Working directory persists across calls in a session.
+   - read_file(path: str): Read a file.
+   - write_file(path: str, content: str): Write a file.
+   - grep_search(query: str, path: str): Search files.
+   - multi_replace(path: str, replacements: list): Replace multiple exact text blocks in a file.
+   - sleep(duration_seconds: int): Pause execution.
 2. "goal": For complex tasks requiring multiple steps, coding, or reasoning.
 3. "question": Ask a general question or chat.
 4. "control": Manage system state, run diagnostics, read logs, or change settings.
@@ -29,9 +35,13 @@ For "control", map specific system requests to these commands:
 
 Respond ONLY in valid JSON format:
 {
-    "type": "terminal" | "goal" | "question" | "control",
+    "type": "tool_calls" | "goal" | "question" | "control",
     "goal": "Extracted goal description if type is 'goal', else null",
-    "command": "Exact shell command if type is 'terminal', OR status/doctor/gpu/logs/pause/resume/exit if type is 'control', else null",
+    "command": "status/doctor/gpu/logs/pause/resume/exit if type is 'control', else null",
+    "tool_calls": [
+        {"tool": "run_shell_command", "args": {"cmd": "shell command string"}},
+        {"tool": "read_file", "args": {"path": "absolute path to file"}}
+    ],
     "response": "Conversational response to the user.",
     "confidence": 0.0 to 1.0
 }
@@ -73,6 +83,7 @@ CRITICAL CLASSIFICATION RULES:
             "type": "question",
             "goal": None,
             "command": None,
+            "tool_calls": None,
             "response": "I'm having trouble understanding right now. Could you rephrase that?",
             "confidence": 0.0
         }

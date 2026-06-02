@@ -16,6 +16,25 @@ async def handle_telegram_message(text: str, user_id: str, session):
         await async_send_telegram_message(user_id, "Unauthorized user.")
         return
 
+    from aja.gateway.remote_control import (
+        execute_local_control,
+        is_local_control_command,
+        strip_local_control_prefix,
+    )
+
+    if is_local_control_command(text):
+        history = getattr(session, "history", [])
+        reply = await execute_local_control(
+            strip_local_control_prefix(text),
+            history=history,
+            mission_id=f"telegram-{user_id}",
+            trace_id=f"telegram-{user_id}",
+        )
+        if hasattr(session, "log_interaction"):
+            session.log_interaction("assistant", reply)
+        await async_send_telegram_message(user_id, reply)
+        return
+
     # Build system state for contextual awareness
     active_goals = [{"objective": g.objective, "priority": g.priority, "status": g.status} 
                     for g in goal_engine.goals if g.status in ["PENDING", "RUNNING"]]

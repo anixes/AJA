@@ -38,7 +38,9 @@ metrics = ["psutil>=5.9"]
 pty-win = ["pywinpty>=2.0; sys_platform=='win32'"]
 discord = ["discord.py>=2.3"]
 slack   = ["slack-sdk>=3.27"]
-all     = ["aja[embed,metrics,pty-win,discord,slack]"]
+browser = ["playwright>=1.40"]
+desktop = ["pyautogui>=0.9"]
+all     = ["aja[embed,metrics,pty-win,discord,slack,browser,desktop]"]
 
 [project.scripts]
 aja = "aja.main:main"

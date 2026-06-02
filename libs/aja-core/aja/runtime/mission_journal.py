@@ -23,6 +23,9 @@ class MissionState:
         self.active_trace_id = None
         self.plan_id = None
         self.exploration_state = {}
+        self.active_tool = None
+        self.last_tool_result = {}
+        self.last_error = {}
 
 class MissionReducer:
     def reduce(self, events: List[Dict[str, Any]]) -> MissionState:
@@ -72,14 +75,50 @@ class MissionReducer:
             state.exploration_state = dict(event.get("exploration_state", {}))
             state.updated_at = timestamp
 
+        elif event_type == "TOOL_CALLED":
+            state.active_tool = event.get("tool")
+            state.updated_at = timestamp
+
+        elif event_type == "TOOL_COMPLETED":
+            state.active_tool = None
+            state.last_tool_result = {
+                "tool": event.get("tool"),
+                "success": event.get("success"),
+                "exit_code": event.get("exit_code"),
+                "env_state": event.get("env_state"),
+            }
+            state.updated_at = timestamp
+
+        elif event_type == "TOOL_FAILED":
+            state.active_tool = None
+            state.last_error = {
+                "tool": event.get("tool"),
+                "error": event.get("error")
+            }
+            state.updated_at = timestamp
+
 class MissionJournal:
+    SHARD_EVENT_LIMIT = 5000
+
     def __init__(self, mission_id: str):
         self.mission_id = mission_id
         self.journal_dir = DATA_DIR / "missions"
         self.journal_dir.mkdir(parents=True, exist_ok=True)
         self.journal_path = self.journal_dir / f"mission_{mission_id}.jsonl"
 
+    def _shard_if_needed(self) -> None:
+        if not self.journal_path.exists():
+            return
+        events = self.read_events()
+        if len(events) >= self.SHARD_EVENT_LIMIT:
+            shard_n = len(list(self.journal_dir.glob(f"mission_{self.mission_id}_shard_*.jsonl")))
+            self.journal_path.rename(
+                self.journal_dir / f"mission_{self.mission_id}_shard_{shard_n}.jsonl"
+            )
+
     def emit(self, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        self._shard_if_needed()
+
         # 1. Read existing events to calculate sequence
         events = self.read_events()
         seq = len(events)
@@ -111,11 +150,17 @@ class MissionJournal:
         return event
 
     def read_events(self) -> List[Dict[str, Any]]:
-        if not self.journal_path.exists():
-            return []
-        
+        # Load from all shards first, then current journal
         events = []
-        with self.journal_path.open("r", encoding="utf-8") as f:
+        for shard in sorted(self.journal_dir.glob(f"mission_{self.mission_id}_shard_*.jsonl")):
+            events.extend(self._load_jsonl(shard))
+        if self.journal_path.exists():
+            events.extend(self._load_jsonl(self.journal_path))
+        return events
+
+    def _load_jsonl(self, path: Path) -> List[Dict[str, Any]]:
+        events = []
+        with path.open("r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     events.append(json.loads(line))

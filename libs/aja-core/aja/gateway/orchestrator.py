@@ -311,6 +311,36 @@ class UnifiedGateway:
         )
         self.gateway_state.update_session(chat_id, session)
 
+        from aja.gateway.remote_control import (
+            execute_local_control,
+            is_local_control_command,
+            strip_local_control_prefix,
+        )
+
+        if is_local_control_command(content):
+            local_request = strip_local_control_prefix(content)
+            response = await execute_local_control(
+                local_request,
+                history=session["history"],
+                mission_id=f"telegram-{chat_id}-{correlation_id}",
+                trace_id=f"telegram-{correlation_id}",
+            )
+            await self.telegram_adapter.send_message(chat_id, response)
+            session["history"].append(
+                {"role": "assistant", "text": response, "time": time.time()}
+            )
+            self.gateway_state.update_session(chat_id, session)
+            logger.info(
+                "telegram_local_control_replied",
+                extra={
+                    "correlation_id": correlation_id,
+                    "chat_id": str(chat_id),
+                    "user_id": str(event.user_id),
+                    "response_length": len(response or ""),
+                },
+            )
+            return
+
         # 3. AJA Reasoning
         # 2.5 Worker Health Check
         active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)

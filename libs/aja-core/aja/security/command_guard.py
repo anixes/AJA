@@ -184,3 +184,16 @@ def classify_command(command: str) -> Dict[str, Any]:
 
 def command_allowed(command: str) -> bool:
     return classify_command(command)["decision"] != "deny"
+
+
+def validate_activity(activity: Any) -> Dict[str, Any]:
+    """
+    Validate an Activity before execution.
+    Non-shell activities always pass. Shell activities run through classify_command.
+    """
+    from aja.orchestration.activity_rt import ActivityType
+    if activity.activity_type != ActivityType.SHELL:
+        return {"decision": "allow", "reasons": []}
+    cmd = activity.args.get("cmd", "")
+    return classify_command(cmd)
+

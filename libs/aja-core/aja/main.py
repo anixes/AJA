@@ -554,25 +554,39 @@ def cmd_chat():
                 )
                 history = history[-15:]
 
-                if intent["type"] == "terminal" and intent.get("command"):
-                    console.print(f"[*] Executing terminal command: [bold]{intent['command']}[/]")
+                if intent["type"] == "tool_calls" and intent.get("tool_calls"):
+                    console.print(f"[*] Executing {len(intent['tool_calls'])} tool call(s)...")
                     try:
                         from aja.orchestration.tools.executor import ToolExecutor
-                        executor = ToolExecutor()
-                        res = executor.execute(intent["command"], workspace_mode="direct")
-                        output_str = ""
-                        if res.get("status") == "success":
-                            output_str = res.get("stdout", "")
-                            console.print(output_str)
-                        else:
-                            output_str = res.get("stderr") or res.get("message", "Error executing command")
-                            console.print(f"[red]Error:[/] {output_str}")
+                        from aja.observability.telemetry import get_trace_id
+                        import threading
                         
-                        # Feed the raw output back into conversation history so the LLM remembers it
-                        history.append({"role": "system", "content": f"Command '{intent['command']}' executed. Output:\n{output_str}"})
+                        executor = ToolExecutor()
+                        box = {}
+                        def thread_target():
+                            box["results"] = asyncio.run(executor.dispatch_tool_calls(
+                                tool_calls=intent["tool_calls"],
+                                trace_id=get_trace_id(),
+                            ))
+                        t = threading.Thread(target=thread_target)
+                        t.start()
+                        t.join()
+                        results = box["results"]
+                        
+                        for r in results:
+                            if r.success:
+                                console.print(f"[green]✔ Tool {r.tool} succeeded:[/]")
+                                if r.data:
+                                    console.print(str(r.data))
+                            else:
+                                console.print(f"[red]✘ Tool {r.tool} failed: {r.error or r.data}[/]")
+                            
+                            obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error}"
+                            history.append({"role": "system", "content": obs})
+                        
                         history = history[-15:]
                     except Exception as e:
-                        console.print(f"[red]Failed to execute command:[/] {e}")
+                        console.print(f"[red]Failed to execute tool calls:[/] {e}")
 
                 elif intent["type"] == "goal" and intent.get("goal"):
                     console.print(f"[yellow]Notice: To launch a full Swarm mission for complex goals, please prefix your request with /swarm (e.g., /swarm {intent['goal']})[/yellow]")
@@ -961,6 +975,7 @@ def show_help():
 [yellow]doctor[/]             → Run diagnostics
 [yellow]metrics[/]            → View performance
 [yellow]exec[/] <cmd>          → Inspect execution sessions, timelines, and diffs
+[yellow]mcp reload[/] <server> → Reload MCP server tools
 [yellow]rebuild-projections[/] → Rebuild derived LanceDB read projections
     """
     console.print(Panel(help_text, title="AJA Command Suite", border_style="cyan"))
@@ -987,6 +1002,31 @@ def cmd_rebuild_projections():
         print_success("Scheduler read-projections successfully rebuilt.")
     except Exception as e:
         print_error(f"Failed to rebuild scheduler projections: {e}")
+
+
+def cmd_mcp(args: List[str]):
+    subcmd = args[0].lower() if args else ""
+    if subcmd != "reload" or len(args) < 2:
+        print_error("Usage: aja mcp reload <server_id>")
+        return
+
+    server_id = args[1]
+    from aja.api.mcp_client import get_default_mcp_manager
+    from aja.orchestration.tools.native import NativeToolRegistry
+
+    async def _reload():
+        manager = get_default_mcp_manager()
+        await manager.boot_from_config()
+        tools = await manager.reload(server_id)
+        NativeToolRegistry.clear_external_schemas(prefix=f"mcp.{server_id}.")
+        NativeToolRegistry.register_mcp_tools(manager)
+        return tools
+
+    try:
+        tools = asyncio.run(_reload())
+        print_success(f"Reloaded MCP server '{server_id}' with {len(tools)} tool(s).")
+    except Exception as e:
+        print_error(f"Failed to reload MCP server '{server_id}': {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1017,6 +1057,8 @@ def main():
         cmd_doctor(ci_mode=ci_mode)
     elif cmd == "exec":
         cmd_exec(args[1:])
+    elif cmd == "mcp":
+        cmd_mcp(args[1:])
     elif cmd == "live":
         from aja.tui.kanban import live_kanban
 

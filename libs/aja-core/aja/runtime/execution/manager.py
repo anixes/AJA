@@ -159,7 +159,23 @@ class ExecutionManager:
 
         try:
             await self._set_state(session, "starting", "Execution session starting")
-            workspace = self.workspace_manager.create(session.session_id, session.request.workspace_mode)
+            try:
+                workspace = self.workspace_manager.create(session.session_id, session.request.workspace_mode)
+            except Exception as ws_exc:
+                # Workspace creation failure: fall back to direct mode rather than crashing the session
+                import logging
+                logging.getLogger(__name__).warning(
+                    "WorkspaceManager.create() failed (%s), falling back to direct mode.", ws_exc
+                )
+                from aja.runtime.execution.contracts import WorkspaceSnapshot
+                workspace = WorkspaceSnapshot(
+                    session_id=session.session_id,
+                    source_root=str(self.project_root),
+                    execution_root=str(self.project_root),
+                    artifact_root=str(self.base_dir / session.session_id / "artifacts"),
+                    mode="direct",
+                    cleanup_required=False,
+                )
             session.workspace = workspace
             cwd = self._resolve_cwd(session.request.cwd, workspace)
             
@@ -278,12 +294,15 @@ class ExecutionManager:
             )
 
         except asyncio.CancelledError:
-            final_state = "cancelled"
+            if final_state not in {"timeout", "cancelled"}:
+                final_state = "cancelled"
             error = error or "Execution cancelled."
             exit_code = -1
         except Exception as exc:
             import traceback
-            final_state = "failed"
+            # Only overwrite final_state if we don't already have a terminal state set
+            if final_state not in {"timeout", "cancelled", "completed"}:
+                final_state = "failed"
             error = str(exc)
             full_error = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             await self._emit(session, "EXECUTION_ERROR", error, {"error": full_error}, level="error")

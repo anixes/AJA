@@ -85,21 +85,25 @@ class ToolExecutor:
             logger.error(f"Execution error: {e}")
             return {"status": "error", "message": str(e)}
 
-    def parse_and_run(self, text: str) -> List[Dict[str, Any]]:
-        """Extracts code blocks or json tool calls from text and runs them."""
-        # Simple heuristic: Look for `bash` or `sh` blocks
-        results = []
-        if "```bash" in text:
-            parts = text.split("```bash")
-            for part in parts[1:]:
-                cmd = part.split("```")[0].strip()
-                if cmd:
-                    results.append(self.execute(cmd))
-        elif "```sh" in text:
-            parts = text.split("```sh")
-            for part in parts[1:]:
-                cmd = part.split("```")[0].strip()
-                if cmd:
-                    results.append(self.execute(cmd))
-        
-        return results
+    async def dispatch_tool_calls(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        trace_id: str,
+        mission_id: Optional[str] = None,
+        journal: Optional[Any] = None,
+        dry_run: bool = False,
+    ) -> List[Any]:
+        from aja.orchestration.tools.native import NativeToolRegistry
+        from aja.orchestration.activity_rt import ActivityRuntime
+        from aja.orchestration.scheduler import ParallelActivityScheduler
+
+        registry = NativeToolRegistry()
+        runtime = ActivityRuntime(journal=journal, dry_run=dry_run)
+        activities = []
+        for tc in tool_calls:
+            activity = registry.dispatch(tc["tool"], tc.get("args", {}), trace_id)
+            activity.mission_id = mission_id
+            activities.append(activity)
+        scheduler = ParallelActivityScheduler(runtime)
+        batch = await scheduler.run_batch(activities)
+        return batch.results
