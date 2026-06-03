@@ -1029,13 +1029,61 @@ def cmd_mcp(args: List[str]):
         print_error(f"Failed to reload MCP server '{server_id}': {e}")
 
 
+def run_chat_with_gateway():
+    """Wrapper that boots the background components concurrently with the interactive CLI chat."""
+    gateway_proc = None
+    worker_proc = None
+    token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+    
+    if token:
+        try:
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            console.print("[dim][*] Booting AJA Telegram Gateway & Autonomous Worker in the background...[/]")
+            gateway_proc = subprocess.Popen(
+                [sys.executable, "-m", "aja.gateway.server"],
+                creationflags=creationflags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            worker_proc = subprocess.Popen(
+                [sys.executable, "-m", "aja.runtime.autonomous_loop"],
+                creationflags=creationflags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            console.print(f"[yellow]⚠️ Warning: Failed to boot background agents: {e}[/]")
+            
+    try:
+        cmd_chat()
+    finally:
+        if gateway_proc:
+            try:
+                gateway_proc.terminate()
+                gateway_proc.wait(timeout=2)
+            except Exception:
+                try:
+                    gateway_proc.kill()
+                except Exception:
+                    pass
+        if worker_proc:
+            try:
+                worker_proc.terminate()
+                worker_proc.wait(timeout=2)
+            except Exception:
+                try:
+                    worker_proc.kill()
+                except Exception:
+                    pass
+
+
 # ---------------------------------------------------------------------------
 
 
 def main():
     args = sys.argv[1:]
     if not args:
-        cmd_chat()  # Default to chat for "modern" feel
+        run_chat_with_gateway()  # Default to chat for "modern" feel
         return
 
     cmd = args[0].lower()
@@ -1047,7 +1095,7 @@ def main():
         objective = " ".join(objective_parts)
         cmd_run(objective, background=bg, dry_run=dry_run)
     elif cmd == "chat":
-        cmd_chat()
+        run_chat_with_gateway()
     elif cmd == "status":
         cmd_status()
     elif cmd == "setup":
