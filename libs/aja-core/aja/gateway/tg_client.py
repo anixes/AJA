@@ -434,7 +434,9 @@ class TelegramAdapter(BasePlatformAdapter):
         if not self._bot:
             return None
 
-        processed_text = self._prepare_text_for_mobile(text)
+        if text is None:
+            text = ""
+        processed_text = self._prepare_text_for_mobile(str(text))
         parse_mode = kwargs.pop("parse_mode", None)
 
         try:
@@ -469,6 +471,8 @@ class TelegramAdapter(BasePlatformAdapter):
 
     def _prepare_text_for_mobile(self, text: str) -> str:
         """Applies mobile-friendly formatting (e.g. table-to-bullet)."""
+        if not isinstance(text, str):
+            text = str(text) if text is not None else ""
         return MobileMDRenderer.render(text)
 
     def _should_emit_low_priority(self, chat_id: str, msg: str) -> bool:

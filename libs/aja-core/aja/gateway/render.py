@@ -14,6 +14,8 @@ class MobileMDRenderer:
     @staticmethod
     def render(text: str) -> str:
         """Main entry point for mobile-friendly Markdown conversion."""
+        if not text or not isinstance(text, str):
+            return ""
         if '|' not in text or '-' not in text:
             return text
         return MobileMDRenderer._wrap_markdown_tables(text)

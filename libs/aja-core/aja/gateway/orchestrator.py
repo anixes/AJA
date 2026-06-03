@@ -408,7 +408,7 @@ class UnifiedGateway:
             response = status_report
         else:
             # Simple Chat Reasoning
-            response = await self.chat(content_stripped, history=session["history"])
+            response = await self.chat(content_stripped, chat_history=session["history"])
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
@@ -431,10 +431,11 @@ class UnifiedGateway:
 
     def _is_telegram_user_authorized(self, event: MessageEvent) -> bool:
         """Returns True when Telegram user_id passes whitelist policy."""
-        if not TELEGRAM_ALLOWED_USER_ID:
+        allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID") or TELEGRAM_ALLOWED_USER_ID
+        if not allowed_user_id:
             logger.critical("Security Configuration Error: TELEGRAM_ALLOWED_USER_ID is empty or missing! Authorization denied.")
             return False
-        return str(event.user_id) == str(TELEGRAM_ALLOWED_USER_ID)
+        return str(event.user_id) == str(allowed_user_id)
 
     async def route_intent(self, user_input: str) -> str:
         """
