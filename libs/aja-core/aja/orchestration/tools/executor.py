@@ -22,7 +22,7 @@ class ToolExecutor:
     def __init__(self):
         self.history = []
 
-    def _run_execution(self, command: str, cwd: str, workspace_mode: str = "isolated") -> Dict[str, Any]:
+    def _run_execution(self, command: str, cwd: str, workspace_mode: str = "direct") -> Dict[str, Any]:
         async def _run():
             return await get_default_execution_manager().run(
                 ExecutionRequest(
@@ -64,7 +64,7 @@ class ToolExecutor:
             "manifest_path": result.manifest_path,
         }
 
-    def execute(self, command: str, cwd: str = None, workspace_mode: str = "isolated") -> Dict[str, Any]:
+    def execute(self, command: str, cwd: str = None, workspace_mode: str = "direct") -> Dict[str, Any]:
         """Executes a single command and returns the result."""
         logger.info(f"ToolExecutor: Executing '{command}'")
         

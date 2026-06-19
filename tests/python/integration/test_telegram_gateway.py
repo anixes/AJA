@@ -29,6 +29,7 @@ def test_orchestrator_authorization_uses_user_id(monkeypatch):
     import aja.gateway.orchestrator as orchestrator_mod
 
     monkeypatch.setattr(orchestrator_mod, "TELEGRAM_ALLOWED_USER_ID", "42")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "42")
     gateway = object.__new__(UnifiedGateway)
     event = MessageEvent(
         platform="telegram",

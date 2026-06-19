@@ -34,7 +34,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.key_binding import KeyBindings
 
 # Load environment secrets
-load_dotenv()
+load_dotenv(override=True)
 
 from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.runtime.handover import BatonManager

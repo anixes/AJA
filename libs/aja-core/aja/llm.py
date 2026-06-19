@@ -49,13 +49,25 @@ def get_gateway_for_model(model_str):
 
                 # Allow overriding the fallback models
                 models_cfg = swarm_cfg.get("models", {})
-                local_model_fallback = models_cfg.get("worker", local_model_fallback)
-                if ":" in local_model_fallback:
-                    local_model_fallback = local_model_fallback.split(":")[1]
-                    
-                cloud_model_fallback = models_cfg.get("planner", cloud_model_fallback)
-                if ":" in cloud_model_fallback:
-                    cloud_model_fallback = cloud_model_fallback.split(":")[1]
+                worker_model = models_cfg.get("worker", "")
+                if worker_model:
+                    if ":" in worker_model:
+                        prov, m_name = worker_model.split(":", 1)
+                        if prov not in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                            local_model_fallback = m_name
+                    elif worker_model not in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                        local_model_fallback = worker_model
+                        
+                planner_model = models_cfg.get("planner", "")
+                if planner_model:
+                    if ":" in planner_model:
+                        prov, m_name = planner_model.split(":", 1)
+                        if prov in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                            cloud_model_fallback = m_name
+                    elif planner_model in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                        pass
+                    else:
+                        cloud_model_fallback = planner_model
     except Exception:
         pass
 
@@ -76,7 +88,7 @@ def get_gateway_for_model(model_str):
             provider = "copilot"
 
     # 2. Apply Operating Mode Override
-    if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter"]:
+    if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
         print(f"[LLM] OFFLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> llama_cpp:{local_model_fallback}")
         provider = "llama_cpp"
         model_name = local_model_fallback
@@ -312,21 +324,49 @@ class CopilotModelProvider(BaseModelProvider):
                 from aja.copilot_auth import exchange_copilot_token
                 api_token, _ = exchange_copilot_token(raw_token)
             except Exception:
-                raw_token = None
+                api_token = raw_token
                 
         if not raw_token or not api_token:
             print("\n[Copilot] No valid GitHub token found (or token lacks Copilot scopes). Initiating device code login...")
             raw_token = copilot_device_code_login()
             if not raw_token:
                 raise ValueError("Copilot authentication failed. Please provide a valid GitHub token.")
-            from aja.copilot_auth import exchange_copilot_token
-            api_token, _ = exchange_copilot_token(raw_token)
-        headers = copilot_request_headers()
+            try:
+                from aja.copilot_auth import exchange_copilot_token
+                api_token, _ = exchange_copilot_token(raw_token)
+            except Exception:
+                api_token = raw_token
+            
+        # Detect if any image input is present to flag is_vision
+        is_vision = False
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image_url":
+                        is_vision = True
+                        break
+            if is_vision:
+                break
+                
+        headers = copilot_request_headers(
+            is_agent_turn=self.config.get("is_agent_turn", True),
+            is_vision=is_vision
+        )
         
         base_url = self.config.get("base_url") or "https://api.githubcopilot.com"
         model = self.config.get("model", "gpt-4o")
-        if model == "copilot" or model == "github-copilot":
+        if model in ("copilot", "github-copilot", "default"):
             model = "gpt-4o"
+            
+        # Build extra body configuration (e.g. reasoning effort)
+        extra_body = {}
+        reasoning_config = self.config.get("reasoning_config") or self.config.get("reasoning")
+        if reasoning_config and isinstance(reasoning_config, dict):
+            effort = reasoning_config.get("effort")
+            if effort:
+                extra_body["reasoning"] = {"effort": effort}
+                
         temperature = self.config.get("temperature")
         
         gw = LLMGateway(provider="copilot", api_key=api_token, base_url=base_url, extra_headers=headers)
@@ -343,7 +383,8 @@ class CopilotModelProvider(BaseModelProvider):
             model=model,
             prompt=contents,
             system=system,
-            temperature=temperature
+            temperature=temperature,
+            extra_body=extra_body if extra_body else None
         ))
         return {
             "choices": [

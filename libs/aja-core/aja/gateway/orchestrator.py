@@ -8,7 +8,7 @@ import subprocess
 import sys
 from typing import List, Dict, Any, Optional, Set
 from aja import aja_native
-from aja.config import PROJECT_ROOT, DATA_DIR, TELEGRAM_ALLOWED_USER_ID
+from aja.config import PROJECT_ROOT, DATA_DIR, TELEGRAM_ALLOWED_USER_ID, AJA_PLANNER_MODEL
 from aja.runtime.memory import MemoryTree
 from aja.runtime.handover import BatonManager
 from aja.memory.vector import VectorMemory
@@ -30,8 +30,8 @@ class UnifiedGateway:
     Combines high-performance orchestration core logic with the AJA Gateway.
     """
 
-    def __init__(self, model_id: str = "claude-3-5-sonnet"):
-        self.model_id = model_id
+    def __init__(self, model_id: Optional[str] = None):
+        self.model_id = model_id or AJA_PLANNER_MODEL
         self.memory = MemoryTree()
 
         # DUAL BRAIN: MemoryTree (Structured) + VectorMemory (LanceDB/Semantic)
@@ -46,7 +46,7 @@ class UnifiedGateway:
         self.active_sub_agents: Dict[str, ACPClient] = {}
 
         # AJA Native Trajectory Engine
-        self.trajectory_manager = aja_native.PyTrajectoryManager(model_id)
+        self.trajectory_manager = aja_native.PyTrajectoryManager(self.model_id)
         self.context_threshold = 4000  # Tokens
 
         # AJA Gateway Components

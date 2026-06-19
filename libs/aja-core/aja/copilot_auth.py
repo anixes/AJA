@@ -49,8 +49,14 @@ def resolve_copilot_token() -> tuple[str, str]:
                 continue
             return val, env_var
 
-    # Note: We intentionally skip gh cli fallback because it often returns
-    # generic tokens that lack the Copilot device code scope, causing 404s.
+    # 2. Fall back to gh auth token CLI fallback (if available and valid)
+    token = _try_gh_cli_token()
+    if token:
+        valid, msg = validate_copilot_token(token)
+        if not valid:
+            logger.warning("Token from `gh auth token` is not supported: %s", msg)
+        else:
+            return token, "gh auth token"
 
     return "", ""
 
@@ -259,12 +265,19 @@ def get_copilot_api_token(raw_token: str) -> str:
         return raw_token
 
 
-def copilot_request_headers() -> dict[str, str]:
+def copilot_request_headers(
+    *,
+    is_agent_turn: bool = True,
+    is_vision: bool = False,
+) -> dict[str, str]:
     """Standard Copilot API headers."""
-    return {
+    headers = {
         "Editor-Version": "vscode/1.104.1",
         "User-Agent": "AJA-Gateway/1.0",
         "Copilot-Integration-Id": "vscode-chat",
         "Openai-Intent": "conversation-edits",
-        "x-initiator": "agent",
+        "x-initiator": "agent" if is_agent_turn else "user",
     }
+    if is_vision:
+        headers["Copilot-Vision-Request"] = "true"
+    return headers

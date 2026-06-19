@@ -74,6 +74,9 @@ cd aja
 pip install -e ".[all]"
 ```
 
+> [!NOTE]
+> On Windows host machines, installing AJA with the `all` or `pty-win` optional dependencies (e.g. `pip install -e ".[all]"`) is required to install the `pywinpty` library. If omitted, the Windows execution transport will fallback to standard pipe-based streams rather than native ConPTY.
+
 Verify the installation and runtime dependencies:
 ```bash
 python -m aja doctor

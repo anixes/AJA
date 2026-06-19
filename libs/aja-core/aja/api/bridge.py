@@ -850,7 +850,7 @@ async def run_shell_command(command: str):
             command=command,
             cwd=str(PROJECT_ROOT),
             timeout=TELEGRAM_COMMAND_TIMEOUT,
-            workspace_mode="isolated",
+            workspace_mode="direct",
             metadata={"legacy_api": "api.bridge.run_shell_command"},
         )
     )

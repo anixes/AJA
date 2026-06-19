@@ -100,15 +100,40 @@ class LLMGateway:
     ):
         cfg = load_config()
         self.provider = (provider or cfg.get("provider", "openrouter")).lower()
-        self.api_key = (
-            google_api_key(api_key or cfg.get("api_key", ""))
-            if self.provider == "google"
-            else api_key or cfg.get("api_key", "")
-        )
+        
+        # Determine raw key - only fall back to config key if provider matches
+        cfg_provider = cfg.get("provider", "").lower()
+        if api_key:
+            raw_key = api_key
+        elif self.provider == cfg_provider:
+            raw_key = cfg.get("api_key", "")
+        else:
+            raw_key = ""
+
+        if self.provider == "google":
+            self.api_key = google_api_key(raw_key)
+        else:
+            self.api_key = raw_key
+
+        self.extra_headers = extra_headers or {}
+
+        # Handle Copilot Token Exchange and Header Construction
+        if self.provider == "copilot":
+            from aja.copilot_auth import resolve_copilot_token, get_copilot_api_token, copilot_request_headers
+            if not self.api_key:
+                raw_token, _ = resolve_copilot_token()
+            else:
+                raw_token = self.api_key
+            
+            if raw_token:
+                self.api_key = get_copilot_api_token(raw_token)
+            
+            copilot_headers = copilot_request_headers(is_agent_turn=True)
+            self.extra_headers = {**copilot_headers, **self.extra_headers}
+
         # Ensure copilot defaults to its specific api base URL if not in PROVIDERS
         default_url = "https://api.githubcopilot.com" if self.provider == "copilot" else self.PROVIDERS.get(self.provider)
         self.base_url = base_url or default_url
-        self.extra_headers = extra_headers or {}
 
         if not self.base_url:
             raise ValueError(
@@ -128,7 +153,7 @@ class LLMGateway:
 
     @durable_activity("llm.chat")
     async def chat(
-        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None
+        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None, extra_body: Optional[Dict[str, Any]] = None
     ):
         """Simple chat completion with backoff retries."""
         for attempt in range(1, retries + 1):
@@ -136,13 +161,144 @@ class LLMGateway:
                 if self.provider == "google":
                     return await self._google_generate_content(model, prompt, system, temperature, tools)
 
+                # Check if Copilot model requires Responses API
+                use_responses = False
+                if self.provider == "copilot":
+                    m_lower = model.lower()
+                    if "/" in m_lower:
+                        m_lower = m_lower.rsplit("/", 1)[-1]
+                    if m_lower.startswith("gpt-") and not m_lower.startswith("gpt-5-mini") and m_lower != "gpt-4o-mini":
+                        use_responses = True
+
+                if self.provider == "copilot" and use_responses:
+                    # Build Responses API input parts
+                    input_items = []
+                    
+                    # Convert prompt (which can be a string or a list of messages)
+                    if isinstance(prompt, list):
+                        for m in prompt:
+                            role = m.get("role", "user")
+                            content = m.get("content", m.get("text", ""))
+                            if role == "user":
+                                if isinstance(content, list):
+                                    parts = []
+                                    for part in content:
+                                        if isinstance(part, str):
+                                            parts.append({"type": "input_text", "text": part})
+                                        elif isinstance(part, dict):
+                                            ptype = part.get("type")
+                                            if ptype == "text":
+                                                parts.append({"type": "input_text", "text": part.get("text", "")})
+                                            elif ptype == "image_url":
+                                                img_url = part.get("image_url", {}).get("url") if isinstance(part.get("image_url"), dict) else part.get("image_url")
+                                                parts.append({"type": "input_image", "image_url": img_url})
+                                    input_items.append({"role": "user", "content": parts})
+                                else:
+                                    input_items.append({"role": "user", "content": str(content)})
+                            elif role == "assistant":
+                                tcs = m.get("tool_calls")
+                                if isinstance(content, list):
+                                    parts = [{"type": "output_text", "text": p.get("text", "")} for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                                    input_items.append({"role": "assistant", "content": parts})
+                                else:
+                                    input_items.append({"role": "assistant", "content": str(content)})
+                                if tcs:
+                                    for tc in tcs:
+                                        fn = tc.get("function", {})
+                                        input_items.append({
+                                            "type": "function_call",
+                                            "call_id": tc.get("id") or tc.get("call_id") or f"call_{len(input_items)}",
+                                            "name": fn.get("name"),
+                                            "arguments": fn.get("arguments", "{}")
+                                        })
+                            elif role == "tool":
+                                call_id = m.get("tool_call_id")
+                                input_items.append({
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": str(content)
+                                })
+                    else:
+                        input_items.append({"role": "user", "content": str(prompt)})
+
+                    response_tools = []
+                    if tools:
+                        for item in tools:
+                            fn = item.get("function", {}) if isinstance(item, dict) else {}
+                            name = fn.get("name")
+                            if name:
+                                response_tools.append({
+                                    "type": "function",
+                                    "name": name,
+                                    "description": fn.get("description", ""),
+                                    "strict": False,
+                                    "parameters": fn.get("parameters", {"type": "object", "properties": {}}),
+                                })
+
+                    payload = {
+                        "model": model,
+                        "instructions": system,
+                        "input": input_items,
+                        "store": False
+                    }
+                    if response_tools:
+                        payload["tools"] = response_tools
+                        payload["tool_choice"] = "auto"
+                        payload["parallel_tool_calls"] = True
+
+                    if temperature is not None:
+                        payload["temperature"] = float(temperature)
+                    if extra_body:
+                        payload.update(extra_body)
+
+                    url = f"{self.base_url.rstrip('/')}/v1/responses"
+                    req_headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    req_headers.update(self.extra_headers)
+
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(url, json=payload, headers=req_headers) as resp:
+                            if resp.status != 200:
+                                detail = await resp.text()
+                                raise ValueError(f"Copilot Responses API Error {resp.status}: {detail}")
+                            data = await resp.json()
+
+                    output_items = data.get("output", [])
+                    resp_content = ""
+                    resp_tool_calls = []
+                    for item in output_items:
+                        itype = item.get("type")
+                        if itype == "message":
+                            parts = item.get("content", [])
+                            for part in parts:
+                                if part.get("type") == "output_text":
+                                    resp_content += part.get("text", "")
+                        elif itype == "function_call":
+                            call_id = item.get("call_id") or f"fc_{item.get('id')}"
+                            resp_tool_calls.append({
+                                "id": call_id,
+                                "name": item.get("name"),
+                                "arguments": item.get("arguments", "{}")
+                            })
+
+                    if tools is not None:
+                        return {"content": resp_content, "tool_calls": resp_tool_calls}
+                    return resp_content
+
                 if isinstance(prompt, list):
                     prompt_messages = []
                     for m in prompt:
-                        prompt_messages.append({
+                        msg_dict = {
                             "role": m.get("role", "user"),
                             "content": m.get("content", m.get("text", ""))
-                        })
+                        }
+                        if m.get("tool_calls") is not None:
+                            msg_dict["tool_calls"] = m.get("tool_calls")
+                        if m.get("tool_call_id") is not None:
+                            msg_dict["tool_call_id"] = m.get("tool_call_id")
+                        prompt_messages.append(msg_dict)
                     messages = [{"role": "system", "content": system}] + prompt_messages
                 else:
                     messages = [
@@ -158,6 +314,8 @@ class LLMGateway:
                     kwargs["temperature"] = temperature
                 if tools is not None:
                     kwargs["tools"] = tools
+                if extra_body is not None:
+                    kwargs["extra_body"] = extra_body
 
                 headers = {
                     "HTTP-Referer": "https://github.com/aja",

@@ -13,7 +13,7 @@
     }
   ],
   "swarm_settings": {
-    "offline_mode": true,
+    "offline_mode": false,
     "max_agents": 5,
     "check_interval": 30,
     "models": {
@@ -21,6 +21,6 @@
       "worker": "copilot",
       "critic": "copilot"
     },
-    "operating_mode": "offline"
+    "operating_mode": "online"
   }
 }

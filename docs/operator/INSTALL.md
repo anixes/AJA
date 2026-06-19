@@ -16,7 +16,8 @@ You can install AJA as a standard Python package.
 git clone https://github.com/your-org/aja.git
 cd aja
 
-# Install the unified package in editable mode
+# Install the unified package in editable mode (adds maturin compiled binary)
+# On Windows, using the "all" or "pty-win" options compiles/installs pywinpty for native ConPTY support.
 pip install -e ".[all]"
 ```
 

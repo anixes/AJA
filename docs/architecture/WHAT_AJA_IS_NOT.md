@@ -6,7 +6,7 @@ To prevent architectural drift, hype-driven feature requests, and contributor mi
 AJA is a local-first orchestration runtime. It provides deterministic infrastructure—memory, scheduling, inter-process communication (IPC), and execution sandboxes—to run software agents. It does not "think," nor does it possess magical problem-solving abilities outside of the models supplied to it.
 
 ## 2. Not a "Jarvis" Chatbot Wrapper
-While AJA can run conversational agents, it is not fundamentally a chat application. AJA treats agentic workflows as **standard scheduled compute**. The Telegram, CLI, and Web UI layers are merely *clients* consuming runtime APIs, not the core product.
+While AJA can run conversational agents, it is not fundamentally a chat application. AJA treats agentic workflows as **standard scheduled compute**. The Telegram and CLI TUI layers are merely *clients* consuming runtime APIs, not the core product.
 
 ## 3. Not a Prompt Orchestration Framework
 AJA is not a drop-in alternative for libraries like LangChain or LlamaIndex. It does not focus on chaining prompts or parsing unstructured text. AJA focuses on the **execution environment**—making sure that when an agent decides to run a command, that command is scheduled, isolated, executed, and traced securely.

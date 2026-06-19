@@ -29,3 +29,9 @@ To ensure workers do not silently fail or orphan tasks, they participate in a he
 
 ## 3. Concurrency Limits
 Concurrency is bounded explicitly by the scheduler and worker pool configurations, preventing fork-bomb scenarios where agents spawn infinite sub-agents. Current defaults force serial goal execution within the `autonomous_loop.py` queue.
+
+## 4. Manager vs. Worker Design (Native Tool Calling)
+
+To maximize execution predictability and safety, AJA separates planning from tool execution:
+- **The Manager (SwarmEngine)**: Orchestrates the mission. It parses user objectives, queries synthetic skills and codebase context (RAG), and builds the HTN planning DAG. It delegates capabilities strictly using JSON-schema definitions via the `NativeToolRegistry`.
+- **The Worker Loop (FSM)**: Executes atomic tasks asynchronously via `SwarmEngine.execute_direct` loops. This loop manages stateful turns and runs commands/tool dispatches under the active execution context and safety guards without brittle text-prompt parsing or raw un-sandboxed shell command invocation.

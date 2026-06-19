@@ -38,7 +38,7 @@ AJA_BANNER = """
 ██╔══██║██   ██║██╔══██║
 ██║  ██║╚█████╔╝██║  ██║
 ╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝
-[bold cyan]Assistant of Joint Agents[/]
+Assistant of Joint Agents
 """
 
 
