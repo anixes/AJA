@@ -35,28 +35,52 @@ class VectorMemory:
         import time
         import json
         
+        try:
+            from aja.embeddings.service import EmbeddingService
+            model_name = EmbeddingService().get_model_name()
+        except ImportError:
+            model_name = "mock-bag-of-words"
+            
+        full_metadata = metadata or {}
+        full_metadata["embedding_model"] = model_name
+        
         table = self.db.open_table(self.table_name)
         data = [{
             "vector": vector,
             "text": text,
-            "metadata": json.dumps(metadata or {}),
+            "metadata": json.dumps(full_metadata),
             "timestamp": time.time()
         }]
         # LanceDB uses Arrow internally for high-speed insertion
         table.add(data)
 
-    def search(self, query_vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
-        """Performs a semantic search using vector similarity."""
+    def search(self, query_vector: List[float], limit: int = 5, filter_str: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Performs a semantic search using vector similarity and optional metadata pre-filtering."""
         import json
         table = self.db.open_table(self.table_name)
-        # Use zero-copy pyarrow instead of pandas .iterrows() for speed
-        results = table.search(query_vector).limit(limit).to_arrow()
         
+        query = table.search(query_vector)
+        if filter_str:
+            query = query.where(filter_str)
+            
+        results = query.limit(limit).to_arrow()
+        
+        try:
+            from aja.embeddings.service import EmbeddingService
+            model_name = EmbeddingService().get_model_name()
+        except ImportError:
+            model_name = "mock-bag-of-words"
+            
         processed = []
         for row in results.to_pylist():
+            rec_metadata = json.loads(row["metadata"])
+            rec_model = rec_metadata.get("embedding_model", "mock-bag-of-words")
+            if rec_model != model_name:
+                print(f"[VectorMemory] WARNING: Mismatched embedding model '{rec_model}' vs current '{model_name}' on search. Results might be inaccurate.")
+                
             processed.append({
                 "text": row["text"],
-                "metadata": json.loads(row["metadata"]),
+                "metadata": rec_metadata,
                 "score": row.get("_distance", 0)
             })
         return processed

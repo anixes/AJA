@@ -32,6 +32,7 @@ class ExperienceStore:
         record = {
             "goal": goal,
             "goal_embedding": self.embedding_service.embed(goal) if self.embedding_service else None,
+            "embedding_model": self.embedding_service.get_model_name() if self.embedding_service else "mock-bag-of-words",
             "plan_structure": plan.to_dict() if hasattr(plan, 'to_dict') else str(plan),
             "success": success,
             "latency": latency,
@@ -42,7 +43,7 @@ class ExperienceStore:
         
         # Stability Guard
         self._check_stability()
-
+ 
     def _check_stability(self):
         # If learning degrades performance:
         if len(self.store) < 10:
@@ -52,18 +53,32 @@ class ExperienceStore:
         if success_rate < 0.4:  # success_rate_drop
             print("[ExperienceStore] [STABILITY GUARD] Success rate dropped significantly. Disabling learning.")
             self.learning_enabled = False
-
+ 
     def retrieve_similar(self, goal: str, top_k: int = 3) -> List[Dict]:
         if not self.learning_enabled or not self.embedding_service or not self.store:
             return []
+        
+        import math
         goal_emb = self.embedding_service.embed(goal)
         from aja.embeddings.similarity import cosine_similarity
         
+        curr_model = self.embedding_service.get_model_name()
         scored = []
         for record in self.store:
             if record["goal_embedding"]:
+                rec_model = record.get("embedding_model", "mock-bag-of-words")
+                if rec_model != curr_model:
+                    print(f"[ExperienceStore] WARNING: Mismatched embedding model '{rec_model}' vs current '{curr_model}'. Skipping record.")
+                    continue
+                
                 sim = cosine_similarity(goal_emb, record["goal_embedding"])
-                scored.append((sim, record))
+                
+                # Apply temporal decay (lambda = 0.01 per hour)
+                elapsed_hours = (time.time() - record.get("timestamp", time.time())) / 3600.0
+                decay_factor = math.exp(-0.01 * elapsed_hours)
+                decayed_sim = sim * decay_factor
+                
+                scored.append((decayed_sim, record))
         
         scored.sort(key=lambda x: x[0], reverse=True)
         return [r for s, r in scored[:top_k]]

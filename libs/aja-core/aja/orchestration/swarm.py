@@ -389,6 +389,8 @@ class SwarmEngine:
             trace_id = derive_trace_id(run_id)
             
             baton_data = {
+                "id": str(task['id']),
+                "task": task['task'],
                 "objective": task['task'],
                 "status": "pending",
                 "stage": "init",

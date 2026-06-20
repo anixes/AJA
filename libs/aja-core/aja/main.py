@@ -51,6 +51,26 @@ from aja.interface.modern import (
 
 PYTHON = sys.executable
 CONFIG_PATH = DATA_DIR / "aja.json"
+
+AGENT_MODE = False
+
+def parse_frontmatter_meta(file_path: Path) -> dict:
+    if not file_path.exists():
+        return {}
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        import re
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        if match:
+            metadata = {}
+            for line in match.group(1).split("\n"):
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    metadata[k.strip()] = v.strip().strip('"').strip("'")
+            return metadata
+    except Exception:
+        pass
+    return {}
 if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
     CONFIG_PATH = PROJECT_ROOT / "aja.json"
 
@@ -164,6 +184,23 @@ def cmd_status():
         tasks = fetch_pending_tasks(limit=5)
     except Exception:
         pass
+
+    if AGENT_MODE:
+        output = {
+            "mode": mode,
+            "batons": batons,
+            "tasks": [
+                {
+                    "id": str(t.get("id", "")),
+                    "status": t.get("status", ""),
+                    "input": t.get("input", ""),
+                    "updated_at": t.get("updated_at", "-"),
+                }
+                for t in tasks
+            ]
+        }
+        print(json.dumps(output, indent=2), flush=True)
+        return
 
     print_status(mode, batons, tasks)
 
@@ -795,6 +832,27 @@ def cmd_doctor(ci_mode: bool = False):
     from aja.utils.diagnostics import run_diagnostics
 
     checks = run_diagnostics()
+    
+    if AGENT_MODE:
+        output = {
+            "status": "ok" if all(status for name, status, msg in checks) else "failed",
+            "checks": [
+                {
+                    "name": name,
+                    "passed": bool(status),
+                    "message": msg
+                }
+                for name, status, msg in checks
+            ]
+        }
+        print(json.dumps(output, indent=2), flush=True)
+        if ci_mode:
+            critical_checks = {"Native Engine", "Memory Manager", "Config Validation"}
+            critical_failures = [name for name, status, msg in checks if not status and name in critical_checks]
+            if critical_failures:
+                sys.exit(1)
+        return
+
     print_doctor(checks)
 
     if ci_mode:
@@ -959,6 +1017,70 @@ def cmd_exec(args: List[str]):
 
 def show_help():
     """Displays the AJA Command Suite."""
+    if AGENT_MODE:
+        rules = []
+        skills = []
+        
+        brief_text = "AJA Orchestration Engine"
+        brief_path = PROJECT_ROOT / "agent" / "brief.md"
+        if brief_path.exists():
+            brief_text = brief_path.read_text(encoding="utf-8").strip()
+            
+        rules_dir = PROJECT_ROOT / "agent" / "rules"
+        if rules_dir.exists():
+            for p in rules_dir.glob("*.md"):
+                meta = parse_frontmatter_meta(p)
+                rules.append({
+                    "name": meta.get("name", p.stem),
+                    "description": meta.get("description", "AJA trigger/workflow constraint rules file.")
+                })
+                
+        skills_dir = PROJECT_ROOT / "agent" / "skills"
+        if skills_dir.exists():
+            for p in skills_dir.glob("*.md"):
+                meta = parse_frontmatter_meta(p)
+                skills.append({
+                    "name": meta.get("name", p.stem),
+                    "description": meta.get("description", "AJA extended skills documentation.")
+                })
+                
+        help_json = {
+            "help": brief_text,
+            "commands": [
+                {
+                    "name": "run",
+                    "description": "Start an autonomous mission with the given objective.",
+                    "parameters": [
+                        {"name": "<objective>", "type": "string", "required": True},
+                        {"name": "--dry-run", "type": "boolean", "required": False, "description": "Run simulation without making mutations"},
+                        {"name": "--bg", "type": "boolean", "required": False, "description": "Run in background process group"}
+                    ]
+                },
+                {"name": "chat", "description": "Launch the interactive conversational assistant loop."},
+                {"name": "status", "description": "Show active swarm health, batons, and pending tasks."},
+                {"name": "doctor", "description": "Run environment readiness and diagnostics checks."},
+                {
+                    "name": "pickup",
+                    "description": "Resume a mission from a high-performance Arrow Baton code.",
+                    "parameters": [
+                        {"name": "<code>", "type": "string", "required": True}
+                    ]
+                },
+                {"name": "tui", "description": "Run the live terminal curses TUI dashboard."},
+                {"name": "rebuild-projections", "description": "Rebuild derived LanceDB projections from append-only journals."}
+            ],
+            "rules": rules if rules else [
+                {"name": "trigger", "description": "When should an agent use this tool"},
+                {"name": "workflow", "description": "Step-by-step usage flow"},
+                {"name": "writeback", "description": "How to write feedback back"}
+            ],
+            "skills": skills if skills else [
+                {"name": "getting-started", "description": "Technical onboarding guide to write durable activities"}
+            ]
+        }
+        print(json.dumps(help_json, indent=2), flush=True)
+        return
+
     from rich.panel import Panel
 
     help_text = """
@@ -1081,7 +1203,33 @@ def run_chat_with_gateway():
 
 
 def main():
+    global AGENT_MODE
     args = sys.argv[1:]
+    
+    # Intercept --brief
+    if "--brief" in args:
+        brief_path = PROJECT_ROOT / "agent" / "brief.md"
+        if brief_path.exists():
+            print(brief_path.read_text(encoding="utf-8").strip(), flush=True)
+        else:
+            print("AJA Orchestration Engine", flush=True)
+        sys.exit(0)
+
+    # Process explicit agent/human mode flags
+    has_agent = "--agent" in args
+    has_human = "--human" in args
+    
+    # Remove spec flags from command-line arguments list
+    args = [a for a in args if a not in ("--agent", "--human")]
+    
+    if has_agent:
+        AGENT_MODE = True
+    elif has_human:
+        AGENT_MODE = False
+    else:
+        # Default to agent mode (JSON) if stdout is piped or redirected, else human mode
+        AGENT_MODE = not sys.stdout.isatty()
+
     if not args:
         run_chat_with_gateway()  # Default to chat for "modern" feel
         return

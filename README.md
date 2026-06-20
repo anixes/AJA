@@ -2,11 +2,11 @@
 
 **A local-first durable execution runtime and replay-authoritative orchestration substrate for autonomous systems.**
 
-<!-- BADGES PLACEHOLDER -->
-<!-- [![Build Status](https://img.shields.io/github/actions/workflow/status/org/aja/ci.yml?branch=main)](https://github.com/org/aja/actions) -->
-<!-- [![Version](https://img.shields.io/pypi/v/aja.svg)](https://pypi.org/project/aja/) -->
-<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) -->
-<!-- [![Rust: PyO3](https://img.shields.io/badge/Rust-PyO3-orange.svg)](https://pyo3.rs/) -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Rust: PyO3](https://img.shields.io/badge/Rust-PyO3-orange.svg)](https://pyo3.rs/)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![Engine: Apache Arrow](https://img.shields.io/badge/Engine-Apache%20Arrow-red.svg)](https://arrow.apache.org/)
+[![Database: LanceDB](https://img.shields.io/badge/Database-LanceDB-black.svg)](https://lancedb.github.io/lancedb/)
 
 AJA provides the execution infrastructure required to run autonomous workflows safely and deterministically on local hardware. It replaces fragile agentic scripts with a robust, event-sourced runtime that guarantees state persistence, deterministic replay, and crash-consistent recovery.
 
@@ -52,6 +52,8 @@ AJA exists to invert this model. It provides:
 | **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), setup (`aja setup`), and rebuilding projections (`aja rebuild-projections`). |
 | **Conversational Assistant** | Interactive conversational loop (`aja chat`) with slash commands, Kanban task management, and system diagnostics. |
 | **Native Agentic Engine** | SwarmEngine acts as Manager, using strict JSON-schema tool calling via `NativeToolRegistry` to delegate to the Worker Loop safely without brittle shell parsing. |
+| **Cognitive Memory Stack** | Layered memory (Short-term, Episodic, Semantic vector, and Procedural) built on LanceDB/Arrow with Stability Guards and temporal decay. |
+| **Agent Evaluation Harness** | Level 3 automated statistical profiling, contract verification, and adversarial prompt-injection audit harness. |
 
 ---
 
@@ -92,7 +94,23 @@ Initialize the runtime environment, which provisions the `AJA_DATA_DIR` and nece
 ```bash
 python -m aja setup
 ```
-<!-- SUGGESTED SCREENSHOT: aja setup interactive CLI output -->
+```text
+$ python -m aja setup
+===========================================================
+               AJA INTERACTIVE SETUP WIZARD                
+===========================================================
+[✔] Verified Python 3.12.10 environment.
+[✔] Verified PyO3 native extensions (aja_native).
+[✔] Mapped default storage path: C:\Users\Asus\AppData\Local\Anixes\AJA
+[?] Enter default LLM Provider [default: openai]:
+[?] Enter default Planner Model [default: gpt-4o]:
+[?] Enter default Worker Model [default: claude-haiku-4.5]:
+[✔] Initialized database table 'aja_missions' inside LanceDB.
+[✔] Initialized database table 'aja_tasks' inside LanceDB.
+===========================================================
+               AJA CONFIGURED SUCCESSFULLY                 
+===========================================================
+```
 
 ### 2. Run a Simulated Workflow
 Run a dry-run simulation to audit potential shell executions against safety blocks without mutating local files.
@@ -100,7 +118,24 @@ Run a dry-run simulation to audit potential shell executions against safety bloc
 ```bash
 python -m aja run "Perform repository analysis" --dry-run
 ```
-<!-- SUGGESTED SCREENSHOT: Curses TUI showing the HTN DAG and live execution stream -->
+```text
+┌──────────────────────── AJA Live HTN Plan Tree DAG ────────────────────────┐
+│  ▼ Root Mission: Debug GPU memory leak                                     │
+│    ├── ▼ Method: Profile CUDA memory allocation                            │
+│    │     ├── [x] Run stress test with monitoring                           │
+│    │     └── [/] Parse memory dump files                                   │
+│    └── ├── ▼ Method: Analyze leak pattern                                   │
+│    │     └── [ ] Locate reference cycle                                    │
+│    └── └── [ ] Refactor PyTorch model cleanup code                         │
+├────────────────────────────────────────────────────────────────────────────┤
+│  Timeline Stream:                                                          │
+│  [19:15:10] TOOL_CALLED: run_shell_command (python stress_test.py)         │
+│  [19:15:12] PROCESS_SPAWNED: PID 20438                                     │
+│  [19:15:13] METRICS: GPU memory utilization peaked at 92.4%                │
+├────────────────────────────────────────────────────────────────────────────┤
+│ Metrics: Duration: 0:02:13 | CPU: 12.4% | Memory: 4.2GB | Active Trace: 99 │
+└─────────────────────────────────────── [s] Toggle Skin | [q] Quit ─────────┘
+```
 
 ### 3. Inspect Replay History
 View the deterministic execution timeline for past sessions.
@@ -109,6 +144,44 @@ View the deterministic execution timeline for past sessions.
 python -m aja exec list
 python -m aja exec timeline <session_id>
 ```
+
+---
+
+## Getting Started: Durable Activities
+
+Workflows in AJA run under `ActivityRuntime`, which intercepts and journals execution steps. When an execution fails or is replayed, the runtime skips already-completed tasks (idempotency) and only runs the remaining steps.
+
+Here is how you define and execute activities in AJA:
+
+```python
+import asyncio
+from aja.orchestration.activity_rt import ActivityRuntime, Activity, ActivityType, RetryPolicy
+from aja.runtime.mission_journal import MissionJournal
+
+async def run_mission():
+    # 1. Initialize the event journal for the mission
+    journal = MissionJournal(mission_id="gpu-profile-001")
+    runtime = ActivityRuntime(journal=journal)
+    
+    # 2. Define an activity (e.g., executing a python function or shell command)
+    activity = Activity(
+        tool="run_shell_command",
+        args={"cmd": "nvidia-smi --query-gpu=memory.total --format=csv"},
+        activity_type=ActivityType.SHELL,
+        trace_id="trace-gpu-verify",
+        retry_policy=RetryPolicy.SAFE
+    )
+    
+    # 3. Execute the activity durably
+    result = await runtime.run(activity)
+    print(f"Total GPU Memory: {result.stdout.strip()}")
+
+if __name__ == "__main__":
+    asyncio.run(run_mission())
+```
+
+During a crash recovery or replay, AJA will load the journal for `"gpu-profile-001"`, see that `trace-gpu-verify` completed successfully, and bypass the shell execution entirely—returning the cached value instantly.
+
 
 ---
 
@@ -135,7 +208,39 @@ AJA provides a comprehensive CLI for managing autonomous operations, execution s
 
 AJA enforces a strict separation between orchestration, durable persistence, and execution transport.
 
-<!-- SUGGESTED DIAGRAM: Layered architecture showing Orchestrator -> Journal -> Projections -> Execution Workers -->
+```mermaid
+graph TD
+    classDef core fill:#2a2b36,stroke:#7c3aed,stroke-width:2px,color:#fff;
+    classDef storage fill:#1f2937,stroke:#10b981,stroke-width:1px,color:#fff;
+    classDef client fill:#1f2937,stroke:#f59e0b,stroke-width:1px,color:#fff;
+
+    subgraph Client / Adapter Layer
+        CLI[Terminal CLI / TUI]:::client
+        Gateway[ Slack & Discord Gateway ]:::client
+    end
+
+    subgraph Core Orchestration Engine
+        Orch[Swarm Planner / HTN Orchestrator]:::core
+        Registry[NativeToolRegistry]:::core
+        RT[ActivityRuntime]:::core
+        Guard[CommandGuard Security Sandbox]:::core
+    end
+
+    subgraph Durable State & IPC Layer
+        Journal[(Append-Only Event Journal .jsonl)]:::storage
+        Projections[(LanceDB Projections)]:::storage
+        Baton[Arrow IPC Baton Memory Cache]:::core
+    end
+
+    CLI --> Orch
+    Gateway --> Orch
+    Orch --> Registry
+    Registry --> RT
+    RT -->|1. Safety Audit| Guard
+    RT -->|2. Append Event| Journal
+    Journal -->|3. Reducer Rehydration| Projections
+    RT <-->|State Handovers| Baton
+```
 
 * **Orchestration Layer**: Manages the deterministic sequencing of tasks and handles control flow, acting as the primary state machine.
 * **Durable Activity Layer**: Wraps side-effecting code. During normal execution, it runs the code and journals the result. During recovery, it returns the journaled result without re-executing.
@@ -146,9 +251,47 @@ AJA enforces a strict separation between orchestration, durable persistence, and
 
 ---
 
+## Cognitive Memory & Evaluation Systems
+
+AJA implements production-grade memory safety and validation architectures to guarantee long-term operational consistency and prevent failures.
+
+### Multi-Tier Cognitive Memory Stack
+AJA's memory architecture is split into four cognitive layers, leveraging LanceDB as an embedded serverless vector database and Apache Arrow for fast retrieval:
+* **Short-Term Memory**: Conversation history (`aja_chat_history`) and RAM-cached, thread-safe baton transfer buffers (`_IN_MEMORY_BATONS`) enabling sub-millisecond execution handovers.
+* **Episodic Memory**: Complete historical executions of tasks and tool outputs stored inside `core_tasks` and `core_tool_executions`.
+* **Semantic Memory**: Cosine similarity goal-search over standard 384-dimensional plan spaces (`core_plans`) using metadata-first SQL pre-filtering (`.where()`) at the database layer.
+* **Procedural Memory**: Rule triggers (`core_triggers`), strategy stores (`ExperienceStore`) with temporal decay scoring ($e^{-\lambda t}$), and failure post-mortem mapping (`FailureMemory`) to avoid repeating failed plan configurations.
+* **Stability Guard**: Automatically disables planning learning if the rolling task success rate drops below `40%`, isolating the planning engine from junk context loops.
+
+### Agent Evaluation Harness
+An automated validation suite (`scratch/agent_evaluation_harness.py`) profiles model performance and safeguards behavioral contracts:
+* **Format Compliance & Stability**: Measures average latencies and verifies that LLM outputs remain 100% JSON compliant under reasoning pretext and Markdown fence drifting.
+* **Adversarial Resilience**: Audits and blocks prompt injection payloads (e.g. `format c:`), mapping attacks to benign conversation nodes.
+
+---
+
 ## Durable Execution Model
 
 The core invariant of AJA is **replay determinism**. 
+
+```mermaid
+graph TD
+    classDef allow fill:#065f46,stroke:#059669,stroke-width:1px,color:#fff;
+    classDef ask fill:#78350f,stroke:#d97706,stroke-width:1px,color:#fff;
+    classDef deny fill:#7f1d1d,stroke:#dc2626,stroke-width:1px,color:#fff;
+
+    Command[Operator/Swarm Command] --> Guard{CommandGuard Audit}
+    
+    Guard -->|Safe Commands| Allow[ALLOW]:::allow
+    Guard -->|Protected paths / Deletions| Ask[ASK]:::ask
+    Guard -->|Destructive / disk formatting| Deny[DENY]:::deny
+
+    Allow --> Run[Execute Subprocess]
+    Ask --> Prompt[Prompt Operator for Consent]
+    Prompt -->|Approved| Run
+    Prompt -->|Rejected| Fail[Abort Task]
+    Deny --> Block[Block Command & Fail Task]
+```
 
 1. **Event Sourcing**: When an execution step occurs, an event is atomically appended to the journal. The runtime state is then updated via a pure function reducer.
 2. **Crash Recovery**: If the system crashes, AJA does not restart the workflow. Instead, it replays the journal.

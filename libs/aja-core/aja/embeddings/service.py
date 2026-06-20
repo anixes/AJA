@@ -36,6 +36,14 @@ class EmbeddingService:
         """
         self.dim = dim
 
+    def get_model_name(self) -> str:
+        """Returns the identifier of the active embedding model."""
+        self._load_model()
+        global _SENTENCE_MODEL
+        if _SENTENCE_MODEL is not None:
+            return "sentence-transformers/all-MiniLM-L6-v2"
+        return "mock-bag-of-words"
+
     def embed_text(self, text: str) -> List[float]:
         """Alias for compatibility with planning modules."""
         return self.embed(text)

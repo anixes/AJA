@@ -50,6 +50,7 @@ def llm_critique(plan: PlanGraph, state: dict) -> dict:
             return '```json\n{"issues": [{"type": "hidden_assumption", "node": "n1", "detail": "Mocked LLM assumption detected"}], "severity": 2}\n```'
     
     import json
+    import re
     plan_json = json.dumps(plan.to_dict() if hasattr(plan, "to_dict") else str(plan))
     state_json = json.dumps(state)
     
@@ -69,25 +70,59 @@ Plan:
 {plan_json}
 ```
 
-Return ONLY valid JSON with:
-- "issues": list of {{"type": str, "node": str, "detail": str}}
-- "severity": int (0-10)
+Before outputting your final review, think step-by-step to check:
+1. Precondition Satisfaction: Are the preconditions of every node satisfied by the state or the effects of preceding nodes?
+2. Logical Gaps: Are there any nodes with preconditions that don't depend on another node supplying them?
+3. Effect Alignment: Do the effects actually match the node's task description?
+4. Dependencies & DAG Validity: Are there any cycles or invalid node ID references?
+
+Explain your reasoning steps, then return the structured critique in a ```json block matching this schema:
+{{
+  "issues": [
+    {{"type": "string", "node": "string", "detail": "string"}}
+  ],
+  "severity": 0
+}}
 """
     try:
         response = completion(prompt, system_prompt="You are a strict reasoning critic.")
-        raw_text = response.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-            
-        data = json.loads(raw_text.strip())
+        
+        # Robust JSON cleaning matching planner logic
+        text = response.strip()
+        text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        else:
+            # Fallback to finding the JSON structure using regex starting from issues/severity
+            key_match = re.search(r"\"(?:issues|severity)\"", text)
+            if key_match:
+                key_pos = key_match.start()
+                start = text.rfind('{', 0, key_pos)
+                if start != -1:
+                    # Scan forward to find matching closing brace
+                    depth = 1
+                    end = -1
+                    for idx in range(start + 1, len(text)):
+                        if text[idx] == '{':
+                            depth += 1
+                        elif text[idx] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                end = idx
+                                break
+                    if end != -1:
+                        text = text[start:end+1]
+                        
+        data = json.loads(text.strip())
         return {
             "issues": data.get("issues", []),
             "severity": data.get("severity", 0)
         }
     except Exception as e:
-        print(f"[Critic] LLM critique failed: {e}")
+        print(f"[Critic] LLM critique failed: {e}. Raw response was: {repr(response) if 'response' in locals() else 'N/A'}")
         return {"issues": [], "severity": 0}
 
 def deep_critique(plan: PlanGraph, state: dict) -> dict:

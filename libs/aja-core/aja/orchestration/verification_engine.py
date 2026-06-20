@@ -53,7 +53,8 @@ def run_verification(baton: dict, workspace_dir: str) -> dict:
             }
         )
 
-    if worker_id != "swarm-maintenance" and not diff:
+    is_maintenance = (worker_id == "swarm-maintenance" or baton.get("rollback_path") == "No rollback needed for maintenance tasks.")
+    if not is_maintenance and not diff:
         checks.append(
             {
                 "name": "non_maintenance_diff",

@@ -36,12 +36,64 @@ class ParallelActivityScheduler:
     async def run_batch(self, activities: List[Activity]) -> ActivityBatchResult:
         t0 = time.monotonic()
         if self.fail_fast:
-            results = []
-            for activity in activities:
-                result = await self._run_one(activity)
-                results.append(result)
-                if not result.success:
+            results = [None] * len(activities)
+            tasks = []
+            
+            async def run_and_store(idx, activity):
+                try:
+                    res = await self._run_one(activity)
+                    results[idx] = res
+                    return res
+                except Exception as e:
+                    res = ActivityResult(
+                        tool=activity.tool,
+                        success=False,
+                        data=None,
+                        error=str(e),
+                        duration_ms=0
+                    )
+                    results[idx] = res
+                    return res
+
+            for idx, act in enumerate(activities):
+                tasks.append(asyncio.create_task(run_and_store(idx, act)))
+
+            pending = set(tasks)
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                has_failure = False
+                for task in done:
+                    try:
+                        res = task.result()
+                        if not res.success:
+                            has_failure = True
+                    except Exception:
+                        has_failure = True
+                
+                if has_failure:
+                    for task in pending:
+                        task.cancel()
                     break
+
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            
+            final_results = []
+            for idx, r in enumerate(results):
+                if r is not None:
+                    final_results.append(r)
+                else:
+                    final_results.append(ActivityResult(
+                        tool=activities[idx].tool,
+                        success=False,
+                        data=None,
+                        error="Cancelled due to batch failure",
+                        duration_ms=0
+                    ))
+            results = final_results
         else:
             results = await asyncio.gather(*(self._run_one(activity) for activity in activities))
 

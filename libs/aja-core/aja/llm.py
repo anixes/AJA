@@ -355,9 +355,9 @@ class CopilotModelProvider(BaseModelProvider):
         )
         
         base_url = self.config.get("base_url") or "https://api.githubcopilot.com"
-        model = self.config.get("model", "gpt-4o")
+        model = self.config.get("model", "gpt-4o-mini")
         if model in ("copilot", "github-copilot", "default"):
-            model = "gpt-4o"
+            model = "gpt-4o-mini"
             
         # Build extra body configuration (e.g. reasoning effort)
         extra_body = {}

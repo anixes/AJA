@@ -1,0 +1,1 @@
+AJA is a local-first, durable execution orchestration engine and swarm compiler. It executes multi-turn Hierarchical Task Network (HTN) plans using transactional, replay-resilient event logging, Apache Arrow baton IPC memory handovers, and safe subprocess sandboxing.

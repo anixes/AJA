@@ -28,7 +28,11 @@ def append_baton_history(baton, stage, message):
 
 
 def save_baton(path: Path, baton):
-    path.write_text(json.dumps(baton, indent=2))
+    if str(path).endswith(".arrow"):
+        from aja.runtime.handover import write_baton_ipc
+        write_baton_ipc(path, baton)
+    else:
+        path.write_text(json.dumps(baton, indent=2), encoding="utf-8")
 
 
 async def work(baton_path: str):
@@ -52,9 +56,12 @@ async def work(baton_path: str):
     session_id = os.environ.get("AJA_EXECUTION_SESSION_ID")
     run_id = os.environ.get("AJA_RUN_ID")
     if session_id:
+        from aja.config import DATA_DIR
         from aja.runtime.execution.activity import ActivityContext, set_activity_context
-        from aja.runtime.execution.sequencer import TelemetryEmitter
-        emitter = TelemetryEmitter(session_id, os.environ.get("AJA_TRACE_ID"))
+        from aja.runtime.execution.sequencer import TelemetryEmitter, EventSequencer
+        session_root = DATA_DIR / "executions" / session_id
+        trace_id = os.environ.get("AJA_TRACE_ID")
+        emitter = TelemetryEmitter(session_root, EventSequencer(session_id, trace_id))
         ctx = ActivityContext(is_replay=False, emitter=emitter, run_id=run_id)
         set_activity_context(ctx)
 

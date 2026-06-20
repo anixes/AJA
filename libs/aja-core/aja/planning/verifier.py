@@ -11,10 +11,11 @@ strictly on its own merits to catch hallucinations or invalid states.
 from __future__ import annotations
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from aja.planning.models import PlanGraph
 from aja.planning.dag_validator import DAGValidator
+from aja.config import DATA_DIR
 
 def check_constraints(plan: PlanGraph) -> bool:
     """
@@ -32,7 +33,7 @@ def verify_plan(plan: PlanGraph, state: Optional[Dict[str, Any]] = None) -> Dict
     from aja.llm import completion
     
     print(f"[Verifier] Verifying plan for goal: {plan.goal}", flush=True)
-    log_path = r"C:\Users\Asus\.gemini\antigravity\brain\66b6bc99-9194-49a3-8107-c95894fbb4b3\verifier_debug.log"
+    log_path = DATA_DIR / "verifier_debug.log"
     
     # 1. Check hard constraints first
     validation_result = DAGValidator.validate(plan, initial_state=state)
