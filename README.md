@@ -101,7 +101,7 @@ $ python -m aja setup
 ===========================================================
 [✔] Verified Python 3.12.10 environment.
 [✔] Verified PyO3 native extensions (aja_native).
-[✔] Mapped default storage path: C:\Users\Asus\AppData\Local\Anixes\AJA
+[✔] Mapped default storage path: C:\Users\<Username>\AppData\Local\Anixes\AJA
 [?] Enter default LLM Provider [default: openai]:
 [?] Enter default Planner Model [default: gpt-4o]:
 [?] Enter default Worker Model [default: claude-haiku-4.5]:
