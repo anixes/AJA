@@ -165,9 +165,10 @@ class SwarmEngine:
                         if r.data:
                             console.print(f"[dim]{r.data}[/dim]")
                     else:
-                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {r.error or r.data}[/bold red]")
+                        err_msg = r.error or getattr(r, "stderr", None) or r.data
+                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {err_msg}[/bold red]")
                     
-                    obs = f"Tool '{r.tool}' result:\n{r.data or r.error}"
+                    obs = f"Tool '{r.tool}' result:\n{r.data or r.error or getattr(r, 'stderr', '')}"
                     history.append({"role": "user", "content": obs})
 
             # Check for legacy bash/sh command blocks

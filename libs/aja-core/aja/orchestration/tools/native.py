@@ -39,6 +39,10 @@ class NativeToolRegistry:
         self.tools["multi_replace"] = self.multi_replace
         self.tools["sleep"] = self.sleep
         self.tools["run_shell_command"] = self.run_shell_command
+        self.tools["list_directory"] = self.list_directory
+        self.tools["find_files"] = self.find_files
+        self.tools["get_file_info"] = self.get_file_info
+        self.tools["create_directory"] = self.create_directory
 
     def get_schemas(self) -> List[Dict[str, Any]]:
         schemas = [
@@ -157,6 +161,75 @@ class NativeToolRegistry:
                             }
                         },
                         "required": ["cmd"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_directory",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.list_directory",
+                    "description": "List all files and subdirectories in a directory.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute path to the directory."}
+                        },
+                        "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_files",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.find_files",
+                    "description": "Recursively find files matching a glob pattern (e.g. '*.py' or '*.json') inside a directory.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute path to the directory to search in."},
+                            "pattern": {"type": "string", "description": "The search glob pattern."}
+                        },
+                        "required": ["path", "pattern"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_file_info",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.get_file_info",
+                    "description": "Get metadata/info of a file or directory (existence, type, size, modified time).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute path to the file or directory."}
+                        },
+                        "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_directory",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.create_directory",
+                    "description": "Create a directory structure safely (creates parent folders recursively).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute path of the directory structure to create."}
+                        },
+                        "required": ["path"]
                     }
                 }
             },
@@ -447,3 +520,84 @@ class NativeToolRegistry:
             return f"Error: Command failed with state {res.returncode}\nStdout: {res.stdout}\nStderr: {res.stderr}"
         except Exception as e:
             return f"Error executing shell command: {e}"
+
+    def list_directory(self, path: str) -> str:
+        try:
+            p = Path(path)
+            if not p.exists():
+                return f"Error: Path '{path}' does not exist."
+            if not p.is_dir():
+                return f"Error: '{path}' is a file, not a directory."
+            
+            lines = []
+            for item in p.iterdir():
+                try:
+                    if item.is_dir():
+                        lines.append(f"[DIR]  {item.name}")
+                    else:
+                        size = item.stat().st_size
+                        lines.append(f"[FILE] {item.name} ({size} bytes)")
+                except Exception:
+                    lines.append(f"[UNKNOWN] {item.name}")
+            
+            if not lines:
+                return f"Directory '{path}' is empty."
+            
+            # Sort directories first, then files
+            lines.sort(key=lambda x: (not x.startswith("[DIR]"), x))
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error listing directory: {e}"
+
+    def find_files(self, path: str, pattern: str) -> str:
+        try:
+            p = Path(path)
+            if not p.exists():
+                return f"Error: Path '{path}' does not exist."
+            if not p.is_dir():
+                return f"Error: '{path}' is a file, not a directory."
+            
+            matches = []
+            for item in p.rglob(pattern):
+                try:
+                    if item.is_file():
+                        rel = item.relative_to(p)
+                        size = item.stat().st_size
+                        matches.append(f"{rel} ({size} bytes)")
+                except Exception:
+                    pass
+                if len(matches) > 100:
+                    matches.append("... [Results truncated due to too many matches]")
+                    break
+            
+            if not matches:
+                return f"No files matching pattern '{pattern}' found in '{path}'."
+            return "\n".join(matches)
+        except Exception as e:
+            return f"Error finding files: {e}"
+
+    def get_file_info(self, path: str) -> str:
+        try:
+            p = Path(path)
+            if not p.exists():
+                return f"Error: Path '{path}' does not exist."
+            
+            stat_info = p.stat()
+            from datetime import datetime, timezone
+            mtime = datetime.fromtimestamp(stat_info.st_mtime, timezone.utc).isoformat()
+            
+            if p.is_dir():
+                return f"Type: Directory\nPath: {p.resolve()}\nModified: {mtime}"
+            else:
+                size = stat_info.st_size
+                return f"Type: File\nPath: {p.resolve()}\nSize: {size} bytes\nModified: {mtime}"
+        except Exception as e:
+            return f"Error getting file info: {e}"
+
+    def create_directory(self, path: str) -> str:
+        try:
+            p = Path(path)
+            p.mkdir(parents=True, exist_ok=True)
+            return f"Successfully created directory structure: {p.resolve()}"
+        except Exception as e:
+            return f"Error creating directory: {e}"

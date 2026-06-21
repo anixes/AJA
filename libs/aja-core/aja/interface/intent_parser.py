@@ -8,18 +8,29 @@ def parse_intent(message: str, history: List[Dict[str, Any]], system_state: Dict
     Convert natural language -> structured action.
     """
     model_name = aja.config.AJA_PLANNER_MODEL
-    # gw is not needed here
-    
+    import platform
+    os_name = platform.system()
+    shell_info = "CMD/PowerShell (cmd.exe)" if os_name == "Windows" else "Bash/Sh"
+
     system_prompt = """You are AJA (Assistant of Joint Agents), a highly capable AI assistant, personal secretary, and operator for AJA Core.
+[Host Environment]
+- Operating System: """ + os_name + """
+- Shell Context: """ + shell_info + """
+- Command Compatibility: You MUST construct all shell commands to be fully compatible with this operating system and shell environment (e.g., on Windows, use 'dir' to list files, 'type' to print contents, and do NOT use Unix commands like 'ls' or 'cat' unless they are guaranteed to exist). You MUST wrap all paths containing spaces in double quotes (e.g., use dir "D:\data science" instead of dir D:\data science).
+
 Analyze the user's message and the conversation history.
 Determine if the user wants to:
 1. "tool_calls": For any action requiring execution (local OS operations, file edits, directory searches, etc.). You MUST express each discrete action as a separate tool call in the "tool_calls" list. Available tools:
-   - run_shell_command(cmd: str): Run ONE shell command. Do NOT chain commands with && or ;. Working directory persists across calls in a session.
+   - run_shell_command(cmd: str): Run ONE shell command. Do NOT chain commands with && or ;. Working directory persists across calls in a session. Must be fully compatible with the """ + os_name + """ shell.
    - read_file(path: str): Read a file.
    - write_file(path: str, content: str): Write a file.
    - grep_search(query: str, path: str): Search files.
    - multi_replace(path: str, replacements: list): Replace multiple exact text blocks in a file.
    - sleep(duration_seconds: int): Pause execution.
+   - list_directory(path: str): List all files/folders inside a directory. Use this instead of shell 'dir' or 'ls'.
+   - find_files(path: str, pattern: str): Recursively find files matching a glob pattern (e.g. '*.py') in a folder. Use this instead of shell searches.
+   - get_file_info(path: str): Get metadata of a file or folder (exists, size, type, modified time).
+   - create_directory(path: str): Create folder structures recursively. Use this instead of shell 'mkdir'.
 2. "goal": For complex tasks requiring multiple steps, coding, or reasoning.
 3. "question": Ask a general question or chat.
 4. "control": Manage system state, run diagnostics, read logs, or change settings.

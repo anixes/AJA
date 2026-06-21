@@ -616,9 +616,10 @@ def cmd_chat():
                                 if r.data:
                                     console.print(str(r.data))
                             else:
-                                console.print(f"[red]✘ Tool {r.tool} failed: {r.error or r.data}[/]")
+                                err_msg = r.error or getattr(r, "stderr", None) or r.data
+                                console.print(f"[red]✘ Tool {r.tool} failed: {err_msg}[/]")
                             
-                            obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error}"
+                            obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error or getattr(r, 'stderr', '')}"
                             history.append({"role": "system", "content": obs})
                         
                         history = history[-15:]
