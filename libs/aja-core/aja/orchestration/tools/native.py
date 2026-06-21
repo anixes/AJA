@@ -590,11 +590,15 @@ class NativeToolRegistry:
         )
 
     def _validate_path(self, path: str) -> Optional[str]:
-        from aja.config import PROJECT_ROOT
+        from aja.config import PROJECT_ROOT, CONFIG
         try:
-            p = Path(path).resolve()
+            p = Path(path)
+            if not p.is_absolute():
+                p = Path(PROJECT_ROOT) / p
+            p = p.resolve()
             if not p.is_relative_to(PROJECT_ROOT):
-                return f"Security Error: Path '{path}' is outside the authorized project root."
+                if not getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False):
+                    return f"Security Error: Path '{path}' is outside the authorized project root."
             return None
         except Exception as e:
             return f"Security Error: Invalid path '{path}': {e}"

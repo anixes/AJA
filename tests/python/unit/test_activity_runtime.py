@@ -46,12 +46,18 @@ def journal(tmp_path):
     # Monkey-patch DATA_DIR for journal so it writes to tmp_path
     import aja.runtime.mission_journal as jmod
     original_data_dir = jmod.DATA_DIR
-
     jmod.DATA_DIR = tmp_path
+
+    # Monkey-patch PROJECT_ROOT so filesystem activity runs can run inside tmp_path
+    import aja.config
+    original_project_root = aja.config.PROJECT_ROOT
+    aja.config.PROJECT_ROOT = tmp_path
+
     j = MissionJournal(TEST_MISSION_ID)
     yield j
 
     jmod.DATA_DIR = original_data_dir
+    aja.config.PROJECT_ROOT = original_project_root
 
 
 @pytest.mark.anyio

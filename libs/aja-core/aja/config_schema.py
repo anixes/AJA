@@ -50,6 +50,7 @@ class SwarmSettings(BaseModel):
     models: SwarmModels = Field(default_factory=SwarmModels)
     operating_mode: str = "offline"
     direct_execution: bool = True
+    allow_out_of_bounds_paths: bool = False
 
     @field_validator("operating_mode")
     @classmethod

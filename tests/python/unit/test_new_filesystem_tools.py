@@ -2,6 +2,11 @@ import pytest
 from pathlib import Path
 from aja.orchestration.tools.native import NativeToolRegistry
 
+@pytest.fixture(autouse=True)
+def mock_project_root(tmp_path, monkeypatch):
+    import aja.config
+    monkeypatch.setattr(aja.config, "PROJECT_ROOT", tmp_path)
+
 
 def test_list_directory(tmp_path):
     registry = NativeToolRegistry()

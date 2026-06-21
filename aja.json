@@ -21,6 +21,7 @@
       "worker": "copilot",
       "critic": "copilot"
     },
-    "operating_mode": "online"
+    "operating_mode": "online",
+    "allow_out_of_bounds_paths": true
   }
 }
