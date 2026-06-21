@@ -80,6 +80,16 @@ WINDOWS_PATTERN_REASONS = {
 
 
 def is_known_safe(command: str, root: str, args: List[str]) -> bool:
+    # Chained or compound commands must run through full safety checks
+    # and cannot be bypassed via safe roots like 'git' or 'npm'.
+    # Remove quoted strings to avoid false positives (e.g. semicolons in commit messages)
+    temp = re.sub(r'"[^"]*"|\'[^\']*\'', ' ', command)
+    # Remove output redirects (e.g. 2>&1)
+    temp = re.sub(r'[0-9]*>&[0-9]*|[0-9]*<&[0-9]*|-', ' ', temp)
+    # Check for compound/chaining operators
+    if any(op in temp for op in [';', '&&', '||', '|', '&', '\n', '\r', '`']):
+        return False
+
     lower = command.lower()
     if root in {"python", "python3"}:
         return "--version" in args or lower.startswith(f"{root} -m pip install")

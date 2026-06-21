@@ -257,11 +257,14 @@ class ActivityRuntime:
         t0 = time.monotonic()
         result_str = registry.execute(activity.tool, activity.args)
         duration_ms = int((time.monotonic() - t0) * 1000)
+        is_security_err = result_str.startswith("Security Error")
+        is_err = result_str.startswith("Error") or is_security_err
         return ActivityResult(
             tool=activity.tool,
-            success=not result_str.startswith("Error"),
-            data=result_str,
+            success=not is_err,
+            data=result_str if not is_err else None,
             duration_ms=duration_ms,
+            error=result_str if is_err else None,
         )
 
     async def _run_mcp(self, activity: Activity) -> ActivityResult:

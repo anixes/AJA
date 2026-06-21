@@ -43,6 +43,15 @@ class NativeToolRegistry:
         self.tools["find_files"] = self.find_files
         self.tools["get_file_info"] = self.get_file_info
         self.tools["create_directory"] = self.create_directory
+        self.tools["git_status"] = self.git_status
+        self.tools["git_diff"] = self.git_diff
+        self.tools["git_commit"] = self.git_commit
+        self.tools["http_fetch"] = self.http_fetch
+        self.tools["apply_patch"] = self.apply_patch
+        self.tools["delete_path"] = self.delete_path
+        self.tools["copy_path"] = self.copy_path
+        self.tools["move_path"] = self.move_path
+        self.tools["query_past_experiences"] = self.query_past_experiences
 
     def get_schemas(self) -> List[Dict[str, Any]]:
         schemas = [
@@ -230,6 +239,160 @@ class NativeToolRegistry:
                             "path": {"type": "string", "description": "Absolute path of the directory structure to create."}
                         },
                         "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "git_status",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.git_status",
+                    "description": "Show the working tree status (staged, unstaged, untracked files).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "git_diff",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.git_diff",
+                    "description": "Show changes between commits, commit and working tree, etc.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Optional specific file or folder path to get diff for."}
+                        }
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "git_commit",
+                    "activity_type": "python",
+                    "retry_policy": "none",
+                    "required_scope": "python.git_commit",
+                    "description": "Stage all modified files and commit them with a message.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string", "description": "The commit message description."}
+                        },
+                        "required": ["message"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "http_fetch",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.http_fetch",
+                    "description": "Fetch text/HTML content of a URL safely.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The web URL to fetch."}
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "apply_patch",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.apply_patch",
+                    "description": "Apply a unified diff patch to codebase files using git apply.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "The path of the file being patched."},
+                            "diff_text": {"type": "string", "description": "The exact diff/patch content (unified diff format) to apply."}
+                        },
+                        "required": ["path", "diff_text"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_path",
+                    "activity_type": "python",
+                    "retry_policy": "none",
+                    "required_scope": "python.delete_path",
+                    "description": "Delete a file or folder safely with boundary protection.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute path to the file or folder to delete."},
+                            "recursive": {"type": "boolean", "description": "Whether to delete directory recursively.", "default": False}
+                        },
+                        "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "copy_path",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.copy_path",
+                    "description": "Copy a file or directory safely to another path within the project root.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "src": {"type": "string", "description": "Source path to copy from."},
+                            "dest": {"type": "string", "description": "Destination path to copy to."}
+                        },
+                        "required": ["src", "dest"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "move_path",
+                    "activity_type": "python",
+                    "retry_policy": "none",
+                    "required_scope": "python.move_path",
+                    "description": "Move a file or directory safely within the project root.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "src": {"type": "string", "description": "Source path to move from."},
+                            "dest": {"type": "string", "description": "Destination path to move to."}
+                        },
+                        "required": ["src", "dest"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_past_experiences",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.query_past_experiences",
+                    "description": "Retrieve semantically similar past run experiences/failures/plans from memory.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "The search query (e.g. 'pytest error' or 'git status error')."},
+                            "limit": {"type": "integer", "description": "Maximum number of experiences to retrieve.", "default": 3}
+                        },
+                        "required": ["query"]
                     }
                 }
             },
@@ -426,7 +589,20 @@ class NativeToolRegistry:
             },
         )
 
+    def _validate_path(self, path: str) -> Optional[str]:
+        from aja.config import PROJECT_ROOT
+        try:
+            p = Path(path).resolve()
+            if not p.is_relative_to(PROJECT_ROOT):
+                return f"Security Error: Path '{path}' is outside the authorized project root."
+            return None
+        except Exception as e:
+            return f"Security Error: Invalid path '{path}': {e}"
+
     def read_file(self, path: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             if not p.exists():
@@ -438,6 +614,9 @@ class NativeToolRegistry:
             return f"Error reading file: {e}"
 
     def write_file(self, path: str, content: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -447,6 +626,9 @@ class NativeToolRegistry:
             return f"Error writing file: {e}"
 
     def grep_search(self, query: str, path: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         import subprocess
         try:
             # We use ripgrep or standard grep for fast searching. If not available, fallback to python.
@@ -484,6 +666,9 @@ class NativeToolRegistry:
             return f"Error during search: {e}"
 
     def multi_replace(self, path: str, replacements: List[Dict[str, str]]) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             if not p.exists():
@@ -522,6 +707,9 @@ class NativeToolRegistry:
             return f"Error executing shell command: {e}"
 
     def list_directory(self, path: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             if not p.exists():
@@ -550,6 +738,9 @@ class NativeToolRegistry:
             return f"Error listing directory: {e}"
 
     def find_files(self, path: str, pattern: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             if not p.exists():
@@ -577,6 +768,9 @@ class NativeToolRegistry:
             return f"Error finding files: {e}"
 
     def get_file_info(self, path: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             if not p.exists():
@@ -595,9 +789,173 @@ class NativeToolRegistry:
             return f"Error getting file info: {e}"
 
     def create_directory(self, path: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
         try:
             p = Path(path)
             p.mkdir(parents=True, exist_ok=True)
             return f"Successfully created directory structure: {p.resolve()}"
         except Exception as e:
             return f"Error creating directory: {e}"
+
+    def git_status(self) -> str:
+        import subprocess
+        from aja.config import PROJECT_ROOT
+        try:
+            res = subprocess.run(["git", "status", "-s"], text=True, capture_output=True, cwd=str(PROJECT_ROOT))
+            if res.returncode != 0:
+                return f"Error running git status: {res.stderr}"
+            return res.stdout or "Workspace is clean. Nothing to commit."
+        except Exception as e:
+            return f"Error executing git status: {e}"
+
+    def git_diff(self, path: str = None) -> str:
+        import subprocess
+        from aja.config import PROJECT_ROOT
+        try:
+            cmd = ["git", "diff"]
+            if path:
+                err = self._validate_path(path)
+                if err:
+                    return err
+                cmd.append(path)
+            res = subprocess.run(cmd, text=True, capture_output=True, cwd=str(PROJECT_ROOT))
+            if res.returncode != 0:
+                return f"Error running git diff: {res.stderr}"
+            return res.stdout or "No changes detected."
+        except Exception as e:
+            return f"Error executing git diff: {e}"
+
+    def git_commit(self, message: str) -> str:
+        import subprocess
+        from aja.config import PROJECT_ROOT
+        try:
+            res = subprocess.run(["git", "commit", "-a", "-m", message], text=True, capture_output=True, cwd=str(PROJECT_ROOT))
+            if res.returncode != 0:
+                return f"Error committing: {res.stderr}"
+            return res.stdout
+        except Exception as e:
+            return f"Error executing git commit: {e}"
+
+    def http_fetch(self, url: str) -> str:
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AJA/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                content = response.read()
+                try:
+                    return content.decode("utf-8")
+                except UnicodeDecodeError:
+                    return f"Fetched binary data ({len(content)} bytes)."
+        except Exception as e:
+            return f"Error fetching URL: {e}"
+
+    def apply_patch(self, path: str, diff_text: str) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
+        import subprocess
+        from aja.config import PROJECT_ROOT
+        try:
+            res = subprocess.run(
+                ["git", "apply", "--ignore-space-change", "--ignore-whitespace"],
+                input=diff_text,
+                text=True,
+                capture_output=True,
+                cwd=str(PROJECT_ROOT)
+            )
+            if res.returncode == 0:
+                return f"Successfully applied patch to {path}."
+            return f"Error: git apply failed with state {res.returncode}\nStdout: {res.stdout}\nStderr: {res.stderr}"
+        except Exception as e:
+            return f"Error applying patch: {e}"
+
+    def delete_path(self, path: str, recursive: bool = False) -> str:
+        err = self._validate_path(path)
+        if err:
+            return err
+        try:
+            p = Path(path).resolve()
+            if not p.exists():
+                return f"Error: Path '{path}' does not exist."
+            
+            if p.is_file():
+                p.unlink()
+                return f"Successfully deleted file '{path}'."
+            elif p.is_dir():
+                if not recursive:
+                    if any(p.iterdir()):
+                        return f"Error: Directory '{path}' is not empty. Pass recursive=True to delete."
+                    p.rmdir()
+                    return f"Successfully removed empty directory '{path}'."
+                else:
+                    import shutil
+                    shutil.rmtree(p)
+                    return f"Successfully removed directory '{path}' recursively."
+        except Exception as e:
+            return f"Error deleting path: {e}"
+
+    def copy_path(self, src: str, dest: str) -> str:
+        err_src = self._validate_path(src)
+        if err_src:
+            return err_src
+        err_dest = self._validate_path(dest)
+        if err_dest:
+            return err_dest
+        import shutil
+        try:
+            s = Path(src).resolve()
+            d = Path(dest).resolve()
+            
+            if not s.exists():
+                return f"Error: Source path '{src}' does not exist."
+            
+            if s.is_file():
+                d.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s, d)
+                return f"Successfully copied file from '{src}' to '{dest}'."
+            elif s.is_dir():
+                shutil.copytree(s, d, dirs_exist_ok=True)
+                return f"Successfully copied directory from '{src}' to '{dest}'."
+        except Exception as e:
+            return f"Error copying path: {e}"
+
+    def move_path(self, src: str, dest: str) -> str:
+        err_src = self._validate_path(src)
+        if err_src:
+            return err_src
+        err_dest = self._validate_path(dest)
+        if err_dest:
+            return err_dest
+        import shutil
+        try:
+            s = Path(src).resolve()
+            d = Path(dest).resolve()
+            
+            if not s.exists():
+                return f"Error: Source path '{src}' does not exist."
+            
+            d.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(s), str(d))
+            return f"Successfully moved '{src}' to '{dest}'."
+        except Exception as e:
+            return f"Error moving path: {e}"
+
+    def query_past_experiences(self, query: str, limit: int = 3) -> str:
+        try:
+            from aja.memory.experience_store import experience_store
+            results = experience_store.retrieve_similar(query, top_k=int(limit))
+            if not results:
+                return "No similar past experiences found in memory."
+            
+            lines = []
+            for i, r in enumerate(results):
+                status = "SUCCESS" if r.get("success") else "FAILED"
+                lines.append(f"[{i+1}] Goal: {r.get('goal')}\n    Status: {status}\n    Fail Reason: {r.get('fail_reason') or 'None'}\n    Plan: {r.get('plan_structure')}")
+            return "\n\n".join(lines)
+        except Exception as e:
+            return f"Error querying memories: {e}"
