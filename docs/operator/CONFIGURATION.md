@@ -7,7 +7,7 @@ AJA is configured primarily through a validated JSON configuration file, environ
 All AJA state, memories (LanceDB), execution batons, and configurations are stored in the AJA Data Directory. 
 
 By default, this resolves to the standard OS user data directory:
-- **Windows**: `C:\Users\<User>\AppData\Local\Anixes\AJA`
+- **Windows**: `C:\Users\<User>\AppData\Local\<Organization>\AJA`
 - **macOS**: `~/Library/Application Support/AJA`
 - **Linux**: `~/.local/share/AJA`
 

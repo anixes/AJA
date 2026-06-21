@@ -44,7 +44,7 @@ For development with Docker, you can use `.devcontainer` or the `Dockerfile.dev`
 
 Once installed, AJA utilizes a normalized data directory for its LanceDB vector store, configuration, and execution memory.
 By default, this is located at:
-- **Windows**: `C:\Users\<User>\AppData\Local\Anixes\AJA`
+- **Windows**: `C:\Users\<User>\AppData\Local\<Organization>\AJA`
 - **macOS**: `~/Library/Application Support/AJA`
 - **Linux**: `~/.local/share/AJA`
 
