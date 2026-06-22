@@ -33,6 +33,7 @@ class BaseAdapter:
         subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace_dir, capture_output=True)
 
     def _get_diff(self, workspace_dir: str) -> str:
+        subprocess.run(["git", "add", "-N", "."], cwd=workspace_dir, capture_output=True)
         res = subprocess.run(["git", "diff"], cwd=workspace_dir, capture_output=True, text=True)
         return res.stdout
 
