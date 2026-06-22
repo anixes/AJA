@@ -190,7 +190,7 @@ During a crash recovery or replay, AJA will load the journal for `"gpu-profile-0
 AJA provides a comprehensive CLI for managing autonomous operations, execution sessions, and system health.
 
 * **`aja run <objective>`**: Execute an autonomous mission. Supports `--dry-run` for safe simulation and background execution.
-* **`aja chat`**: Launch the interactive conversational assistant loop. Features a built-in Kanban task manager and slash commands (`/kanban`, `/todo`, `/doctor`, `/goal`, `/schedule`, etc.).
+* **`aja chat`**: Launch the interactive conversational assistant loop. Features a built-in Kanban task manager and slash commands.
 * **`aja pickup <code>`**: Resume a mission from a high-performance Apache Arrow baton transfer.
 * **`aja status`**: Real-time overview of swarm health, active batons, and pending LanceDB tasks.
 * **`aja exec <subcommand>`**: Inspect and manage canonical execution sessions.
@@ -201,6 +201,19 @@ AJA provides a comprehensive CLI for managing autonomous operations, execution s
   * `replay`: Visually replay the events of a session in a TUI viewer (`replay_viewer`).
 * **`aja doctor`**: Run system health checks (CPU, RAM, GPU, native modules).
 * **`aja setup`**: Interactive wizard to scaffold configuration and data directories.
+
+### Interactive TUI Commands (Inside `aja chat`)
+
+When inside the interactive `aja chat` loop, you can use the following slash commands to direct the autonomous engine:
+
+*   **`/swarm <objective>`**: Execute a foreground multi-agent mission. The Planner decomposes the task, dispatches worker processes with Apache Arrow batons, and executes tasks using the native tool calling loop.
+*   **`/goal <objective>`**: Run a persistent background mission. Operates as a detached process on the host OS, persisting through terminal exits and system restarts.
+*   **`/schedule`**: Interactively schedules a recurring task using cron or interval expressions (e.g., `every 1h`, `0 0 * * *`) that runs automatically in the background.
+*   **`/kanban` / `/live`**: Renders a terminal-based Kanban board displaying the status of active and historical tasks.
+*   **`/todo <title>` / `/doing <id>` / `/done <id>`**: Add and transition tasks across Kanban statuses.
+*   **`/status`**: Display system status, active baton states, and pending LanceDB tasks.
+*   **`/doctor`**: Run environment and configuration integrity diagnostics.
+*   **`/models`**: Interactively view or swap Planner vs. Worker model assignments on the fly.
 
 ---
 

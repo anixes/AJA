@@ -4,10 +4,14 @@ import sys
 from pathlib import Path
 
 
-def dispatch_worker(worker_id: str, baton: dict, workspace_dir: str) -> dict:
+async def dispatch_worker(worker_id: str, baton: dict, workspace_dir: str) -> dict:
     """
     Dispatch a baton to the best available worker adapter.
     """
+    if worker_id.startswith("worker-") or worker_id == "native-worker":
+        adapter = NativeWorkerAdapter()
+        return await adapter.run_async(baton, workspace_dir)
+
     adapters = {
         "github-copilot-cli": CopilotAdapter(),
         "gemini-cli": GeminiAdapter(),
@@ -212,3 +216,50 @@ class SwarmMaintenanceAdapter(BaseAdapter):
             "tests": "",
             "rollback_path": "No rollback needed for maintenance tasks.",
         }
+
+
+class NativeWorkerAdapter(BaseAdapter):
+    async def run_async(self, baton: dict, workspace_dir: str) -> dict:
+        task = baton.get("task", "")
+        
+        # Local import to prevent circular dependency
+        from aja.orchestration.swarm import SwarmEngine
+        
+        engine = SwarmEngine(dry_run=False)
+        
+        # Enforce autonomous, non-interactive system prompt for background worker execution
+        engine.presenter.direct_system_prompt = (
+            "You are AJA (Assistant of Joint Agents), an elite AI assistant operating in a strictly "
+            "NON-INTERACTIVE, AUTONOMOUS background worker context.\n"
+            "Your objective is to accomplish the assigned task using direct tool execution.\n\n"
+            "CRITICAL RULES FOR AUTONOMOUS WORKERS:\n"
+            "1. DO NOT ASK THE USER QUESTIONS or request clarification. Stdin is not connected. "
+            "If you need info or parameters, search files, read logs, make logical assumptions, or search the web. Do not wait for input.\n"
+            "2. You MUST execute tools or shell commands until you have fully completed the task. "
+            "An empty execution with no files modified will fail verification.\n"
+            "3. Speak like a premium developer-fluent AI assistant. Summarize your actions at the end.\n"
+            "4. Prefer to use structured JSON tools (read_file, write_file, multi_replace) for filesystem edits."
+        )
+        
+        branch_name = f"native-worker-{baton.get('id', 'task')}"
+        self._create_branch(branch_name, workspace_dir)
+        
+        try:
+            await engine.execute_direct(task)
+            
+            return {
+                "status": "completed",
+                "output": f"Native worker successfully executed task: {task}",
+                "diff": self._get_diff(workspace_dir),
+                "tests": self._run_tests(workspace_dir),
+                "rollback_path": f"git checkout main && git branch -D {branch_name}",
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "error": str(e),
+                "output": "",
+                "diff": self._get_diff(workspace_dir),
+                "tests": "",
+                "rollback_path": f"git checkout main && git branch -D {branch_name}",
+            }

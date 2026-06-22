@@ -77,7 +77,7 @@ async def work(baton_path: str):
         worker_id = baton.get("delegated_worker", "swarm-maintenance")
         
         # Execute via specialized dispatch adapter
-        adapter_result = dispatch_worker(worker_id, baton, workspace_dir)
+        adapter_result = await dispatch_worker(worker_id, baton, workspace_dir)
         
         baton["stage"] = "verifying"
         append_baton_history(baton, "verifying", "Worker completed execution. Gathering validation and diffs.")

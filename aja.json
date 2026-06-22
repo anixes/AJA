@@ -23,5 +23,6 @@
     },
     "operating_mode": "online",
     "allow_out_of_bounds_paths": true
-  }
+  },
+  "mcp_servers": {}
 }

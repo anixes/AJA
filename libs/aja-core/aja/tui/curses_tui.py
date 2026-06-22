@@ -44,6 +44,56 @@ SKINS = {
 }
 
 class TerminalDashboard:
+
+    def __init__(self, dry_run: bool = False):
+        # ... (existing code unchanged)
+        self.servers = [
+            {'name': 'Server 1', 'status': 'ONLINE'},
+            {'name': 'Server 2', 'status': 'OFFLINE'},
+            {'name': 'Server 3', 'status': 'ONLINE'},
+            # Additional server entries
+        ]
+        self.selected_server_index = 0
+        self.max_displayed_servers = 10
+
+    def render_server_list_panel(self) -> RenderableType:
+        skin = self.get_skin()
+        table = Table.grid(expand=True, padding=0)
+        table.add_column("Server Name", justify="left")
+        table.add_column("Status", justify="left")
+
+        # Calculate server slice based on selected index for scrolling
+        displayed_servers = self.servers[self.selected_server_index:self.selected_server_index + self.max_displayed_servers]
+        for server in displayed_servers:
+            status = Text(server['status'], style="bold green" if server['status'] == 'ONLINE' else "bold red")
+            table.add_row(server['name'], status)
+
+        return Panel(
+            Align.left(table),
+            title=f"[{skin['title_color']}]█ Server List [/{skin['title_color']}]",
+            border_style=skin["border_color"],
+            box=skin["box_style"]
+        )
+
+    def handle_keypress(self, key: str):
+        if key.lower() == 'r':
+            self.refresh_servers()
+        elif key.lower() == 'i':
+            self.install_mcp()
+        # Handle scrolling
+        elif key.lower() == 'up':
+            self.selected_server_index = max(0, self.selected_server_index - 1)
+        elif key.lower() == 'down':
+            self.selected_server_index = min(len(self.servers) - self.max_displayed_servers, self.selected_server_index + 1)
+
+    def refresh_servers(self):
+        # Logic to refresh server list
+        pass
+
+    def install_mcp(self):
+        # Logic to install MCP on selected server
+        pass
+
     """
     High-fidelity Terminal UI Dashboard representing the HTN Execution Graph,
     Worker Telemetry Logs, and Interactive SWAT Controls.
