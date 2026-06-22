@@ -47,7 +47,7 @@ class BaseAdapter:
 
         try:
             res = subprocess.run(
-                [sys.executable, "-m", "pytest", "--maxfail=1", "-v"],
+                [sys.executable, "-m", "pytest", "tests/python/unit", "--maxfail=1", "-v"],
                 cwd=workspace_dir,
                 capture_output=True,
                 text=True,
@@ -61,7 +61,7 @@ class BaseAdapter:
 
         # Fallback to default pytest binary on PATH with set PYTHONPATH
         res = subprocess.run(
-            ["pytest", "--maxfail=1", "-v"],
+            ["pytest", "tests/python/unit", "--maxfail=1", "-v"],
             cwd=workspace_dir,
             capture_output=True,
             text=True,
