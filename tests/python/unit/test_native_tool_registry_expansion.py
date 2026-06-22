@@ -88,8 +88,10 @@ index 1234567..890abcd 100644
 
 def test_delete_path(tmp_path):
     orig_root = aja.config.PROJECT_ROOT
+    orig_allow = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
     try:
         aja.config.PROJECT_ROOT = tmp_path
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
         registry = NativeToolRegistry()
         
         # Delete file
@@ -104,6 +106,7 @@ def test_delete_path(tmp_path):
         assert "Security Error" in res_security
     finally:
         aja.config.PROJECT_ROOT = orig_root
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_allow
 
 
 def test_copy_move_path(tmp_path):

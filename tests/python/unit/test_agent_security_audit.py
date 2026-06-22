@@ -18,6 +18,10 @@ class TestAjaSecurityAudit(unittest.TestCase):
     def setUp(self):
         self.registry = NativeToolRegistry()
         self.orig_project_root = aja.config.PROJECT_ROOT
+        self.orig_allow_out_of_bounds_paths = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+        
+        # Override settings for safety boundary enforcement testing
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
         
         # Create a temp project root for testing boundary protection
         self.temp_root = project_root / "tests" / "python" / "unit" / "temp_security_root"
@@ -26,6 +30,7 @@ class TestAjaSecurityAudit(unittest.TestCase):
 
     def tearDown(self):
         aja.config.PROJECT_ROOT = self.orig_project_root
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = self.orig_allow_out_of_bounds_paths
         # Clean up temp files if created
         for p in self.temp_root.rglob("*"):
             if p.is_file():
