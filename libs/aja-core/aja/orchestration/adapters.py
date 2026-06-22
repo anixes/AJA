@@ -37,7 +37,36 @@ class BaseAdapter:
         return res.stdout
 
     def _run_tests(self, workspace_dir: str) -> str:
-        res = subprocess.run(["pytest", "--maxfail=1", "-v"], cwd=workspace_dir, capture_output=True, text=True)
+        import os
+        env = os.environ.copy()
+        libs_aja_core = str(Path(workspace_dir) / "libs" / "aja-core")
+        if "PYTHONPATH" in env:
+            env["PYTHONPATH"] = f"{libs_aja_core}{os.pathsep}{env['PYTHONPATH']}"
+        else:
+            env["PYTHONPATH"] = libs_aja_core
+
+        try:
+            res = subprocess.run(
+                [sys.executable, "-m", "pytest", "--maxfail=1", "-v"],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                env=env
+            )
+            # If pytest is successfully run as module, return results
+            if "no module named pytest" not in (res.stderr or "").lower():
+                return res.stdout if res.returncode == 0 else f"Tests failed:\n{res.stdout}\n{res.stderr}"
+        except Exception:
+            pass
+
+        # Fallback to default pytest binary on PATH with set PYTHONPATH
+        res = subprocess.run(
+            ["pytest", "--maxfail=1", "-v"],
+            cwd=workspace_dir,
+            capture_output=True,
+            text=True,
+            env=env
+        )
         return res.stdout if res.returncode == 0 else f"Tests failed:\n{res.stdout}\n{res.stderr}"
 
     def _missing_cli(self, cli_name: str) -> dict:
