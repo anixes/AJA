@@ -27,6 +27,7 @@ dependencies = [
     "platformdirs",
     "pandas>=2.0",
     "mcp",
+    "pylance",
     "filelock>=3.12"
 ]
 
