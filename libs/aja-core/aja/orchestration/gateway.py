@@ -210,7 +210,7 @@ class LLMGateway:
                     m_lower = model.lower()
                     if "/" in m_lower:
                         m_lower = m_lower.rsplit("/", 1)[-1]
-                    if m_lower.startswith("gpt-") and not m_lower.startswith("gpt-5-mini") and m_lower != "gpt-4o-mini":
+                    if m_lower.startswith("gpt-") and not m_lower.startswith("gpt-5-mini") and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4"):
                         use_responses = True
 
                 if self.provider == "copilot" and use_responses:
