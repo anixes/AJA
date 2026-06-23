@@ -77,7 +77,7 @@ class SwarmEngine:
         self.baton_dir = DATA_DIR / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
-    async def execute_direct(self, objective: str):
+    async def execute_direct(self, objective: str, session_history: list = None):
         """
         Direct Tooling and In-Process Execution (Interactive Pairing Assistant).
         Executes commands synchronously in-process using ToolExecutor.
@@ -109,16 +109,30 @@ class SwarmEngine:
         # 2. Build client-specific prompt through the presenter boundary.
         system_prompt = self.presenter.direct_system_prompt
 
-        history = [
-            {"role": "user", "content": f"Please execute this task directly: {objective}"}
-        ]
+        # When session_history is supplied (DirectSession multi-turn mode), we use
+        # the caller-owned list so history accumulates across turns (enabling
+        # provider-side prompt caching of the static system prefix).
+        # In single-shot mode (session_history=None), we create a fresh list.
+        if session_history is not None:
+            # The caller already appended the new user message before calling us.
+            # We use their list directly — mutation is visible to the caller.
+            history = session_history
+        else:
+            # Legacy single-shot mode: fresh ephemeral history.
+            history = [
+                {"role": "user", "content": f"Please execute this task directly: {objective}"}
+            ]
 
         iteration = 0
-        max_iterations = 10 # Prevent runaway loops
+        max_iterations = 10  # Prevent runaway loops
         
         while iteration < max_iterations:
             iteration += 1
-            
+
+            # Compress history before sending to LLM to stay within token budget
+            from aja.orchestration.context_window import compress_history
+            compress_history(history, model=self.model, provider=self.provider)
+
             # Request LLM response
             try:
                 response = await self.gateway.chat(
@@ -185,7 +199,10 @@ class SwarmEngine:
                         err_msg = r.error or getattr(r, "stderr", None) or r.data
                         console.print(f"[bold red]✘ Tool '{r.tool}' failed: {escape(str(err_msg))}[/bold red]")
                     
-                    obs = f"Tool '{r.tool}' result:\n{r.data or r.error or getattr(r, 'stderr', '')}"
+                    from aja.orchestration.context_window import truncate_tool_result, MAX_TOOL_RESULT_CHARS
+                    raw_output = str(r.data or r.error or getattr(r, "stderr", "") or "")
+                    safe_output = truncate_tool_result(raw_output, MAX_TOOL_RESULT_CHARS)
+                    obs = f"Tool '{r.tool}' result:\n{safe_output}"
                     history.append({"role": "user", "content": obs})
 
             # Check for legacy bash/sh command blocks

@@ -51,6 +51,16 @@ class SwarmSettings(BaseModel):
     operating_mode: str = "offline"
     direct_execution: bool = True
     allow_out_of_bounds_paths: bool = False
+    context_limit_tokens: Optional[int] = Field(
+        default=None,
+        ge=1024,
+        description=(
+            "Explicit context-window size in tokens for the active worker model. "
+            "When set, this overrides the built-in model-limit table in context_window.py. "
+            "Useful for custom or fine-tuned models whose real context window is not "
+            "in the default lookup table."
+        ),
+    )
 
     @field_validator("operating_mode")
     @classmethod
