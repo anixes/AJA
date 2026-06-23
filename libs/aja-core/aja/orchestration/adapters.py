@@ -30,12 +30,29 @@ class BaseAdapter:
         raise NotImplementedError()
 
     def _create_branch(self, branch_name: str, workspace_dir: str):
-        subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace_dir, capture_output=True)
+        base_branch = "master"
+        res = subprocess.run(["git", "show-ref", "refs/heads/main"], cwd=workspace_dir, capture_output=True)
+        if res.returncode == 0:
+            base_branch = "main"
+        subprocess.run(["git", "checkout", base_branch], cwd=workspace_dir, capture_output=True)
+        subprocess.run(["git", "checkout", "-B", branch_name, base_branch], cwd=workspace_dir, capture_output=True)
 
     def _get_diff(self, workspace_dir: str) -> str:
         subprocess.run(["git", "add", "-N", "."], cwd=workspace_dir, capture_output=True)
         res = subprocess.run(["git", "diff"], cwd=workspace_dir, capture_output=True, text=True)
-        return res.stdout
+        diff = res.stdout
+        if not diff.strip():
+            # If no uncommitted diff, check if we are on a worker branch and get diff against master/main
+            branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace_dir, capture_output=True, text=True)
+            branch = branch_res.stdout.strip()
+            if branch not in ("", "master", "main", "HEAD"):
+                base_branch = "master"
+                res = subprocess.run(["git", "show-ref", "refs/heads/main"], cwd=workspace_dir, capture_output=True)
+                if res.returncode == 0:
+                    base_branch = "main"
+                diff_res = subprocess.run(["git", "diff", f"{base_branch}...HEAD"], cwd=workspace_dir, capture_output=True, text=True)
+                return diff_res.stdout
+        return diff
 
     def _run_tests(self, workspace_dir: str) -> str:
         import os

@@ -1,3 +1,0 @@
-Diagnostics check completed successfully, but there are some warnings related to outdated libraries: 
-1. Pandas requires version '2.10.2' or newer of 'numexpr' (current: '2.8.7').
-2. Pandas requires version '1.4.2' or newer of 'bottleneck' (current: '1.3.7').

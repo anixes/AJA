@@ -178,10 +178,12 @@ class SwarmEngine:
                     if r.success:
                         console.print(f"[bold green]✔ Tool '{r.tool}' succeeded[/bold green]")
                         if r.data:
-                            console.print(f"[dim]{r.data}[/dim]")
+                            from rich.markup import escape
+                            console.print(f"[dim]{escape(str(r.data))}[/dim]")
                     else:
+                        from rich.markup import escape
                         err_msg = r.error or getattr(r, "stderr", None) or r.data
-                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {err_msg}[/bold red]")
+                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {escape(str(err_msg))}[/bold red]")
                     
                     obs = f"Tool '{r.tool}' result:\n{r.data or r.error or getattr(r, 'stderr', '')}"
                     history.append({"role": "user", "content": obs})
@@ -473,6 +475,11 @@ class SwarmEngine:
             env["AJA_EXECUTION_SESSION_ID"] = session_id
         if run_id:
             env["AJA_RUN_ID"] = run_id
+
+        # Propagate credentials and configurations from parent environment
+        for k, v in os.environ.items():
+            if k.startswith("COPILOT_") or k.startswith("AJA_"):
+                env.setdefault(k, v)
 
         worker_cmd = f'"{PYTHON}" -m aja.agents.worker "{baton_path}"'
         process = await get_default_execution_manager().run(
