@@ -155,7 +155,9 @@ class LLMGateway:
     async def chat(
         self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None, extra_body: Optional[Dict[str, Any]] = None
     ):
-        """Simple chat completion with backoff retries."""
+        if self.provider == "copilot" and model in ("copilot", "github-copilot", "default"):
+            model = "gpt-4o-mini"
+
         for attempt in range(1, retries + 1):
             try:
                 if self.provider == "google":

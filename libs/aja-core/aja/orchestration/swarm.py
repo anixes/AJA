@@ -43,9 +43,24 @@ class SwarmEngine:
         import os
         from aja.config import AJA_PLANNER_MODEL
         
-        self.provider = provider if provider != "nvidia" else os.getenv("AI_PROVIDER", "google")
-        self.api_key = key if key != "dummy" else (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "dummy")
-        self.model = model if model != "llama-3" else (AJA_PLANNER_MODEL or "google:gemini-2.0-flash")
+        model_resolved = model if model != "llama-3" else (AJA_PLANNER_MODEL or "google:gemini-2.0-flash")
+        
+        if ":" in model_resolved:
+            parts = model_resolved.split(":", 1)
+            self.provider = parts[0]
+            self.model = parts[1]
+        else:
+            self.model = model_resolved
+            if "gemini" in model_resolved.lower():
+                self.provider = "google"
+            elif "gemma" in model_resolved.lower() or "llama" in model_resolved.lower():
+                self.provider = "llama_cpp"
+            elif "copilot" in model_resolved.lower():
+                self.provider = "copilot"
+            else:
+                self.provider = provider if provider != "nvidia" else os.getenv("AI_PROVIDER", "google")
+                
+        self.api_key = key if key != "dummy" else (os.getenv(f"{self.provider.upper()}_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "dummy")
         self.dry_run = dry_run
 
         from aja.llm import get_gateway_for_model

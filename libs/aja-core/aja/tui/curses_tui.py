@@ -13,6 +13,8 @@ from rich.table import Table
 from rich.align import Align
 from rich.box import ROUNDED, DOUBLE, HEAVY
 
+from aja.mcp import get_catalog, install_mcp_server
+
 console = Console()
 
 # Define the skin themes
@@ -43,57 +45,88 @@ SKINS = {
     }
 }
 
+import threading
+import sys
+
+class AsyncKeyboardInput:
+    def __init__(self):
+        self.queue = asyncio.Queue()
+        self.loop = asyncio.get_event_loop()
+        self.running = True
+        self.thread = threading.Thread(target=self._read_loop, daemon=True)
+        self.thread.start()
+
+    def _read_loop(self):
+        if sys.platform == "win32":
+            import msvcrt
+            while self.running:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getch()
+                    if ch in (b'\x00', b'\xe0'):  # arrow keys prefix
+                        ch2 = msvcrt.getch()
+                        if ch2 == b'H':
+                            key = "up"
+                        elif ch2 == b'P':
+                            key = "down"
+                        else:
+                            key = None
+                    else:
+                        try:
+                            key = ch.decode("utf-8")
+                        except UnicodeDecodeError:
+                            key = None
+                    if key:
+                        self.loop.call_soon_threadsafe(self.queue.put_nowait, key)
+                time.sleep(0.05)
+        else:
+            import select
+            import tty
+            import termios
+            fd = sys.stdin.fileno()
+            try:
+                old_settings = termios.tcgetattr(fd)
+            except Exception:
+                # Fallback if stdin is not a TTY or non-interactive
+                return
+            try:
+                tty.setraw(sys.stdin.fileno())
+                while self.running:
+                    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                    if rlist:
+                        ch = sys.stdin.read(1)
+                        if ch == '\x1b':  # escape sequence
+                            rlist2, _, _ = select.select([sys.stdin], [], [], 0.05)
+                            if rlist2:
+                                ch2 = sys.stdin.read(1)
+                                if ch2 == '[':
+                                    ch3 = sys.stdin.read(1)
+                                    if ch3 == 'A':
+                                        key = "up"
+                                    elif ch3 == 'B':
+                                        key = "down"
+                                    else:
+                                        key = None
+                                else:
+                                    key = None
+                            else:
+                                key = "escape"
+                        else:
+                            key = ch
+                        if key:
+                            self.loop.call_soon_threadsafe(self.queue.put_nowait, key)
+            except Exception:
+                pass
+            finally:
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                except Exception:
+                    pass
+
+    def stop(self):
+        self.running = False
+
+
 class TerminalDashboard:
-
-    def __init__(self, dry_run: bool = False):
-        # ... (existing code unchanged)
-        self.servers = [
-            {'name': 'Server 1', 'status': 'ONLINE'},
-            {'name': 'Server 2', 'status': 'OFFLINE'},
-            {'name': 'Server 3', 'status': 'ONLINE'},
-            # Additional server entries
-        ]
-        self.selected_server_index = 0
-        self.max_displayed_servers = 10
-
-    def render_server_list_panel(self) -> RenderableType:
-        skin = self.get_skin()
-        table = Table.grid(expand=True, padding=0)
-        table.add_column("Server Name", justify="left")
-        table.add_column("Status", justify="left")
-
-        # Calculate server slice based on selected index for scrolling
-        displayed_servers = self.servers[self.selected_server_index:self.selected_server_index + self.max_displayed_servers]
-        for server in displayed_servers:
-            status = Text(server['status'], style="bold green" if server['status'] == 'ONLINE' else "bold red")
-            table.add_row(server['name'], status)
-
-        return Panel(
-            Align.left(table),
-            title=f"[{skin['title_color']}]█ Server List [/{skin['title_color']}]",
-            border_style=skin["border_color"],
-            box=skin["box_style"]
-        )
-
-    def handle_keypress(self, key: str):
-        if key.lower() == 'r':
-            self.refresh_servers()
-        elif key.lower() == 'i':
-            self.install_mcp()
-        # Handle scrolling
-        elif key.lower() == 'up':
-            self.selected_server_index = max(0, self.selected_server_index - 1)
-        elif key.lower() == 'down':
-            self.selected_server_index = min(len(self.servers) - self.max_displayed_servers, self.selected_server_index + 1)
-
-    def refresh_servers(self):
-        # Logic to refresh server list
-        pass
-
-    def install_mcp(self):
-        # Logic to install MCP on selected server
-        pass
-
     """
     High-fidelity Terminal UI Dashboard representing the HTN Execution Graph,
     Worker Telemetry Logs, and Interactive SWAT Controls.
@@ -107,6 +140,10 @@ class TerminalDashboard:
         self.running = True
         self.input_history = []
         
+        # Initialize MCP Catalog
+        self.mcp_catalog = get_catalog()
+        self.selected_mcp_index = 0
+
         # Mock/Real state
         self.nodes = [
             {"id": "node-1", "task": "Load project environment configuration", "status": "COMPLETED"},
@@ -210,6 +247,52 @@ class TerminalDashboard:
             box=skin["box_style"]
         )
 
+    def render_mcp_hub_panel(self) -> RenderableType:
+        skin = self.get_skin()
+        from aja.config import CONFIG
+        
+        installed_ids = {s.server_id.lower() for s in getattr(CONFIG, "mcp_servers", [])}
+        
+        table = Table.grid(expand=True, padding=0)
+        table.add_column(" ", width=3)
+        table.add_column("Server", justify="left", width=12)
+        table.add_column("Status", justify="left", width=12)
+        table.add_column("Description", justify="left")
+        
+        catalog_items = list(self.mcp_catalog.items())
+        if self.selected_mcp_index >= len(catalog_items):
+            self.selected_mcp_index = max(0, len(catalog_items) - 1)
+            
+        for idx, (name, info) in enumerate(catalog_items):
+            is_selected = (idx == self.selected_mcp_index)
+            is_installed = name in installed_ids
+            
+            status_text = "[bold green]INSTALLED[/]" if is_installed else "[dim white]AVAILABLE[/]"
+            
+            if is_selected:
+                marker = f"[{skin['title_color']}]▶[/{skin['title_color']}]"
+                name_style = f"bold {skin['accent_color']}"
+                desc_style = "bold white"
+            else:
+                marker = " "
+                name_style = "dim white"
+                desc_style = "dim white"
+                
+            table.add_row(
+                marker,
+                Text(name, style=name_style),
+                status_text,
+                Text(info["description"], style=desc_style)
+            )
+            table.add_row("", "", "", "")
+            
+        return Panel(
+            Align.left(table),
+            title=f"[{skin['title_color']}]█ MCP Hub [/{skin['title_color']}]",
+            border_style=skin["border_color"],
+            box=skin["box_style"]
+        )
+
     def render_logs_panel(self) -> RenderableType:
         skin = self.get_skin()
         formatted_logs = []
@@ -239,26 +322,26 @@ class TerminalDashboard:
         skin = self.get_skin()
         try:
             from aja.runtime.execution import get_default_execution_manager
-
             active_executions = get_default_execution_manager().list_active()
             exec_state = f"{len(active_executions)} active"
         except Exception:
             exec_state = "unavailable"
         
-        # Build layout control status
         state_text = "[bold green]ONLINE RUNNING[/]"
         if self.paused:
             state_text = "[bold yellow]AUTONOMY PAUSED[/]"
             
         bindings_table = Table.grid(expand=True, padding=1)
-        bindings_table.add_column("Binding", style="cyan bold", width=12)
+        bindings_table.add_column("Binding", style="cyan bold", width=16)
         bindings_table.add_column("Action", style="white")
         bindings_table.add_column("State Info", justify="right")
         
-        bindings_table.add_row("[S]", "Toggle Themes / Color Skins", f"Skin: [bold magenta]{skin['name']}[/]")
+        bindings_table.add_row("[T]", "Toggle Themes / Color Skins", f"Skin: [bold magenta]{skin['name']}[/]")
         bindings_table.add_row("[P]", "Pause / Interrupt Swarm", f"Engine State: {state_text}")
-        bindings_table.add_row("[R]", "Resume / Approve Next Task", f"Executions: [green]{exec_state}[/]")
-        bindings_table.add_row("[Q / Ctrl+C]", "Exit & Safe Handover to Background", "PID: [green]Worker Active[/]")
+        bindings_table.add_row("[W / S or Arrow]", "Navigate MCP Catalog", f"Selected: [yellow]{list(self.mcp_catalog.keys())[self.selected_mcp_index]}[/]")
+        bindings_table.add_row("[I]", "Install Selected MCP Server", f"Executions: [green]{exec_state}[/]")
+        bindings_table.add_row("[R]", "Refresh MCP Catalog", "")
+        bindings_table.add_row("[Q / Ctrl+C]", "Exit Dashboard", "PID: [green]Worker Active[/]")
         
         return Panel(
             bindings_table,
@@ -266,6 +349,47 @@ class TerminalDashboard:
             border_style=skin["border_color"],
             box=skin["box_style"]
         )
+
+    def handle_keypress(self, key: str):
+        key_lower = key.lower()
+        if key_lower == 't':
+            self.toggle_skin()
+        elif key_lower == 'p':
+            self.paused = not self.paused
+        elif key_lower == 'q':
+            self.running = False
+        elif key_lower in ('up', 'w'):
+            self.selected_mcp_index = max(0, self.selected_mcp_index - 1)
+        elif key_lower in ('down', 's'):
+            catalog_items = list(self.mcp_catalog.items())
+            self.selected_mcp_index = min(len(catalog_items) - 1, self.selected_mcp_index + 1)
+        elif key_lower == 'i':
+            self.install_selected_mcp()
+        elif key_lower == 'r':
+            self.refresh_mcp_catalog()
+
+    def install_selected_mcp(self):
+        catalog_items = list(self.mcp_catalog.items())
+        if not catalog_items:
+            return
+        server_name, info = catalog_items[self.selected_mcp_index]
+        self.logs.append(f"[{time.strftime('%H:%M:%S')}] INFO [MCP Hub] Installing server '{server_name}'...")
+        try:
+            install_mcp_server(server_name)
+            
+            # Reload config object in config module dynamically
+            from aja.config import load_and_validate_config
+            import aja.config
+            aja.config.CONFIG = load_and_validate_config()
+            
+            self.logs.append(f"[{time.strftime('%H:%M:%S')}] SUCCESS [MCP Hub] Server '{server_name}' successfully installed.")
+        except Exception as e:
+            self.logs.append(f"[{time.strftime('%H:%M:%S')}] ERROR [MCP Hub] Failed to install '{server_name}': {e}")
+
+    def refresh_mcp_catalog(self):
+        self.logs.append(f"[{time.strftime('%H:%M:%S')}] INFO [MCP Hub] Refreshing MCP Catalog...")
+        self.mcp_catalog = get_catalog()
+        self.logs.append(f"[{time.strftime('%H:%M:%S')}] SUCCESS [MCP Hub] Catalog refreshed.")
 
     def generate_layout(self) -> Layout:
         self.generate_simulated_activity()
@@ -278,14 +402,17 @@ class TerminalDashboard:
         
         layout["top"].split_row(
             Layout(name="left", ratio=3),
+            Layout(name="middle", ratio=3),
             Layout(name="right", ratio=3)
         )
         
         layout["left"].update(self.render_htn_panel())
+        layout["middle"].update(self.render_mcp_hub_panel())
         layout["right"].update(self.render_logs_panel())
         layout["bottom"].update(self.render_control_panel())
         
         return layout
+
 
 async def run_curses_tui_main(dry_run: bool = False):
     """
@@ -296,27 +423,30 @@ async def run_curses_tui_main(dry_run: bool = False):
     console.print("[cyan]Initializing AJA Premium Live TUI...[/]")
     time.sleep(0.5)
     
-    # We do a clean terminal print update loop using rich Live view
+    keyboard = AsyncKeyboardInput()
+    
     with Live(dashboard.generate_layout(), refresh_per_second=4, screen=True) as live:
         try:
-            # On Windows or headless terminals where curses key hooks might block,
-            # we simulate an event-driven loop and support simple time/key loops.
             while dashboard.running:
-                # Update layout
-                live.update(dashboard.generate_layout())
-                
-                # Check for skin triggers / simple automation
-                # (In full curses we capture keypresses, in rich.live we simulate or check stdin)
-                await asyncio.sleep(0.25)
-                
-                # Simulate skin switching every few seconds in dry-run/demo to show off the visual aesthetic
-                if dry_run and int(time.time()) % 15 == 0 and int(time.time() * 4) % 4 == 0:
-                    dashboard.toggle_skin()
+                # Process any pending keys
+                while not keyboard.queue.empty():
+                    key = keyboard.queue.get_nowait()
+                    dashboard.handle_keypress(key)
                     
+                live.update(dashboard.generate_layout())
+                await asyncio.sleep(0.1)
+                
+                # Simulate skin switching in dry-run
+                if dry_run and int(time.time()) % 15 == 0 and int(time.time() * 10) % 10 == 0:
+                    dashboard.toggle_skin()
         except KeyboardInterrupt:
+            pass
+        finally:
             dashboard.running = False
+            keyboard.stop()
             
     console.print("[bold green]TUI clean exit successful.[/]")
+
 
 if __name__ == "__main__":
     asyncio.run(run_curses_tui_main(dry_run=True))
