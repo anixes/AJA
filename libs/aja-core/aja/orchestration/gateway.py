@@ -86,6 +86,47 @@ def load_config():
     return {}
 
 
+def _is_claude_model(model: str) -> bool:
+    """Return True if the model name identifies a Claude variant."""
+    m = (model or "").lower()
+    return "claude" in m
+
+
+def _build_system_message(provider: str, model: str, system: str) -> dict:
+    """
+    Build the system message dict for the messages array.
+
+    For Anthropic-compatible providers (``anthropic`` or ``copilot`` with a
+    Claude model) we annotate the system content block with
+    ``cache_control: {"type": "ephemeral"}`` so the API can cache the static
+    system prefix across turns in a DirectSession, reducing TTFT and cost.
+
+    All other providers receive a plain ``{"role": "system", "content": ...}``
+    dict which is universally compatible with the OpenAI Chat Completions API.
+    """
+    use_cache = provider == "anthropic" or (
+        provider == "copilot" and _is_claude_model(model)
+    )
+
+    if use_cache:
+        # Anthropic cache_control annotation — works for both direct Anthropic
+        # API and Copilot-routed Claude models that honour the field.
+        return {
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
+
+    # Standard system message for all other providers (OpenAI, Google via
+    # OpenAI compat, OpenRouter, llama_cpp, etc.)
+    return {"role": "system", "content": system}
+
+
 class LLMGateway:
     """
     LLMGateway — the low-level AI provider client for AJA.
@@ -301,10 +342,10 @@ class LLMGateway:
                         if m.get("tool_call_id") is not None:
                             msg_dict["tool_call_id"] = m.get("tool_call_id")
                         prompt_messages.append(msg_dict)
-                    messages = [{"role": "system", "content": system}] + prompt_messages
+                    messages = [_build_system_message(self.provider, model, system)] + prompt_messages
                 else:
                     messages = [
-                        {"role": "system", "content": system},
+                        _build_system_message(self.provider, model, system),
                         {"role": "user", "content": prompt},
                     ]
 

@@ -110,6 +110,22 @@ def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
         except Exception as e:
             print_error(f"Swarm Execution Error: {e}")
 
+def cmd_direct(dry_run: bool = False, model: str = None, resume: bool = False):
+    """
+    Launch the persistent Direct Mode interactive developer session.
+    Maintains rolling conversation memory and leverages prompt caching
+    for low-latency multi-turn tool calls on the active workspace.
+    """
+    from aja.orchestration.direct_session import DirectSession
+
+    session = DirectSession(dry_run=dry_run, model=model, resume=resume)
+    try:
+        asyncio.run(session.run())
+    except KeyboardInterrupt:
+        console.print("\n[bold cyan]AJA:[/] Session terminated. Goodbye.")
+    except Exception as e:
+        print_error(f"Direct Session Error: {e}")
+
 
 def cmd_pickup(code: str):
     """
@@ -1087,6 +1103,7 @@ def show_help():
     help_text = """
 [bold cyan]Core Mission Commands[/]
 [green]swarm[/] <objective> [--dry-run] → Start a mission (with optional simulation)
+[green]direct[/] [--dry-run] [--model=<m>] [--resume] → Persistent interactive developer session
 [green]chat[/]              → Interactive conversational loop
 [green]status[/]            → Show swarm health
 [green]pickup[/] <code>      → Resume a mission
@@ -1257,6 +1274,11 @@ def main():
         objective_parts = [a for a in args[1:] if a not in ("--bg", "--dry-run")]
         objective = " ".join(objective_parts)
         cmd_run(objective, background=bg, dry_run=dry_run)
+    elif cmd == "direct":
+        dry_run = "--dry-run" in args
+        resume = "--resume" in args
+        model = next((a.split("=", 1)[1] for a in args if a.startswith("--model=")), None)
+        cmd_direct(dry_run=dry_run, model=model, resume=resume)
     elif cmd == "chat":
         run_chat_with_gateway()
     elif cmd == "status":
