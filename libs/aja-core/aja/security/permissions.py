@@ -1,4 +1,5 @@
 import fnmatch
+import re
 import sys
 import time
 import uuid
@@ -41,6 +42,8 @@ class PermissionPolicy:
                 "browser.navigate": "ask",
                 "browser.interact": "ask",
                 "desktop.interact": "ask",
+                "fs.read.global": "ask",
+                "fs.write.global": "ask",
             },
             ask_timeout_s=60.0,
         )
@@ -212,6 +215,11 @@ def required_scope_for_shell(cmd: str, classification: Optional[Dict[str, Any]] 
     classification = classification or {}
     decision = classification.get("decision")
     root = (classification.get("root") or "").lower()
+    
+    # Lightweight defense-in-depth heuristic against path traversal
+    if "../" in cmd or "..\\" in cmd or re.search(r"(?:^|\s)(?:/|[a-zA-Z]:\\)", cmd):
+        return "shell.destructive"
+        
     if decision in {"ask", "deny"}:
         return "shell.destructive"
     if root in {"cat", "type", "dir", "ls", "rg", "grep", "find", "get-content", "get-childitem"}:

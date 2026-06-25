@@ -97,7 +97,7 @@ class ToolExecutor:
         from aja.orchestration.activity_rt import ActivityRuntime
         from aja.orchestration.scheduler import ParallelActivityScheduler
 
-        registry = NativeToolRegistry()
+        registry = NativeToolRegistry(engine=None)
         runtime = ActivityRuntime(journal=journal, dry_run=dry_run)
         activities = []
         for tc in tool_calls:

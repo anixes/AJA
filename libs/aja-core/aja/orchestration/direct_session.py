@@ -15,6 +15,8 @@ import json
 import os
 from pathlib import Path
 from typing import List, Optional
+import typer
+from aja.orchestration.plan_gate import plan_gate
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
@@ -250,17 +252,30 @@ class DirectSession:
     # Core turn execution
     # ------------------------------------------------------------------
 
-    async def _turn(self, objective: str, console) -> None:
+    async def _turn(self, objective: str, console, interactive: bool = True) -> None:
         """Execute one user turn: append to shared history, delegate to execute_direct, mirror to DB."""
+        # Check if the user's input warrants an execution plan before executing
+        if interactive:
+            try:
+                processed_objective = await plan_gate(objective)
+            except typer.Exit:
+                return
+            except Exception as e:
+                console.print(f"[dim]Plan gate check skipped: {e}[/dim]")
+                processed_objective = objective
+        else:
+            processed_objective = objective
+
         # Append user message to shared history (execute_direct will see it)
-        self.session_history.append({"role": "user", "content": objective})
-        self._mirror("user", objective)
+        self.session_history.append({"role": "user", "content": processed_objective})
+        self._mirror("user", processed_objective)
 
         # Run the tool-calling loop — execute_direct mutates session_history in-place
         try:
             await self.engine.execute_direct(
-                objective,
+                processed_objective,
                 session_history=self.session_history,
+                interactive=interactive,
             )
         except Exception as e:
             console.print(f"[bold red]✘ Session error: {e}[/bold red]")

@@ -8,7 +8,8 @@ import traceback
 class NativeToolRegistry:
     _external_schemas: Dict[str, Dict[str, Any]] = {}
 
-    def __init__(self):
+    def __init__(self, engine: Optional[Any] = None):
+        self.engine = engine
         self.tools = {}
         self.register_default_tools()
 
@@ -52,8 +53,9 @@ class NativeToolRegistry:
         self.tools["copy_path"] = self.copy_path
         self.tools["move_path"] = self.move_path
         self.tools["query_past_experiences"] = self.query_past_experiences
+        self.tools["ask_user"] = self.ask_user
 
-    def get_schemas(self) -> List[Dict[str, Any]]:
+    def get_schemas(self, interactive: bool = True) -> List[Dict[str, Any]]:
         schemas = [
             {
                 "type": "function",
@@ -553,6 +555,25 @@ class NativeToolRegistry:
                 },
             },
         ]
+        
+        if interactive:
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": "ask_user",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.ask_user",
+                    "description": "Pause execution and ask the user a clarifying question. Use this only when you encounter genuine ambiguity and need human input to proceed.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "question": {"type": "string", "description": "The question to ask the user."}
+                        },
+                        "required": ["question"]
+                    }
+                }
+            })
         try:
             from aja.api.mcp_client import get_default_mcp_manager
             for schema in get_default_mcp_manager().get_registry_schemas():
@@ -589,7 +610,7 @@ class NativeToolRegistry:
             },
         )
 
-    def _validate_path(self, path: str) -> Optional[str]:
+    def _validate_path(self, path: str, mode: str = "read") -> Optional[str]:
         from aja.config import PROJECT_ROOT, CONFIG
         try:
             p = Path(path)
@@ -598,13 +619,21 @@ class NativeToolRegistry:
             p = p.resolve()
             if not p.is_relative_to(PROJECT_ROOT):
                 if not getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False):
-                    return f"Security Error: Path '{path}' is outside the authorized project root."
+                    scope = f"fs.{mode}.global"
+                    reason = f"Agent attempting to {mode} an out-of-bounds path: {p}"
+                    if self.engine:
+                        result = self.engine.authorize(scope, reason=reason)
+                    else:
+                        from aja.security.permissions import PermissionEngine
+                        result = PermissionEngine().authorize(scope, reason=reason)
+                    if not result.granted:
+                        return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
             return None
         except Exception as e:
             return f"Security Error: Invalid path '{path}': {e}"
 
     def read_file(self, path: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="read")
         if err:
             return err
         try:
@@ -618,7 +647,7 @@ class NativeToolRegistry:
             return f"Error reading file: {e}"
 
     def write_file(self, path: str, content: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="write")
         if err:
             return err
         try:
@@ -630,7 +659,7 @@ class NativeToolRegistry:
             return f"Error writing file: {e}"
 
     def grep_search(self, query: str, path: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="read")
         if err:
             return err
         import subprocess
@@ -657,7 +686,7 @@ class NativeToolRegistry:
                 search_file(p)
             else:
                 for f in p.rglob("*"):
-                    if f.is_file() and not any(part.startswith('.') for part in f.parts):
+                    if f.is_file() and not f.is_symlink() and not any(part.startswith('.') for part in f.parts):
                         search_file(f)
                         if len(results) > 200: # limit results
                             results.append("... [Search truncated due to too many results]")
@@ -670,7 +699,7 @@ class NativeToolRegistry:
             return f"Error during search: {e}"
 
     def multi_replace(self, path: str, replacements: List[Dict[str, str]]) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="write")
         if err:
             return err
         try:
@@ -711,7 +740,7 @@ class NativeToolRegistry:
             return f"Error executing shell command: {e}"
 
     def list_directory(self, path: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="read")
         if err:
             return err
         try:
@@ -742,7 +771,7 @@ class NativeToolRegistry:
             return f"Error listing directory: {e}"
 
     def find_files(self, path: str, pattern: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="read")
         if err:
             return err
         try:
@@ -772,7 +801,7 @@ class NativeToolRegistry:
             return f"Error finding files: {e}"
 
     def get_file_info(self, path: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="read")
         if err:
             return err
         try:
@@ -793,7 +822,7 @@ class NativeToolRegistry:
             return f"Error getting file info: {e}"
 
     def create_directory(self, path: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="write")
         if err:
             return err
         try:
@@ -820,7 +849,7 @@ class NativeToolRegistry:
         try:
             cmd = ["git", "diff"]
             if path:
-                err = self._validate_path(path)
+                err = self._validate_path(path, mode="read")
                 if err:
                     return err
                 cmd.append(path)
@@ -859,7 +888,7 @@ class NativeToolRegistry:
             return f"Error fetching URL: {e}"
 
     def apply_patch(self, path: str, diff_text: str) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="write")
         if err:
             return err
         import subprocess
@@ -879,7 +908,7 @@ class NativeToolRegistry:
             return f"Error applying patch: {e}"
 
     def delete_path(self, path: str, recursive: bool = False) -> str:
-        err = self._validate_path(path)
+        err = self._validate_path(path, mode="write")
         if err:
             return err
         try:
@@ -904,10 +933,10 @@ class NativeToolRegistry:
             return f"Error deleting path: {e}"
 
     def copy_path(self, src: str, dest: str) -> str:
-        err_src = self._validate_path(src)
+        err_src = self._validate_path(src, mode="read")
         if err_src:
             return err_src
-        err_dest = self._validate_path(dest)
+        err_dest = self._validate_path(dest, mode="write")
         if err_dest:
             return err_dest
         import shutil
@@ -929,10 +958,10 @@ class NativeToolRegistry:
             return f"Error copying path: {e}"
 
     def move_path(self, src: str, dest: str) -> str:
-        err_src = self._validate_path(src)
+        err_src = self._validate_path(src, mode="write")
         if err_src:
             return err_src
-        err_dest = self._validate_path(dest)
+        err_dest = self._validate_path(dest, mode="write")
         if err_dest:
             return err_dest
         import shutil
@@ -963,3 +992,11 @@ class NativeToolRegistry:
             return "\n\n".join(lines)
         except Exception as e:
             return f"Error querying memories: {e}"
+
+    def ask_user(self, question: str) -> str:
+        from aja.interface.modern import console
+        from rich.prompt import Prompt
+        console.print(f"\n[bold yellow]🤖 The Assistant has paused execution to ask you a question:[/]")
+        console.print(f"[cyan]{question}[/]")
+        answer = Prompt.ask("[bold green]Your answer[/]")
+        return answer

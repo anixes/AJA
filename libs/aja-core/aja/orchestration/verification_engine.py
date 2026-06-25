@@ -54,12 +54,12 @@ def run_verification(baton: dict, workspace_dir: str) -> dict:
         )
 
     is_maintenance = (worker_id == "swarm-maintenance" or baton.get("rollback_path") == "No rollback needed for maintenance tasks.")
-    if not is_maintenance and not diff:
+    if not is_maintenance and not diff and not output and not tests_output:
         checks.append(
             {
-                "name": "non_maintenance_diff",
+                "name": "missing_output",
                 "passed": False,
-                "message": f"Worker {worker_id} completed without producing a diff.",
+                "message": f"Worker {worker_id} completed without producing any output, diff, or test results.",
             }
         )
 

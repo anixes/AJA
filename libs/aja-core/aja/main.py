@@ -11,6 +11,7 @@ import json
 import asyncio
 import subprocess
 import time
+import typer
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -554,15 +555,23 @@ def cmd_chat():
                     console.print(f"[bold cyan]Engine: Single Agent (Worker):[/] {w_model}")
                     continue
                 elif cmd == "/swarm":
-                    console.print(
-                        f"[bold magenta]🚀 [Swarm] Executing mission: {args}[/bold magenta]"
-                    )
-                    cmd_run(args)
+                    if args:
+                        console.print(f"[bold magenta]🚀 [Swarm] Executing adaptive multi-agent mission: {args}[/bold magenta]")
+                        from aja.orchestration.goal_session import GoalSwarmSession
+                        # Fetch dry_run from get_system_state() or default false
+                        sys_state = get_system_state()
+                        dry_run = sys_state.get("dry_run", False) if isinstance(sys_state, dict) else False
+                        asyncio.run(GoalSwarmSession(dry_run=dry_run).run(args))
+                    else:
+                        console.print("[red]Usage: /swarm <objective>[/red]")
                     continue
                 elif cmd == "/goal":
                     if args:
-                        console.print(f"[bold magenta]🚀 [Goal] Executing persistent background mission: {args}[/bold magenta]")
-                        cmd_run(args, background=True)
+                        console.print(f"[bold magenta]🚀 [Goal] Executing persistent direct mission: {args}[/bold magenta]")
+                        from aja.orchestration.goal_session import GoalSession
+                        sys_state = get_system_state()
+                        dry_run = sys_state.get("dry_run", False) if isinstance(sys_state, dict) else False
+                        asyncio.run(GoalSession(dry_run=dry_run).run(args))
                     else:
                         console.print("[red]Usage: /goal <objective>[/red]")
                     continue
@@ -643,7 +652,23 @@ def cmd_chat():
                         console.print(f"[red]Failed to execute tool calls:[/] {e}")
 
                 elif intent["type"] == "goal" and intent.get("goal"):
-                    console.print(f"[yellow]Notice: To launch a full Swarm mission for complex goals, please prefix your request with /swarm (e.g., /swarm {intent['goal']})[/yellow]")
+                    from aja.orchestration.plan_gate import plan_gate
+                    try:
+                        processed_goal = asyncio.run(plan_gate(intent['goal']))
+                    except typer.Exit:
+                        continue
+                    except Exception as e:
+                        console.print(f"[dim]Plan gate check skipped: {e}[/dim]")
+                        processed_goal = intent['goal']
+                    
+                    console.print(f"[bold magenta]🚀 [Direct] Transitioning to Direct Execution for goal...[/bold magenta]")
+                    from aja.orchestration.direct_session import DirectSession
+                    ds = DirectSession()
+                    # Execute one turn in direct session with interactive=False to avoid double plan_gate
+                    try:
+                        asyncio.run(ds._turn(processed_goal, console, interactive=False))
+                    except Exception as e:
+                        console.print(f"[red]Direct Execution failed: {e}[/red]")
 
                 elif intent["type"] == "control" and intent["command"]:
                     console.print(

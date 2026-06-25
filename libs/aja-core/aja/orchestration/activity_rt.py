@@ -253,7 +253,7 @@ class ActivityRuntime:
 
     async def _run_python(self, activity: Activity) -> ActivityResult:
         from aja.orchestration.tools.native import NativeToolRegistry
-        registry = NativeToolRegistry()
+        registry = NativeToolRegistry(engine=self._permission_engine)
         t0 = time.monotonic()
         result_str = registry.execute(activity.tool, activity.args)
         duration_ms = int((time.monotonic() - t0) * 1000)

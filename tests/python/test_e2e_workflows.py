@@ -3,6 +3,7 @@ import pytest
 import asyncio
 from pathlib import Path
 import shutil
+from unittest.mock import patch
 
 from aja.orchestration.goal_session import GoalSession
 from aja.orchestration.swarm import SwarmEngine
@@ -23,11 +24,20 @@ def temp_workspace(tmp_path):
     original_cwd = os.getcwd()
     os.chdir(workspace)
     
-    # Set testing environment variables so we don't accidentally run outside constraints
-    os.environ["AJA_TESTING_NO_GUARD"] = "1"
+    # Mock the command guard so tests don't fail due to security constraints
+    mock_classify = patch(
+        'aja.security.command_guard.classify_command', 
+        return_value={
+            "decision": "allow", "level": "LOW", "risk_level": "LOW",
+            "root": "", "root_binary": "", "args": [], "needs_analysis": False,
+            "reasons": [], "analysis": {}, "stripper_report": {}
+        }
+    )
+    mock_classify.start()
     
     yield workspace
     
+    mock_classify.stop()
     os.chdir(original_cwd)
     shutil.rmtree(workspace, ignore_errors=True)
 
@@ -153,10 +163,6 @@ def secure_workspace(tmp_path):
     
     original_cwd = os.getcwd()
     os.chdir(workspace)
-    
-    # Explicitly enforce the Guard
-    if "AJA_TESTING_NO_GUARD" in os.environ:
-        del os.environ["AJA_TESTING_NO_GUARD"]
         
     yield workspace
     

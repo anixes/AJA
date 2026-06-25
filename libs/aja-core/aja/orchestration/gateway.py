@@ -45,6 +45,7 @@ def load_providers():
         "google": "https://generativelanguage.googleapis.com/v1beta",
         "openrouter": "https://openrouter.ai/api/v1",
         "llama_cpp": "http://localhost:8080/v1",
+        "copilot": "https://api.githubcopilot.com"
     }
 
 
@@ -141,8 +142,7 @@ class LLMGateway:
     ):
         cfg = load_config()
         self.provider = (provider or cfg.get("provider", "openrouter")).lower()
-        
-        # Determine raw key - only fall back to config key if provider matches
+        self.base_url = base_url or self.PROVIDERS.get(self.provider, "")
         cfg_provider = cfg.get("provider", "").lower()
         if api_key:
             raw_key = api_key
@@ -204,13 +204,20 @@ class LLMGateway:
                 if self.provider == "google":
                     return await self._google_generate_content(model, prompt, system, temperature, tools)
 
-                # Check if Copilot model requires Responses API
                 use_responses = False
+                
+                # Clean up model name for Copilot
                 if self.provider == "copilot":
+                    if model.startswith("copilot:"):
+                        model = model[8:]
+                    
                     m_lower = model.lower()
                     if "/" in m_lower:
                         m_lower = m_lower.rsplit("/", 1)[-1]
                     if m_lower.startswith("gpt-") and not m_lower.startswith("gpt-5-mini") and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4"):
+                        use_responses = True
+                    # Claude 3.5 Sonnet needs the responses API for Copilot currently.
+                    if "claude" in m_lower:
                         use_responses = True
 
                 if self.provider == "copilot" and use_responses:
@@ -301,7 +308,8 @@ class LLMGateway:
                     }
                     req_headers.update(self.extra_headers)
 
-                    async with aiohttp.ClientSession() as session:
+                    timeout = aiohttp.ClientTimeout(total=60)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
                         async with session.post(url, json=payload, headers=req_headers) as resp:
                             if resp.status != 200:
                                 detail = await resp.text()

@@ -77,7 +77,7 @@ class SwarmEngine:
         self.baton_dir = DATA_DIR / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
-    async def execute_direct(self, objective: str, session_history: list = None):
+    async def execute_direct(self, objective: str, session_history: list = None, interactive: bool = True):
         """
         Direct Tooling and In-Process Execution (Interactive Pairing Assistant).
         Executes commands synchronously in-process using ToolExecutor.
@@ -104,7 +104,7 @@ class SwarmEngine:
         executor = ToolExecutor()
         
         from aja.orchestration.tools.native import NativeToolRegistry
-        native_registry = NativeToolRegistry()
+        native_registry = NativeToolRegistry(engine=None)
         
         # 2. Build client-specific prompt through the presenter boundary.
         system_prompt = self.presenter.direct_system_prompt
@@ -139,7 +139,7 @@ class SwarmEngine:
                     model=self.model,
                     prompt=history,
                     system=system_prompt,
-                    tools=native_registry.get_schemas()
+                    tools=native_registry.get_schemas(interactive=interactive)
                 )
             except Exception as e:
                 console.print(f"[red][Direct Mode] LLM Chat Error: {e}[/red]")

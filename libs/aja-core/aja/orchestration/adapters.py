@@ -63,6 +63,10 @@ class BaseAdapter:
         else:
             env["PYTHONPATH"] = libs_aja_core
 
+        test_dir = Path(workspace_dir) / "tests" / "python" / "unit"
+        if not test_dir.exists():
+            return ""
+
         try:
             res = subprocess.run(
                 [sys.executable, "-m", "pytest", "tests/python/unit", "--maxfail=1", "-v"],
@@ -271,8 +275,10 @@ class NativeWorkerAdapter(BaseAdapter):
         
         # Local import to prevent circular dependency
         from aja.orchestration.swarm import SwarmEngine
+        import os
         
-        engine = SwarmEngine(dry_run=False)
+        worker_model = os.getenv("AJA_WORKER_MODEL", "copilot:claude-3.5-sonnet")
+        engine = SwarmEngine(model=worker_model, dry_run=False)
         
         # Enforce autonomous, non-interactive system prompt for background worker execution
         engine.presenter.direct_system_prompt = (

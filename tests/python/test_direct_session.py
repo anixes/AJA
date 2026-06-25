@@ -12,6 +12,12 @@ import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
+async def _mock_plan_gate(objective):
+    return objective
+
+# Globally patch plan_gate to prevent tests from hanging on Prompt.ask
+patch("aja.orchestration.direct_session.plan_gate", new=_mock_plan_gate).start()
+
 
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
@@ -105,7 +111,7 @@ class TestSessionHistoryAccumulation(unittest.TestCase):
         """
         s = _make_session()
 
-        def _fake_execute(objective, session_history=None):
+        def _fake_execute(objective, session_history=None, **kwargs):
             if session_history is not None:
                 session_history.append({"role": "assistant", "content": "Done."})
             return None
@@ -157,7 +163,7 @@ class TestSwarmExecuteDirectBackwardsCompat(unittest.TestCase):
 
         appended = []
 
-        def _fake_execute(objective, session_history=None):
+        def _fake_execute(objective, session_history=None, **kwargs):
             if session_history is not None:
                 session_history.append({"role": "assistant", "content": "ok"})
             return None
@@ -186,7 +192,7 @@ class TestSwarmExecuteDirectBackwardsCompat(unittest.TestCase):
         # Manually call execute_direct with None to confirm it's accepted
         captured = {}
 
-        async def _fake(objective, session_history=None):
+        async def _fake(objective, session_history=None, **kwargs):
             captured["sh"] = session_history
 
         s.engine.execute_direct = AsyncMock(side_effect=_fake)
