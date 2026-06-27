@@ -1,5 +1,17 @@
-# AJA 24/7 Autonomous System Launcher
-# Bridges Telegram Gateway with Terminal Autonomous Worker
+# AJA 24/7 Autonomous System Launcher (Windows / PowerShell)
+# Starts the Telegram Gateway and Autonomous Worker as supervised background
+# jobs, automatically restarting either component if it exits unexpectedly.
+#
+# Usage:
+#   .\tools\aja.ps1
+#
+# Required environment variable:
+#   TELEGRAM_BOT_TOKEN  — your Telegram bot token
+
+param(
+    [int]$PollIntervalSeconds = 30,
+    [int]$MaxRestarts         = 10   # per component; 0 = unlimited
+)
 
 $Root = Get-Location
 
@@ -7,39 +19,68 @@ Write-Host "--------------------------------------------------" -ForegroundColor
 Write-Host "   AJA: Autonomous Gateway & Execution Loop" -ForegroundColor Cyan
 Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 
-# Check for required environment variables
+# --- Pre-flight checks --------------------------------------------------------
+
 if (-not $Env:TELEGRAM_BOT_TOKEN) {
-    Write-Host "❌ Error: TELEGRAM_BOT_TOKEN not found in environment." -ForegroundColor Red
+    Write-Host "ERROR: TELEGRAM_BOT_TOKEN is not set." -ForegroundColor Red
+    Write-Host "  Export it before running: `$Env:TELEGRAM_BOT_TOKEN = 'your-token'" -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "[*] Starting AJA Gateway (Telegram + Mission Hub)..." -ForegroundColor Yellow
-$GatewayJob = Start-Job -Name "AJAGateway" -ScriptBlock {
-    param($root)
-    python -m aja.gateway.server
-} -ArgumentList $Root
+# --- Helpers ------------------------------------------------------------------
 
-Write-Host "[*] Starting AJA Worker (Autonomous Execution Loop)..." -ForegroundColor Yellow
-$WorkerJob = Start-Job -Name "AJAWorker" -ScriptBlock {
-    param($root)
-    python -m aja.runtime.autonomous_loop
-} -ArgumentList $Root
+function Start-AJAJob {
+    param([string]$Name, [string]$Module)
+    $job = Start-Job -Name $Name -ScriptBlock {
+        param($root, $mod)
+        Set-Location $root
+        python -m $mod
+    } -ArgumentList $Root, $Module
+    Write-Host "[+] Started $Name (Job ID: $($job.Id))" -ForegroundColor Green
+    return $job
+}
 
-Write-Host "🚀 AJA is now LIVE 24/7." -ForegroundColor Green
-Write-Host " - Gateway Job ID: $($GatewayJob.Id)"
-Write-Host " - Worker Job ID:  $($WorkerJob.Id)"
+# --- Launch both components ---------------------------------------------------
+
+$GatewayJob = Start-AJAJob -Name "AJAGateway" -Module "aja.gateway.server"
+$WorkerJob  = Start-AJAJob -Name "AJAWorker"  -Module "aja.runtime.autonomous_loop"
+
+$GatewayRestarts = 0
+$WorkerRestarts  = 0
+
+Write-Host ""
+Write-Host "AJA is LIVE. Monitoring every $PollIntervalSeconds s." -ForegroundColor Green
+Write-Host "  Stop-Job * | Remove-Job *  to shut down." -ForegroundColor DarkGray
 Write-Host "--------------------------------------------------"
-Write-Host "Commands:"
-Write-Host " - Get-Job | Receive-Job : View logs"
-Write-Host " - Stop-Job *            : Shutdown AJA"
-Write-Host "--------------------------------------------------"
 
-# Monitor the jobs
+# --- Supervised monitor loop --------------------------------------------------
+
 while ($true) {
-    $running = Get-Job | Where-Object { $_.State -eq 'Running' }
-    if ($running.Count -lt 2) {
-        Write-Host "⚠️ Warning: One or more AJA components stopped!" -ForegroundColor Red
-        Get-Job | Select-Object Name, State, ExitCode
+    Start-Sleep -Seconds $PollIntervalSeconds
+
+    # Gateway
+    $gw = Get-Job -Name "AJAGateway" -ErrorAction SilentlyContinue
+    if (-not $gw -or $gw.State -ne 'Running') {
+        if ($MaxRestarts -gt 0 -and $GatewayRestarts -ge $MaxRestarts) {
+            Write-Host "[!] AJAGateway exceeded $MaxRestarts restarts — giving up." -ForegroundColor Red
+        } else {
+            Write-Host "[!] AJAGateway stopped (restarts: $GatewayRestarts). Restarting..." -ForegroundColor Yellow
+            if ($gw) { Remove-Job $gw -Force }
+            $GatewayJob = Start-AJAJob -Name "AJAGateway" -Module "aja.gateway.server"
+            $GatewayRestarts++
+        }
     }
-    Start-Sleep -Seconds 30
+
+    # Worker
+    $wk = Get-Job -Name "AJAWorker" -ErrorAction SilentlyContinue
+    if (-not $wk -or $wk.State -ne 'Running') {
+        if ($MaxRestarts -gt 0 -and $WorkerRestarts -ge $MaxRestarts) {
+            Write-Host "[!] AJAWorker exceeded $MaxRestarts restarts — giving up." -ForegroundColor Red
+        } else {
+            Write-Host "[!] AJAWorker stopped (restarts: $WorkerRestarts). Restarting..." -ForegroundColor Yellow
+            if ($wk) { Remove-Job $wk -Force }
+            $WorkerJob = Start-AJAJob -Name "AJAWorker" -Module "aja.runtime.autonomous_loop"
+            $WorkerRestarts++
+        }
+    }
 }

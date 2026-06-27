@@ -72,6 +72,21 @@ class ToolExecutor:
         classification = classify_command(command)
         if classification["decision"] == "deny":
             return {"status": "error", "message": "Command blocked: " + "; ".join(classification["reasons"])}
+        elif classification["decision"] == "ask":
+            from aja.config import CONFIG
+            sandbox = getattr(CONFIG.swarm_settings, "sandbox_mode", "local")
+            auto_proceed = getattr(CONFIG.swarm_settings, "auto_proceed_local", False)
+            if sandbox == "local" and auto_proceed:
+                granted = True
+            else:
+                scope = "shell.exec.dangerous"
+                reason = f"Dangerous command requested: {command}\nReasons: {', '.join(classification['reasons'])}"
+                from aja.security.permissions import PermissionEngine
+                result = PermissionEngine().authorize(scope, reason=reason)
+                granted = result.allowed
+                
+            if not granted:
+                return {"status": "error", "message": "Command blocked by security policy: " + "; ".join(classification["reasons"])}
 
         # 2. Preparation
         target_cwd = cwd or str(PROJECT_ROOT)

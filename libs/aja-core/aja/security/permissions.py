@@ -36,6 +36,8 @@ class PermissionPolicy:
         return cls(
             scopes={
                 "shell.*": "allow",
+                "shell.destructive": "ask",
+                "shell.exec.dangerous": "ask",
                 "python.*": "allow",
                 "mcp.*": "ask",
                 "browser.read": "allow",
@@ -158,6 +160,13 @@ class PermissionEngine:
         return AuthorizationResult(False, "ask", scope, "Permission request timed out or was denied.", grant_id, matched_scope)
 
     def _ask(self, scope: str, reason: str) -> bool:
+        try:
+            from aja.config import CONFIG
+            if CONFIG.swarm_settings.auto_proceed_local:
+                return True
+        except Exception:
+            pass
+
         timeout_s = self.policy.ask_timeout_s
         if self.approval_provider:
             try:

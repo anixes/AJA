@@ -2,9 +2,9 @@ name: AJA Runtime CI/CD
 
 on:
   push:
-    branches: [ master, dev ]
+    branches: [master, dev]
   pull_request:
-    branches: [ master, dev ]
+    branches: [master, dev]
 
 permissions:
   contents: read
@@ -61,6 +61,31 @@ jobs:
           name: aja-wheels-${{ matrix.os }}
           path: dist/*.whl
 
+  # Intent Routing Regression — no wheel required, runs fast on every push
+  intent_routing:
+    name: Intent Routing Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install minimal dependencies
+        run: pip install pytest anyio pydantic python-dotenv filelock lancedb pyarrow openai
+
+      - name: Run intent routing regression
+        env:
+          PYTHONPATH: libs/aja-core
+        run: |
+          python -m pytest tests/python/test_intent_routing.py -v --tb=short
+
   # Hardened Runtime Smoke Tests
   validate_wheels:
     name: Runtime Integration (${{ matrix.os }})
@@ -71,7 +96,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12"]  # v0.1.0 official support only — ABI3 loads on 3.13 but not officially tested yet
+        python-version: ["3.11", "3.12"] # v0.1.0 official support only — ABI3 loads on 3.13 but not officially tested yet
 
     steps:
       - name: Checkout repository
@@ -100,4 +125,4 @@ jobs:
         run: aja doctor --ci || true
 
       - name: Run Full Test Suite
-        run: python -m pytest tests/python -x --tb=short
+        run: python -m pytest tests/python -x --tb=short -m "not e2e"

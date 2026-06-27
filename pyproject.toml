@@ -8,26 +8,25 @@ version = "0.1.0"
 requires-python = ">=3.11"
 description = "High-performance agentic AI workflow engine and CLI tool"
 dependencies = [
-    "pydantic>=2.0", 
-    "aiohttp>=3.9", 
+    "pydantic>=2.0",
+    "aiohttp>=3.9",
     "python-dotenv>=1.0",
-    "lancedb>=0.8", 
-    "rich>=13.0", 
+    "lancedb>=0.8",
+    "rich>=13.0",
     "textual",
     "pyarrow>=14.0",
-    "prompt_toolkit>=3.0", 
-    "anyio>=4.0", 
+    "prompt_toolkit>=3.0",
+    "anyio>=4.0",
     "requests>=2.31",
-    "openai>=1.0", 
-    "fastapi>=0.110", 
+    "openai>=1.0",
+    "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
-    "websockets>=12.0", 
+    "websockets>=12.0",
     "python-telegram-bot>=20.0",
     "croniter",
     "platformdirs",
     "pandas>=2.0",
     "mcp",
-    "pylance",
     "filelock>=3.12"
 ]
 
@@ -40,6 +39,21 @@ slack   = ["slack-sdk>=3.27"]
 browser = ["playwright>=1.40"]
 desktop = ["pyautogui>=0.9"]
 all     = ["aja[embed,metrics,pty-win,discord,slack,browser,desktop]"]
+dev     = [
+    # Build
+    "maturin>=1.4,<2.0",
+    # Testing
+    "pytest>=8.0",
+    "anyio[trio]>=4.0",
+    "psutil>=5.9",
+    # Linting & formatting
+    "ruff>=0.4",
+    # Type checking
+    "mypy>=1.10",
+    "types-requests",
+    # Coverage
+    "coverage[toml]>=7.0",
+]
 
 [project.scripts]
 aja = "aja.main:main"
@@ -58,6 +72,109 @@ manifest-path = "packages/aja-native/Cargo.toml"
 python-source = "libs/aja-core"
 
 [tool.pytest.ini_options]
-testpaths = [
-  "tests/python"
+testpaths = ["tests/python"]
+markers = [
+    "e2e: real-LLM end-to-end tests (deselect with '-m not e2e')",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff — linter + formatter
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length    = 120
+target-version = "py311"
+src            = ["libs/aja-core", "tests/python", "scripts"]
+exclude        = [
+    ".git", ".venv", "venv", "__pycache__",
+    "dist", "build", "target",
+    "libs/aja-core/aja/aja_native*.so",
+    "libs/aja-core/aja/aja_native*.pyd",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade (modern Python syntax)
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+ignore = [
+    # Too pervasive in the existing codebase to enforce immediately.
+    "E402",  # module-level import not at top of file (used for conditional imports)
+    "E501",  # line too long (enforced by formatter, not linter)
+    "F401",  # imported but unused (some are intentional re-exports)
+    "UP007", # use X | Y for union types (requires runtime Python 3.10+)
+    "SIM108", # ternary operator (often less readable in async code)
+    "B008",  # do not perform function call in default argument
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aja"]
+force-sort-within-sections = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "F811",  # redefinition of unused name (common in pytest fixtures)
+    "S101",  # use of assert (expected in tests)
+]
+"scripts/**" = [
+    "INP001", # implicit namespace package (scripts are standalone)
+]
+
+[tool.ruff.format]
+quote-style              = "double"
+indent-style             = "space"
+skip-magic-trailing-comma = false
+
+# ---------------------------------------------------------------------------
+# Mypy — type checker
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version            = "3.11"
+warn_return_any           = true
+warn_unused_configs       = true
+warn_redundant_casts      = true
+warn_unused_ignores       = true
+ignore_missing_imports    = true   # many deps lack stubs; tighten incrementally
+explicit_package_bases    = true
+mypy_path                 = "libs/aja-core"
+
+# Keep strict mode opt-in per module as type coverage improves.
+# disallow_untyped_defs = true   # uncomment once coverage is higher
+
+[[tool.mypy.overrides]]
+module = [
+    "lancedb.*",
+    "pyarrow.*",
+    "maturin.*",
+    "telegram.*",
+    "discord.*",
+    "slack_sdk.*",
+    "playwright.*",
+    "pyautogui.*",
+    "sentence_transformers.*",
+    "croniter.*",
+    "textual.*",
+    "psutil.*",
+    "pywinpty.*",
+]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source   = ["libs/aja-core/aja"]
+omit     = ["*/tests/*", "*/scripts/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
 ]

@@ -626,7 +626,7 @@ class NativeToolRegistry:
                     else:
                         from aja.security.permissions import PermissionEngine
                         result = PermissionEngine().authorize(scope, reason=reason)
-                    if not result.granted:
+                    if not result.allowed:
                         return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
             return None
         except Exception as e:
@@ -730,6 +730,34 @@ class NativeToolRegistry:
             return f"Error during sleep: {e}"
 
     def run_shell_command(self, cmd: str) -> str:
+        from aja.security.command_guard import classify_command
+        classification = classify_command(cmd)
+        if classification["decision"] == "deny":
+            return f"Security Error: Command blocked by CommandGuard. Reasons: {', '.join(classification['reasons'])}"
+        elif classification["decision"] == "ask":
+            from aja.config import CONFIG
+            sandbox = getattr(CONFIG.swarm_settings, "sandbox_mode", "local")
+            auto_proceed = getattr(CONFIG.swarm_settings, "auto_proceed_local", False)
+            print(f"DEBUG run_shell_command: sandbox={sandbox}, auto_proceed={auto_proceed}")
+            if sandbox == "local" and auto_proceed:
+                granted = True
+            else:
+                scope = "shell.exec.dangerous"
+                reason = f"Dangerous command requested: {cmd}\nReasons: {', '.join(classification['reasons'])}"
+                granted = False
+                if hasattr(self, "engine") and self.engine and hasattr(self.engine, "authorize"):
+                    result = self.engine.authorize(scope, reason=reason)
+                    granted = result.allowed
+                    print(f"DEBUG run_shell_command: self.engine.authorize returned {granted}")
+                else:
+                    from aja.security.permissions import PermissionEngine
+                    result = PermissionEngine().authorize(scope, reason=reason)
+                    granted = result.allowed
+                    print(f"DEBUG run_shell_command: PermissionEngine().authorize returned {granted}")
+                
+            if not granted:
+                return f"Security Error: Command blocked. Permission denied by user or policy. Reasons: {', '.join(classification['reasons'])}"
+
         import subprocess
         try:
             res = subprocess.run(cmd, shell=True, text=True, capture_output=True, timeout=120)

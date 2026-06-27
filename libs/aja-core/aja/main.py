@@ -5,55 +5,58 @@ The central nervous system of the AJA swarm.
 Now with a modern, premium CLI experience.
 """
 
-import sys
-import os
-import json
 import asyncio
+import json
+import os
 import subprocess
+import sys
 import time
-import typer
 from pathlib import Path
 from typing import List, Optional
+
+import typer
 from dotenv import load_dotenv
-from rich.prompt import Confirm
-from aja.tui.tasks import (
-    TaskManager,
-    STATUS_PENDING,
-    STATUS_RUNNING,
-    STATUS_COMPLETED,
-    STATUS_FAILED,
-)
-from aja.tui.kanban import render_kanban_board
 
 # prompt_toolkit for Power CLI
 from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.styles import Style
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
+from rich.prompt import Confirm
+
+from aja.tui.kanban import render_kanban_board
+from aja.tui.tasks import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    STATUS_RUNNING,
+    TaskManager,
+)
 
 # Load environment secrets
 load_dotenv(override=True)
 
-from aja.config import PROJECT_ROOT, DATA_DIR
-from aja.runtime.handover import BatonManager
+from aja.config import DATA_DIR, PROJECT_ROOT
 from aja.interface.modern import (
     console,
-    print_banner,
-    print_status,
-    print_doctor,
     mission_spinner,
+    print_banner,
+    print_doctor,
     print_error,
-    print_success,
     print_info,
+    print_status,
+    print_success,
 )
+from aja.runtime.handover import BatonManager
 
 PYTHON = sys.executable
 CONFIG_PATH = DATA_DIR / "aja.json"
 
 AGENT_MODE = False
+
 
 def parse_frontmatter_meta(file_path: Path) -> dict:
     if not file_path.exists():
@@ -61,6 +64,7 @@ def parse_frontmatter_meta(file_path: Path) -> dict:
     try:
         content = file_path.read_text(encoding="utf-8")
         import re
+
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
         if match:
             metadata = {}
@@ -72,6 +76,8 @@ def parse_frontmatter_meta(file_path: Path) -> dict:
     except Exception:
         pass
     return {}
+
+
 if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
     CONFIG_PATH = PROJECT_ROOT / "aja.json"
 
@@ -111,6 +117,7 @@ def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
         except Exception as e:
             print_error(f"Swarm Execution Error: {e}")
 
+
 def cmd_direct(dry_run: bool = False, model: str = None, resume: bool = False):
     """
     Launch the persistent Direct Mode interactive developer session.
@@ -137,8 +144,8 @@ def cmd_pickup(code: str):
         return
 
     print_info(f"Picking up mission baton: {code}")
-    from aja.runtime.handover import BatonManager
     from aja.orchestration.swarm import SwarmEngine
+    from aja.runtime.handover import BatonManager
 
     mgr = BatonManager()
     state = mgr.pickup(code)
@@ -214,7 +221,7 @@ def cmd_status():
                     "updated_at": t.get("updated_at", "-"),
                 }
                 for t in tasks
-            ]
+            ],
         }
         print(json.dumps(output, indent=2), flush=True)
         return
@@ -481,9 +488,16 @@ def cmd_chat():
                         w_model = parts[1] if len(parts) > 1 else parts[0]
                     else:
                         from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL
-                        console.print(f"\n[bold cyan]Engine: Swarm Agents (Planner):[/] {AJA_PLANNER_MODEL}")
-                        console.print(f"[bold cyan]Engine: Single Agent (Worker):[/] {AJA_WORKER_MODEL}")
-                        console.print("[dim]Tip: Swarm Planner manages complex project breakdowns (use smart models). Single Agent Worker executes hands-on tools (use fast models).[/dim]\n")
+
+                        console.print(
+                            f"\n[bold cyan]Engine: Swarm Agents (Planner):[/] {AJA_PLANNER_MODEL}"
+                        )
+                        console.print(
+                            f"[bold cyan]Engine: Single Agent (Worker):[/] {AJA_WORKER_MODEL}"
+                        )
+                        console.print(
+                            "[dim]Tip: Swarm Planner manages complex project breakdowns (use smart models). Single Agent Worker executes hands-on tools (use fast models).[/dim]\n"
+                        )
                         choices_map = {
                             "1": "copilot:gpt-4o",
                             "2": "copilot:gpt-4o-mini",
@@ -500,99 +514,137 @@ def cmd_chat():
                             "13": "copilot:claude-opus-4.8",
                             "14": "copilot:gemini-3.5-flash",
                             "15": "Custom / Type your own",
-                            "16": "Cancel"
+                            "16": "Cancel",
                         }
-                        
+
                         console.print("[bold]Select new models from Copilot:[/bold]")
                         for k, v in choices_map.items():
                             console.print(f"  {k}) {v}")
-                            
+
                         from rich.prompt import Prompt
-                        p_choice = Prompt.ask("\nSelect [bold cyan]Swarm Planner[/] option", choices=list(choices_map.keys()), default="16")
-                        
+
+                        p_choice = Prompt.ask(
+                            "\nSelect [bold cyan]Swarm Planner[/] option",
+                            choices=list(choices_map.keys()),
+                            default="16",
+                        )
+
                         if p_choice == "16":
                             continue
                         elif p_choice == "15":
-                            p_model = Prompt.ask("Enter Planner model (e.g. copilot:gpt-4o)")
+                            p_model = Prompt.ask(
+                                "Enter Planner model (e.g. copilot:gpt-4o)"
+                            )
                         else:
                             p_model = choices_map[p_choice]
-                            
-                        w_choice = Prompt.ask("Select [bold cyan]Single Agent Worker[/] option (Press Enter to use same)", choices=list(choices_map.keys()) + [""], default="")
-                        
+
+                        w_choice = Prompt.ask(
+                            "Select [bold cyan]Single Agent Worker[/] option (Press Enter to use same)",
+                            choices=list(choices_map.keys()) + [""],
+                            default="",
+                        )
+
                         if w_choice == "" or w_choice == p_choice:
                             w_model = p_model
                         elif w_choice == "16":
                             continue
                         elif w_choice == "15":
-                            w_model = Prompt.ask("Enter Worker model (e.g. copilot:gpt-4o-mini)")
+                            w_model = Prompt.ask(
+                                "Enter Worker model (e.g. copilot:gpt-4o-mini)"
+                            )
                         else:
                             w_model = choices_map[w_choice]
-                        
+
                     cfg_path = DATA_DIR / "aja.json"
                     data = {}
                     if cfg_path.exists():
                         with open(cfg_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
-                    
+
                     if "swarm_settings" not in data:
                         data["swarm_settings"] = {}
                     if "models" not in data["swarm_settings"]:
                         data["swarm_settings"]["models"] = {}
-                    
+
                     data["swarm_settings"]["models"]["planner"] = p_model
                     data["swarm_settings"]["models"]["worker"] = w_model
-                    
+
                     with open(cfg_path, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=4)
-                    
+
                     # Update live runtime config
                     import aja.config
+
                     aja.config.AJA_PLANNER_MODEL = p_model
                     aja.config.AJA_WORKER_MODEL = w_model
-                    
+
                     console.print(f"[green]Successfully updated models![/green]")
-                    console.print(f"[bold cyan]Engine: Swarm Agents (Planner):[/] {p_model}")
-                    console.print(f"[bold cyan]Engine: Single Agent (Worker):[/] {w_model}")
+                    console.print(
+                        f"[bold cyan]Engine: Swarm Agents (Planner):[/] {p_model}"
+                    )
+                    console.print(
+                        f"[bold cyan]Engine: Single Agent (Worker):[/] {w_model}"
+                    )
                     continue
                 elif cmd == "/swarm":
                     if args:
-                        console.print(f"[bold magenta]🚀 [Swarm] Executing adaptive multi-agent mission: {args}[/bold magenta]")
+                        console.print(
+                            f"[bold magenta]🚀 [Swarm] Executing adaptive multi-agent mission: {args}[/bold magenta]"
+                        )
                         from aja.orchestration.goal_session import GoalSwarmSession
+
                         # Fetch dry_run from get_system_state() or default false
                         sys_state = get_system_state()
-                        dry_run = sys_state.get("dry_run", False) if isinstance(sys_state, dict) else False
+                        dry_run = (
+                            sys_state.get("dry_run", False)
+                            if isinstance(sys_state, dict)
+                            else False
+                        )
                         asyncio.run(GoalSwarmSession(dry_run=dry_run).run(args))
                     else:
                         console.print("[red]Usage: /swarm <objective>[/red]")
                     continue
                 elif cmd == "/goal":
                     if args:
-                        console.print(f"[bold magenta]🚀 [Goal] Executing persistent direct mission: {args}[/bold magenta]")
+                        console.print(
+                            f"[bold magenta]🚀 [Goal] Executing persistent direct mission: {args}[/bold magenta]"
+                        )
                         from aja.orchestration.goal_session import GoalSession
+
                         sys_state = get_system_state()
-                        dry_run = sys_state.get("dry_run", False) if isinstance(sys_state, dict) else False
+                        dry_run = (
+                            sys_state.get("dry_run", False)
+                            if isinstance(sys_state, dict)
+                            else False
+                        )
                         asyncio.run(GoalSession(dry_run=dry_run).run(args))
                     else:
                         console.print("[red]Usage: /goal <objective>[/red]")
                     continue
                 elif cmd == "/schedule":
                     from rich.prompt import Prompt
+
                     objective = args
                     if not objective:
                         objective = Prompt.ask("Enter objective for the scheduled task")
                     if not objective:
                         continue
-                    expr = Prompt.ask("Enter schedule expression (e.g., 'every 2h', '0 0 * * *')")
+                    expr = Prompt.ask(
+                        "Enter schedule expression (e.g., 'every 2h', '0 0 * * *')"
+                    )
                     if not expr:
                         continue
                     try:
                         from aja.scheduler.cron_scheduler import CronScheduler
+
                         scheduler = CronScheduler()
                         scheduler.add_job(objective, expr)
                         console.print(f"[green]Successfully scheduled task![/green]")
                         console.print(f"  [bold]Objective:[/] {objective}")
                         console.print(f"  [bold]Schedule:[/] {expr}")
-                        console.print("[yellow]Note: The task will be picked up by the autonomous loop/scheduler daemon.[/yellow]")
+                        console.print(
+                            "[yellow]Note: The task will be picked up by the autonomous loop/scheduler daemon.[/yellow]"
+                        )
                     except Exception as e:
                         console.print(f"[red]Failed to schedule task:[/] {e}")
                     continue
@@ -617,56 +669,73 @@ def cmd_chat():
                 history = history[-15:]
 
                 if intent["type"] == "tool_calls" and intent.get("tool_calls"):
-                    console.print(f"[*] Executing {len(intent['tool_calls'])} tool call(s)...")
+                    console.print(
+                        f"[*] Executing {len(intent['tool_calls'])} tool call(s)..."
+                    )
                     try:
-                        from aja.orchestration.tools.executor import ToolExecutor
-                        from aja.observability.telemetry import get_trace_id
                         import threading
-                        
+
+                        from aja.observability.telemetry import get_trace_id
+                        from aja.orchestration.tools.executor import ToolExecutor
+
                         executor = ToolExecutor()
                         box = {}
+
                         def thread_target():
-                            box["results"] = asyncio.run(executor.dispatch_tool_calls(
-                                tool_calls=intent["tool_calls"],
-                                trace_id=get_trace_id(),
-                            ))
+                            box["results"] = asyncio.run(
+                                executor.dispatch_tool_calls(
+                                    tool_calls=intent["tool_calls"],
+                                    trace_id=get_trace_id(),
+                                )
+                            )
+
                         t = threading.Thread(target=thread_target)
                         t.start()
                         t.join()
                         results = box["results"]
-                        
+
                         for r in results:
                             if r.success:
                                 console.print(f"[green]✔ Tool {r.tool} succeeded:[/]")
                                 if r.data:
                                     console.print(str(r.data))
                             else:
-                                err_msg = r.error or getattr(r, "stderr", None) or r.data
-                                console.print(f"[red]✘ Tool {r.tool} failed: {err_msg}[/]")
-                            
+                                err_msg = (
+                                    r.error or getattr(r, "stderr", None) or r.data
+                                )
+                                console.print(
+                                    f"[red]✘ Tool {r.tool} failed: {err_msg}[/]"
+                                )
+
                             obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error or getattr(r, 'stderr', '')}"
                             history.append({"role": "system", "content": obs})
-                        
+
                         history = history[-15:]
                     except Exception as e:
                         console.print(f"[red]Failed to execute tool calls:[/] {e}")
 
                 elif intent["type"] == "goal" and intent.get("goal"):
                     from aja.orchestration.plan_gate import plan_gate
+
                     try:
-                        processed_goal = asyncio.run(plan_gate(intent['goal']))
+                        processed_goal = asyncio.run(plan_gate(intent["goal"]))
                     except typer.Exit:
                         continue
                     except Exception as e:
                         console.print(f"[dim]Plan gate check skipped: {e}[/dim]")
-                        processed_goal = intent['goal']
-                    
-                    console.print(f"[bold magenta]🚀 [Direct] Transitioning to Direct Execution for goal...[/bold magenta]")
+                        processed_goal = intent["goal"]
+
+                    console.print(
+                        f"[bold magenta]🚀 [Direct] Transitioning to Direct Execution for goal...[/bold magenta]"
+                    )
                     from aja.orchestration.direct_session import DirectSession
+
                     ds = DirectSession()
                     # Execute one turn in direct session with interactive=False to avoid double plan_gate
                     try:
-                        asyncio.run(ds._turn(processed_goal, console, interactive=False))
+                        asyncio.run(
+                            ds._turn(processed_goal, console, interactive=False)
+                        )
                     except Exception as e:
                         console.print(f"[red]Direct Execution failed: {e}[/red]")
 
@@ -696,9 +765,10 @@ def cmd_chat():
 
 def cmd_setup():
     """Guided onboarding setup wizard for AJA."""
-    from rich.panel import Panel
-    from rich.prompt import Prompt, Confirm
     import shutil
+
+    from rich.panel import Panel
+    from rich.prompt import Confirm, Prompt
 
     console.print(
         Panel(
@@ -740,12 +810,14 @@ def cmd_setup():
             "2": "openai",
             "3": "anthropic",
             "4": "google",
-            "5": "llama_cpp"
+            "5": "llama_cpp",
         }
         console.print("Select Provider:")
         for k, v in providers.items():
             console.print(f"  {k}) {v}")
-        p_choice = Prompt.ask("Provider Option", choices=list(providers.keys()), default="1")
+        p_choice = Prompt.ask(
+            "Provider Option", choices=list(providers.keys()), default="1"
+        )
         provider = providers[p_choice]
 
         if provider == "copilot":
@@ -758,25 +830,32 @@ def cmd_setup():
             models = ["gemini-2.5-flash", "gemini-2.5-pro"]
         elif provider == "llama_cpp":
             # For local, just prompt for free text
-            model_name = Prompt.ask(f"Enter Local Model name for {role_name} (e.g. gemma-2-9b-it)")
+            model_name = Prompt.ask(
+                f"Enter Local Model name for {role_name} (e.g. gemma-2-9b-it)"
+            )
             return f"{provider}:{model_name}", provider
-            
+
         console.print(f"Select Top {provider.capitalize()} Model:")
         for i, m in enumerate(models, 1):
             console.print(f"  {i}) {m}")
         console.print(f"  {len(models) + 1}) Custom / Type your own")
-        
-        m_choice = Prompt.ask("Model Option", choices=[str(i) for i in range(1, len(models) + 2)], default="1")
+
+        m_choice = Prompt.ask(
+            "Model Option",
+            choices=[str(i) for i in range(1, len(models) + 2)],
+            default="1",
+        )
         if int(m_choice) <= len(models):
             model_name = models[int(m_choice) - 1]
         else:
             model_name = Prompt.ask(f"Enter Custom {provider} Model name")
-            
+
         return f"{provider}:{model_name}", provider
 
     # Helper function to securely update .env keys
     def update_env_key(key: str, value: str):
-        if not value: return
+        if not value:
+            return
         if not env_path.exists():
             env_path.touch()
         lines = env_path.read_text(encoding="utf-8").splitlines()
@@ -792,29 +871,47 @@ def cmd_setup():
         choices=["offline", "online", "hybrid"],
         default="hybrid",
     )
-    
-    console.print("\n[dim]The Swarm Planner orchestrates high-level tasks, while the Single Agent Worker executes individual steps.[/dim]")
+
+    console.print(
+        "\n[dim]The Swarm Planner orchestrates high-level tasks, while the Single Agent Worker executes individual steps.[/dim]"
+    )
     planner_model, planner_provider = ask_for_model("Swarm Planner")
-    console.print("[dim]* Note: The Swarm Critic model is automatically linked to your Planner model for onboarding simplicity. Separating the roles guarantees opposing system prompts (Builder vs Attacker) for higher quality results.[/dim]")
+    console.print(
+        "[dim]* Note: The Swarm Critic model is automatically linked to your Planner model for onboarding simplicity. Separating the roles guarantees opposing system prompts (Builder vs Attacker) for higher quality results.[/dim]"
+    )
     worker_model, worker_provider = ask_for_model("Single Agent Worker")
-    
+
     # Handle API Keys
     console.print("\n[bold magenta]--- API Key Validation ---[/bold magenta]")
     required_providers = set([planner_provider, worker_provider])
     if "openai" in required_providers:
         if not os.environ.get("OPENAI_API_KEY"):
-            val = Prompt.ask("Enter OPENAI_API_KEY (or press Enter to skip)", password=True, default="")
+            val = Prompt.ask(
+                "Enter OPENAI_API_KEY (or press Enter to skip)",
+                password=True,
+                default="",
+            )
             update_env_key("OPENAI_API_KEY", val)
     if "anthropic" in required_providers:
         if not os.environ.get("ANTHROPIC_API_KEY"):
-            val = Prompt.ask("Enter ANTHROPIC_API_KEY (or press Enter to skip)", password=True, default="")
+            val = Prompt.ask(
+                "Enter ANTHROPIC_API_KEY (or press Enter to skip)",
+                password=True,
+                default="",
+            )
             update_env_key("ANTHROPIC_API_KEY", val)
     if "google" in required_providers:
-        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
-            val = Prompt.ask("Enter GEMINI_API_KEY (or press Enter to skip)", password=True, default="")
+        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get(
+            "GOOGLE_API_KEY"
+        ):
+            val = Prompt.ask(
+                "Enter GEMINI_API_KEY (or press Enter to skip)",
+                password=True,
+                default="",
+            )
             update_env_key("GEMINI_API_KEY", val)
             update_env_key("GOOGLE_API_KEY", val)
-            
+
     # Handle Integrations
     console.print("\n[bold magenta]--- Platform Integrations ---[/bold magenta]")
     if Confirm.ask("Do you want to configure a Telegram Bot token now?", default=False):
@@ -826,11 +923,6 @@ def cmd_setup():
         "project_name": project_name,
         "territories": [
             {
-                "path": "apps/cli-ts",
-                "health_cmd": "node dist/cli.js",
-                "auto_heal": True,
-            },
-            {
                 "path": "libs/aja-core",
                 "health_cmd": "python -m aja status",
                 "auto_heal": False,
@@ -840,7 +932,11 @@ def cmd_setup():
             "offline_mode": operating_mode == "offline",
             "max_agents": 5,
             "check_interval": 30,
-            "models": {"planner": planner_model, "worker": worker_model, "critic": planner_model},
+            "models": {
+                "planner": planner_model,
+                "worker": worker_model,
+                "critic": planner_model,
+            },
             "operating_mode": operating_mode,
         },
     }
@@ -866,7 +962,9 @@ def cmd_setup():
     handover_dir = DATA_DIR / "handovers"
     handover_dir.mkdir(parents=True, exist_ok=True)
     print_success("Vector store database directories successfully initialized.")
-    console.print("\n[bold green]Setup Complete! You can now run `aja chat`.[/bold green]")
+    console.print(
+        "\n[bold green]Setup Complete! You can now run `aja chat`.[/bold green]"
+    )
 
 
 def cmd_doctor(ci_mode: bool = False):
@@ -874,23 +972,23 @@ def cmd_doctor(ci_mode: bool = False):
     from aja.utils.diagnostics import run_diagnostics
 
     checks = run_diagnostics()
-    
+
     if AGENT_MODE:
         output = {
             "status": "ok" if all(status for name, status, msg in checks) else "failed",
             "checks": [
-                {
-                    "name": name,
-                    "passed": bool(status),
-                    "message": msg
-                }
+                {"name": name, "passed": bool(status), "message": msg}
                 for name, status, msg in checks
-            ]
+            ],
         }
         print(json.dumps(output, indent=2), flush=True)
         if ci_mode:
             critical_checks = {"Native Engine", "Memory Manager", "Config Validation"}
-            critical_failures = [name for name, status, msg in checks if not status and name in critical_checks]
+            critical_failures = [
+                name
+                for name, status, msg in checks
+                if not status and name in critical_checks
+            ]
             if critical_failures:
                 sys.exit(1)
         return
@@ -901,12 +999,16 @@ def cmd_doctor(ci_mode: bool = False):
         critical_checks = {"Native Engine", "Memory Manager", "Config Validation"}
         failures = [name for name, status, msg in checks if not status]
         critical_failures = [f for f in failures if f in critical_checks]
-        
+
         if critical_failures:
-            console.print(f"[bold red]CI Mode: Diagnostics failed for: {', '.join(critical_failures)}[/bold red]")
+            console.print(
+                f"[bold red]CI Mode: Diagnostics failed for: {', '.join(critical_failures)}[/bold red]"
+            )
             sys.exit(1)
         elif failures:
-            console.print(f"[bold yellow]CI Mode: Warnings for: {', '.join(failures)} (non-blocking)[/bold yellow]")
+            console.print(
+                f"[bold yellow]CI Mode: Warnings for: {', '.join(failures)} (non-blocking)[/bold yellow]"
+            )
         else:
             console.print("[bold green]CI Mode: All diagnostics passed.[/bold green]")
 
@@ -914,6 +1016,7 @@ def cmd_doctor(ci_mode: bool = False):
 def cmd_exec(args: List[str]):
     """Inspect canonical execution runtime sessions and artifacts."""
     from rich.table import Table
+
     from aja.runtime.execution import get_default_execution_manager
 
     manager = get_default_execution_manager()
@@ -931,10 +1034,17 @@ def cmd_exec(args: List[str]):
         seen = set()
         for session_id, item in active.items():
             seen.add(session_id)
-            table.add_row(session_id, item.get("state", "unknown"), item.get("started_at") or "-", item.get("command", "")[:80])
+            table.add_row(
+                session_id,
+                item.get("state", "unknown"),
+                item.get("started_at") or "-",
+                item.get("command", "")[:80],
+            )
 
         if exec_root.exists():
-            for path in sorted(exec_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            for path in sorted(
+                exec_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True
+            ):
                 if not path.is_dir() or path.name in seen:
                     continue
                 result_path = path / "result.json"
@@ -960,7 +1070,9 @@ def cmd_exec(args: List[str]):
         return
 
     if len(args) < 2 and subcmd not in {"cleanup", "replay"}:
-        print_error("Usage: aja exec <show|timeline|diff|apply|replay|cleanup> <session_id>")
+        print_error(
+            "Usage: aja exec <show|timeline|diff|apply|replay|cleanup> <session_id>"
+        )
         return
 
     if subcmd == "cleanup":
@@ -992,6 +1104,7 @@ def cmd_exec(args: List[str]):
             return
 
         from aja.tui.replay_viewer import run_replay
+
         run_replay(session_id, exec_root)
         return
 
@@ -1012,7 +1125,9 @@ def cmd_exec(args: List[str]):
     if subcmd == "timeline":
         timeline = manager.get_timeline(session_id)
         for event in timeline:
-            console.print(f"[dim]{event.get('timestamp', '-')}[/] [cyan]{event.get('event_type', '-')}[/] {event.get('message', '')}")
+            console.print(
+                f"[dim]{event.get('timestamp', '-')}[/] [cyan]{event.get('event_type', '-')}[/] {event.get('message', '')}"
+            )
         return
 
     if subcmd == "diff":
@@ -1023,7 +1138,9 @@ def cmd_exec(args: List[str]):
     if subcmd == "apply":
         diff = manager.get_diff(session_id)
         if not diff.get("diff_text"):
-            print_error(f"No patch diff found for session {session_id} or no changes were made.")
+            print_error(
+                f"No patch diff found for session {session_id} or no changes were made."
+            )
             return
 
         patch_text = diff["diff_text"]
@@ -1035,23 +1152,31 @@ def cmd_exec(args: List[str]):
             ["git", "apply", "--check", "--binary", str(patch_file)],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
-            text=True
+            text=True,
         )
         if res_check.returncode != 0:
-            print_error(f"Patch validation failed:\n{res_check.stderr or res_check.stdout}")
+            print_error(
+                f"Patch validation failed:\n{res_check.stderr or res_check.stdout}"
+            )
             return
 
-        console.print("[green][*] Validation passed. Applying patch to project root...[/green]")
+        console.print(
+            "[green][*] Validation passed. Applying patch to project root...[/green]"
+        )
         res_apply = subprocess.run(
             ["git", "apply", "--binary", str(patch_file)],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
-            text=True
+            text=True,
         )
         if res_apply.returncode == 0:
-            print_success(f"Successfully applied isolated workspace changes for session {session_id}.")
+            print_success(
+                f"Successfully applied isolated workspace changes for session {session_id}."
+            )
         else:
-            print_error(f"Failed to apply patch:\n{res_apply.stderr or res_apply.stdout}")
+            print_error(
+                f"Failed to apply patch:\n{res_apply.stderr or res_apply.stdout}"
+            )
         return
 
     print_error(f"Unknown exec command: {subcmd}")
@@ -1062,30 +1187,38 @@ def show_help():
     if AGENT_MODE:
         rules = []
         skills = []
-        
+
         brief_text = "AJA Orchestration Engine"
         brief_path = PROJECT_ROOT / "agent" / "brief.md"
         if brief_path.exists():
             brief_text = brief_path.read_text(encoding="utf-8").strip()
-            
+
         rules_dir = PROJECT_ROOT / "agent" / "rules"
         if rules_dir.exists():
             for p in rules_dir.glob("*.md"):
                 meta = parse_frontmatter_meta(p)
-                rules.append({
-                    "name": meta.get("name", p.stem),
-                    "description": meta.get("description", "AJA trigger/workflow constraint rules file.")
-                })
-                
+                rules.append(
+                    {
+                        "name": meta.get("name", p.stem),
+                        "description": meta.get(
+                            "description", "AJA trigger/workflow constraint rules file."
+                        ),
+                    }
+                )
+
         skills_dir = PROJECT_ROOT / "agent" / "skills"
         if skills_dir.exists():
             for p in skills_dir.glob("*.md"):
                 meta = parse_frontmatter_meta(p)
-                skills.append({
-                    "name": meta.get("name", p.stem),
-                    "description": meta.get("description", "AJA extended skills documentation.")
-                })
-                
+                skills.append(
+                    {
+                        "name": meta.get("name", p.stem),
+                        "description": meta.get(
+                            "description", "AJA extended skills documentation."
+                        ),
+                    }
+                )
+
         help_json = {
             "help": brief_text,
             "commands": [
@@ -1094,31 +1227,66 @@ def show_help():
                     "description": "Start an autonomous mission with the given objective.",
                     "parameters": [
                         {"name": "<objective>", "type": "string", "required": True},
-                        {"name": "--dry-run", "type": "boolean", "required": False, "description": "Run simulation without making mutations"},
-                        {"name": "--bg", "type": "boolean", "required": False, "description": "Run in background process group"}
-                    ]
+                        {
+                            "name": "--dry-run",
+                            "type": "boolean",
+                            "required": False,
+                            "description": "Run simulation without making mutations",
+                        },
+                        {
+                            "name": "--bg",
+                            "type": "boolean",
+                            "required": False,
+                            "description": "Run in background process group",
+                        },
+                    ],
                 },
-                {"name": "chat", "description": "Launch the interactive conversational assistant loop."},
-                {"name": "status", "description": "Show active swarm health, batons, and pending tasks."},
-                {"name": "doctor", "description": "Run environment readiness and diagnostics checks."},
+                {
+                    "name": "chat",
+                    "description": "Launch the interactive conversational assistant loop.",
+                },
+                {
+                    "name": "status",
+                    "description": "Show active swarm health, batons, and pending tasks.",
+                },
+                {
+                    "name": "doctor",
+                    "description": "Run environment readiness and diagnostics checks.",
+                },
                 {
                     "name": "pickup",
                     "description": "Resume a mission from a high-performance Arrow Baton code.",
                     "parameters": [
                         {"name": "<code>", "type": "string", "required": True}
-                    ]
+                    ],
                 },
-                {"name": "tui", "description": "Run the live terminal curses TUI dashboard."},
-                {"name": "rebuild-projections", "description": "Rebuild derived LanceDB projections from append-only journals."}
+                {
+                    "name": "tui",
+                    "description": "Run the live terminal curses TUI dashboard.",
+                },
+                {
+                    "name": "rebuild-projections",
+                    "description": "Rebuild derived LanceDB projections from append-only journals.",
+                },
             ],
-            "rules": rules if rules else [
-                {"name": "trigger", "description": "When should an agent use this tool"},
+            "rules": rules
+            if rules
+            else [
+                {
+                    "name": "trigger",
+                    "description": "When should an agent use this tool",
+                },
                 {"name": "workflow", "description": "Step-by-step usage flow"},
-                {"name": "writeback", "description": "How to write feedback back"}
+                {"name": "writeback", "description": "How to write feedback back"},
             ],
-            "skills": skills if skills else [
-                {"name": "getting-started", "description": "Technical onboarding guide to write durable activities"}
-            ]
+            "skills": skills
+            if skills
+            else [
+                {
+                    "name": "getting-started",
+                    "description": "Technical onboarding guide to write durable activities",
+                }
+            ],
         }
         print(json.dumps(help_json, indent=2), flush=True)
         return
@@ -1151,18 +1319,20 @@ def cmd_rebuild_projections():
     Rebuild derived LanceDB read projections from append-only journals.
     """
     print_info("Rebuilding derived LanceDB projections from append-only journals...")
-    
+
     # Rebuild mission projections
     try:
         from aja.runtime.mission_journal import rebuild_all_mission_projections
+
         rebuild_all_mission_projections()
         print_success("Mission read-projections successfully rebuilt.")
     except Exception as e:
         print_error(f"Failed to rebuild mission projections: {e}")
-        
+
     # Rebuild scheduler projections
     try:
         from aja.runtime.scheduler_journal import rebuild_scheduler_projections
+
         rebuild_scheduler_projections()
         print_success("Scheduler read-projections successfully rebuilt.")
     except Exception as e:
@@ -1201,9 +1371,12 @@ def cmd_mcp(args: List[str]):
 
     elif subcmd == "install":
         from aja.mcp import install_mcp_server
+
         try:
             install_mcp_server(target)
-            print_success(f"Successfully installed and configured MCP server '{target}' in aja.json.")
+            print_success(
+                f"Successfully installed and configured MCP server '{target}' in aja.json."
+            )
         except Exception as e:
             print_error(f"Failed to install MCP server '{target}': {e}")
 
@@ -1213,11 +1386,15 @@ def run_chat_with_gateway():
     gateway_proc = None
     worker_proc = None
     token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-    
+
     if token:
         try:
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            console.print("[dim][*] Booting AJA Telegram Gateway & Autonomous Worker in the background...[/]")
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            )
+            console.print(
+                "[dim][*] Booting AJA Telegram Gateway & Autonomous Worker in the background...[/]"
+            )
             gateway_proc = subprocess.Popen(
                 [sys.executable, "-m", "aja.gateway.server"],
                 creationflags=creationflags,
@@ -1231,8 +1408,10 @@ def run_chat_with_gateway():
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            console.print(f"[yellow]⚠️ Warning: Failed to boot background agents: {e}[/]")
-            
+            console.print(
+                f"[yellow]⚠️ Warning: Failed to boot background agents: {e}[/]"
+            )
+
     try:
         cmd_chat()
     finally:
@@ -1262,7 +1441,7 @@ def run_chat_with_gateway():
 def main():
     global AGENT_MODE
     args = sys.argv[1:]
-    
+
     # Intercept --brief
     if "--brief" in args:
         brief_path = PROJECT_ROOT / "agent" / "brief.md"
@@ -1275,10 +1454,10 @@ def main():
     # Process explicit agent/human mode flags
     has_agent = "--agent" in args
     has_human = "--human" in args
-    
+
     # Remove spec flags from command-line arguments list
     args = [a for a in args if a not in ("--agent", "--human")]
-    
+
     if has_agent:
         AGENT_MODE = True
     elif has_human:
@@ -1302,7 +1481,9 @@ def main():
     elif cmd == "direct":
         dry_run = "--dry-run" in args
         resume = "--resume" in args
-        model = next((a.split("=", 1)[1] for a in args if a.startswith("--model=")), None)
+        model = next(
+            (a.split("=", 1)[1] for a in args if a.startswith("--model=")), None
+        )
         cmd_direct(dry_run=dry_run, model=model, resume=resume)
     elif cmd == "chat":
         run_chat_with_gateway()

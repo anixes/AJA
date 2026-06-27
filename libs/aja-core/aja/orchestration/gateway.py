@@ -1,12 +1,13 @@
-from aja.config import DATA_DIR
-import os
-import json
 import argparse
 import asyncio
-import aiohttp
+import json
+import os
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiohttp
+from aja.config import DATA_DIR
 from openai import AsyncOpenAI
-from typing import Optional, Any, List, Dict
 
 
 def find_project_root() -> Path:
@@ -41,11 +42,14 @@ def load_providers():
             continue
 
     return {
-        "openai": "https://api.openai.com/v1",
-        "google": "https://generativelanguage.googleapis.com/v1beta",
+        "nvidia": "https://integrate.api.nvidia.com/v1",
+        "groq": "https://api.groq.com/openai/v1",
+        "together": "https://api.together.xyz/v1",
         "openrouter": "https://openrouter.ai/api/v1",
+        "openai": "https://api.openai.com/v1",
         "llama_cpp": "http://localhost:8080/v1",
-        "copilot": "https://api.githubcopilot.com"
+        "google": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "copilot": "https://api.githubcopilot.com",
     }
 
 
@@ -138,7 +142,11 @@ class LLMGateway:
     PROVIDERS = load_providers()
 
     def __init__(
-        self, provider: str = None, api_key: str = None, base_url: Optional[str] = None, extra_headers: Optional[Dict[str, str]] = None
+        self,
+        provider: str = None,
+        api_key: str = None,
+        base_url: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ):
         cfg = load_config()
         self.provider = (provider or cfg.get("provider", "openrouter")).lower()
@@ -160,20 +168,29 @@ class LLMGateway:
 
         # Handle Copilot Token Exchange and Header Construction
         if self.provider == "copilot":
-            from aja.copilot_auth import resolve_copilot_token, get_copilot_api_token, copilot_request_headers
+            from aja.copilot_auth import (
+                copilot_request_headers,
+                get_copilot_api_token,
+                resolve_copilot_token,
+            )
+
             if not self.api_key:
                 raw_token, _ = resolve_copilot_token()
             else:
                 raw_token = self.api_key
-            
+
             if raw_token:
                 self.api_key = get_copilot_api_token(raw_token)
-            
+
             copilot_headers = copilot_request_headers(is_agent_turn=True)
             self.extra_headers = {**copilot_headers, **self.extra_headers}
 
         # Ensure copilot defaults to its specific api base URL if not in PROVIDERS
-        default_url = "https://api.githubcopilot.com" if self.provider == "copilot" else self.PROVIDERS.get(self.provider)
+        default_url = (
+            "https://api.githubcopilot.com"
+            if self.provider == "copilot"
+            else self.PROVIDERS.get(self.provider)
+        )
         self.base_url = base_url or default_url
 
         if not self.base_url:
@@ -181,40 +198,70 @@ class LLMGateway:
                 f"Unknown provider '{self.provider}'. Please provide a base_url for custom endpoints."
             )
 
-    async def complete(self, system: str, user: str, model: str = None, retries: int = 3, temperature: Optional[float] = None):
+    async def complete(
+        self,
+        system: str,
+        user: str,
+        model: str = None,
+        retries: int = 3,
+        temperature: Optional[float] = None,
+    ):
         """
         Convenience method for deterministic completions.
         """
         if model is None:
             model = "gemini-2.5-flash"
 
-        return await self.chat(model=model, prompt=user, system=system, retries=retries, temperature=temperature)
+        return await self.chat(
+            model=model,
+            prompt=user,
+            system=system,
+            retries=retries,
+            temperature=temperature,
+        )
 
     from aja.runtime.execution.activity import durable_activity
 
     @durable_activity("llm.chat")
     async def chat(
-        self, model: str, prompt: Any, system: str = "You are a helpful assistant.", retries: int = 3, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None, extra_body: Optional[Dict[str, Any]] = None
+        self,
+        model: str,
+        prompt: Any,
+        system: str = "You are a helpful assistant.",
+        retries: int = 3,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
     ):
-        if self.provider == "copilot" and model in ("copilot", "github-copilot", "default"):
+        if self.provider == "copilot" and model in (
+            "copilot",
+            "github-copilot",
+            "default",
+        ):
             model = "gpt-4o-mini"
 
         for attempt in range(1, retries + 1):
             try:
                 if self.provider == "google":
-                    return await self._google_generate_content(model, prompt, system, temperature, tools)
+                    return await self._google_generate_content(
+                        model, prompt, system, temperature, tools
+                    )
 
                 use_responses = False
-                
+
                 # Clean up model name for Copilot
                 if self.provider == "copilot":
                     if model.startswith("copilot:"):
                         model = model[8:]
-                    
+
                     m_lower = model.lower()
                     if "/" in m_lower:
                         m_lower = m_lower.rsplit("/", 1)[-1]
-                    if m_lower.startswith("gpt-") and not m_lower.startswith("gpt-5-mini") and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4"):
+                    if (
+                        m_lower.startswith("gpt-")
+                        and not m_lower.startswith("gpt-5-mini")
+                        and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4")
+                    ):
                         use_responses = True
                     # Claude 3.5 Sonnet needs the responses API for Copilot currently.
                     if "claude" in m_lower:
@@ -223,7 +270,7 @@ class LLMGateway:
                 if self.provider == "copilot" and use_responses:
                     # Build Responses API input parts
                     input_items = []
-                    
+
                     # Convert prompt (which can be a string or a list of messages)
                     if isinstance(prompt, list):
                         for m in prompt:
@@ -234,62 +281,111 @@ class LLMGateway:
                                     parts = []
                                     for part in content:
                                         if isinstance(part, str):
-                                            parts.append({"type": "input_text", "text": part})
+                                            parts.append(
+                                                {"type": "input_text", "text": part}
+                                            )
                                         elif isinstance(part, dict):
                                             ptype = part.get("type")
                                             if ptype == "text":
-                                                parts.append({"type": "input_text", "text": part.get("text", "")})
+                                                parts.append(
+                                                    {
+                                                        "type": "input_text",
+                                                        "text": part.get("text", ""),
+                                                    }
+                                                )
                                             elif ptype == "image_url":
-                                                img_url = part.get("image_url", {}).get("url") if isinstance(part.get("image_url"), dict) else part.get("image_url")
-                                                parts.append({"type": "input_image", "image_url": img_url})
-                                    input_items.append({"role": "user", "content": parts})
+                                                img_url = (
+                                                    part.get("image_url", {}).get("url")
+                                                    if isinstance(
+                                                        part.get("image_url"), dict
+                                                    )
+                                                    else part.get("image_url")
+                                                )
+                                                parts.append(
+                                                    {
+                                                        "type": "input_image",
+                                                        "image_url": img_url,
+                                                    }
+                                                )
+                                    input_items.append(
+                                        {"role": "user", "content": parts}
+                                    )
                                 else:
-                                    input_items.append({"role": "user", "content": str(content)})
+                                    input_items.append(
+                                        {"role": "user", "content": str(content)}
+                                    )
                             elif role == "assistant":
                                 tcs = m.get("tool_calls")
                                 if isinstance(content, list):
-                                    parts = [{"type": "output_text", "text": p.get("text", "")} for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                                    input_items.append({"role": "assistant", "content": parts})
+                                    parts = [
+                                        {
+                                            "type": "output_text",
+                                            "text": p.get("text", ""),
+                                        }
+                                        for p in content
+                                        if isinstance(p, dict)
+                                        and p.get("type") == "text"
+                                    ]
+                                    input_items.append(
+                                        {"role": "assistant", "content": parts}
+                                    )
                                 else:
-                                    input_items.append({"role": "assistant", "content": str(content)})
+                                    input_items.append(
+                                        {"role": "assistant", "content": str(content)}
+                                    )
                                 if tcs:
                                     for tc in tcs:
                                         fn = tc.get("function", {})
-                                        input_items.append({
-                                            "type": "function_call",
-                                            "call_id": tc.get("id") or tc.get("call_id") or f"call_{len(input_items)}",
-                                            "name": fn.get("name"),
-                                            "arguments": fn.get("arguments", "{}")
-                                        })
+                                        input_items.append(
+                                            {
+                                                "type": "function_call",
+                                                "call_id": tc.get("id")
+                                                or tc.get("call_id")
+                                                or f"call_{len(input_items)}",
+                                                "name": fn.get("name"),
+                                                "arguments": fn.get("arguments", "{}"),
+                                            }
+                                        )
                             elif role == "tool":
                                 call_id = m.get("tool_call_id")
-                                input_items.append({
-                                    "type": "function_call_output",
-                                    "call_id": call_id,
-                                    "output": str(content)
-                                })
+                                input_items.append(
+                                    {
+                                        "type": "function_call_output",
+                                        "call_id": call_id,
+                                        "output": str(content),
+                                    }
+                                )
                     else:
                         input_items.append({"role": "user", "content": str(prompt)})
 
                     response_tools = []
                     if tools:
                         for item in tools:
-                            fn = item.get("function", {}) if isinstance(item, dict) else {}
+                            fn = (
+                                item.get("function", {})
+                                if isinstance(item, dict)
+                                else {}
+                            )
                             name = fn.get("name")
                             if name:
-                                response_tools.append({
-                                    "type": "function",
-                                    "name": name,
-                                    "description": fn.get("description", ""),
-                                    "strict": False,
-                                    "parameters": fn.get("parameters", {"type": "object", "properties": {}}),
-                                })
+                                response_tools.append(
+                                    {
+                                        "type": "function",
+                                        "name": name,
+                                        "description": fn.get("description", ""),
+                                        "strict": False,
+                                        "parameters": fn.get(
+                                            "parameters",
+                                            {"type": "object", "properties": {}},
+                                        ),
+                                    }
+                                )
 
                     payload = {
                         "model": model,
                         "instructions": system,
                         "input": input_items,
-                        "store": False
+                        "store": False,
                     }
                     if response_tools:
                         payload["tools"] = response_tools
@@ -304,16 +400,20 @@ class LLMGateway:
                     url = f"{self.base_url.rstrip('/')}/v1/responses"
                     req_headers = {
                         "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     }
                     req_headers.update(self.extra_headers)
 
                     timeout = aiohttp.ClientTimeout(total=60)
                     async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.post(url, json=payload, headers=req_headers) as resp:
+                        async with session.post(
+                            url, json=payload, headers=req_headers
+                        ) as resp:
                             if resp.status != 200:
                                 detail = await resp.text()
-                                raise ValueError(f"Copilot Responses API Error {resp.status}: {detail}")
+                                raise ValueError(
+                                    f"Copilot Responses API Error {resp.status}: {detail}"
+                                )
                             data = await resp.json()
 
                     output_items = data.get("output", [])
@@ -328,11 +428,13 @@ class LLMGateway:
                                     resp_content += part.get("text", "")
                         elif itype == "function_call":
                             call_id = item.get("call_id") or f"fc_{item.get('id')}"
-                            resp_tool_calls.append({
-                                "id": call_id,
-                                "name": item.get("name"),
-                                "arguments": item.get("arguments", "{}")
-                            })
+                            resp_tool_calls.append(
+                                {
+                                    "id": call_id,
+                                    "name": item.get("name"),
+                                    "arguments": item.get("arguments", "{}"),
+                                }
+                            )
 
                     if tools is not None:
                         return {"content": resp_content, "tool_calls": resp_tool_calls}
@@ -343,14 +445,16 @@ class LLMGateway:
                     for m in prompt:
                         msg_dict = {
                             "role": m.get("role", "user"),
-                            "content": m.get("content", m.get("text", ""))
+                            "content": m.get("content", m.get("text", "")),
                         }
                         if m.get("tool_calls") is not None:
                             msg_dict["tool_calls"] = m.get("tool_calls")
                         if m.get("tool_call_id") is not None:
                             msg_dict["tool_call_id"] = m.get("tool_call_id")
                         prompt_messages.append(msg_dict)
-                    messages = [_build_system_message(self.provider, model, system)] + prompt_messages
+                    messages = [
+                        _build_system_message(self.provider, model, system)
+                    ] + prompt_messages
                 else:
                     messages = [
                         _build_system_message(self.provider, model, system),
@@ -380,46 +484,61 @@ class LLMGateway:
                     default_headers=headers,
                 ) as client:
                     response = await client.chat.completions.create(**kwargs)
-                
+
                 msg = response.choices[0].message
                 if tools is not None:
                     tool_calls = []
                     if msg.tool_calls:
                         for tc in msg.tool_calls:
-                            tool_calls.append({
-                                "id": tc.id,
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            })
+                            tool_calls.append(
+                                {
+                                    "id": tc.id,
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
+                            )
                     return {"content": msg.content or "", "tool_calls": tool_calls}
                 return msg.content or ""
             except Exception as e:
                 print(f"[Gateway] Error on attempt {attempt}: {e}")
                 if attempt == retries:
                     return None
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
-    async def _google_generate_content(self, model: str, prompt: Any, system: str, temperature: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None):
+    async def _google_generate_content(
+        self,
+        model: str,
+        prompt: Any,
+        system: str,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ):
         model_name = normalize_google_model(model)
         api_key = google_api_key(self.api_key)
         if not api_key:
-            print("[Gateway] Error: GOOGLE_API_KEY or GEMINI_API_KEY is not configured.")
+            print(
+                "[Gateway] Error: GOOGLE_API_KEY or GEMINI_API_KEY is not configured."
+            )
             return None
 
-        base_url = (self.base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+        base_url = (
+            self.base_url or "https://generativelanguage.googleapis.com/v1beta"
+        ).rstrip("/")
         if base_url.endswith("/openai"):
             base_url = base_url[:-7]
         url = f"{base_url}/models/{model_name}:generateContent?key={api_key}"
-        
+
         if isinstance(prompt, list):
             contents = []
             for m in prompt:
                 role = "user" if m.get("role") == "user" else "model"
                 text = m.get("content", m.get("text", ""))
-                contents.append({
-                    "role": role,
-                    "parts": [{"text": text}],
-                })
+                contents.append(
+                    {
+                        "role": role,
+                        "parts": [{"text": text}],
+                    }
+                )
         else:
             contents = [
                 {
@@ -439,40 +558,53 @@ class LLMGateway:
         if tools is not None:
             google_tools = []
             for t in tools:
-                google_tools.append({
-                    "name": t["function"]["name"],
-                    "description": t["function"].get("description", ""),
-                    "parameters": t["function"].get("parameters", {})
-                })
+                google_tools.append(
+                    {
+                        "name": t["function"]["name"],
+                        "description": t["function"].get("description", ""),
+                        "parameters": t["function"].get("parameters", {}),
+                    }
+                )
             payload["tools"] = [{"functionDeclarations": google_tools}]
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.post(url, json=payload, headers={"Content-Type": "application/json"}) as response:
+                async with session.post(
+                    url, json=payload, headers={"Content-Type": "application/json"}
+                ) as response:
                     if response.status != 200:
                         detail = await response.text()
                         print(f"[Gateway] Google Error {response.status}: {detail}")
                         return None
-                    
+
                     data = await response.json()
-                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                    parts = (
+                        data.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [])
+                    )
                     if tools is not None:
                         content = ""
                         tool_calls = []
                         import json
+
                         for p in parts:
                             if "text" in p:
                                 content += p["text"]
                             if "functionCall" in p:
                                 fc = p["functionCall"]
-                                tool_calls.append({
-                                    "id": fc.get("name"),
-                                    "name": fc.get("name"),
-                                    "arguments": json.dumps(fc.get("args", {}))
-                                })
+                                tool_calls.append(
+                                    {
+                                        "id": fc.get("name"),
+                                        "name": fc.get("name"),
+                                        "arguments": json.dumps(fc.get("args", {})),
+                                    }
+                                )
                         return {"content": content.strip(), "tool_calls": tool_calls}
                     else:
-                        text_parts = [part.get("text", "") for part in parts if part.get("text")]
+                        text_parts = [
+                            part.get("text", "") for part in parts if part.get("text")
+                        ]
                         return "\n".join(text_parts).strip() or None
             except Exception as e:
                 print(f"[Gateway] Google Error: {e}")
@@ -482,7 +614,9 @@ class LLMGateway:
     async def embed(self, model: str, text: str) -> list[float]:
         """Generate dense vector embedding for text."""
         if self.provider == "google":
-            print("[Gateway] Embedding Error: native Google embeddings are not wired yet.")
+            print(
+                "[Gateway] Embedding Error: native Google embeddings are not wired yet."
+            )
             return []
 
         try:
@@ -491,7 +625,7 @@ class LLMGateway:
                 "X-Title": "AJA Swarm Toolkit",
             }
             headers.update(self.extra_headers)
-            
+
             async with AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -518,11 +652,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     gateway = LLMGateway(args.provider, args.key, args.url)
-    
+
     async def main():
         print(f"\n--- Result from {args.provider} ({args.model}) ---")
         result = await gateway.chat(args.model, args.prompt)
         print(result)
 
     asyncio.run(main())
-

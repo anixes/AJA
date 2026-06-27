@@ -1,13 +1,18 @@
-import pytest
+import asyncio
 import logging
 import sys
-import asyncio
+
+import pytest
 
 if sys.platform == "win32":
-    # We will use the default ProactorEventLoop since SelectorEventLoop doesn't support subprocesses
-    pass
+    # ProactorEventLoop is required on Windows for async subprocess support.
+    # SelectorEventLoop (the old default before Python 3.8) does not support
+    # subprocess transports, which causes asyncio.create_subprocess_exec() and
+    # anyio shell activities to fail silently or raise NotImplementedError.
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 logger = logging.getLogger(__name__)
+
 
 @pytest.fixture(autouse=True)
 def clear_activity_context():

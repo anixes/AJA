@@ -1,0 +1,55 @@
+default_language_version:
+  python: python3.11
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Standard file hygiene
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+        exclude: ^\.vscode/   # VS Code json files often have comments
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: debug-statements        # catches leftover breakpoint() / pdb calls
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # ---------------------------------------------------------------------------
+  # Ruff — lint and auto-fix, then format
+  # Run lint before format so fixes are formatted too.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        name: ruff (lint + auto-fix)
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+        name: ruff (format)
+
+  # ---------------------------------------------------------------------------
+  # Mypy — type checking (runs after formatting so diffs are stable)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        name: mypy
+        args: ["--config-file", "pyproject.toml"]
+        additional_dependencies:
+          - pydantic>=2.0
+          - types-requests
+        files: ^libs/aja-core/aja/
+        # Exclude generated/legacy files that aren't worth typing yet
+        exclude: |
+          (?x)^(
+            libs/aja-core/aja/tui/.*|
+            libs/aja-core/aja/api/bridge\.py
+          )$

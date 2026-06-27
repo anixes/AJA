@@ -2,11 +2,13 @@
 # ================
 # Global configuration and feature flags for AJA.
 
-import os
 import json
 import logging
+import os
 from pathlib import Path
+
 from dotenv import load_dotenv
+
 from aja.config_schema import AJAConfig
 
 # Load environment variables from .env file (override stale OS variables)
@@ -15,7 +17,9 @@ load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
 import importlib.resources
+
 import filelock
+
 
 def find_project_root():
     """
@@ -34,21 +38,23 @@ def find_project_root():
     return Path(platformdirs.user_data_dir("AJA", "Anixes"))
 
 
-import platformdirs
 import shutil
+
+import platformdirs
 
 PROJECT_ROOT = find_project_root()
 AJA_DIVERSITY_BETA = True
+
 
 def _get_data_dir() -> Path:
     env_dir = os.getenv("AJA_DATA_DIR")
     if env_dir:
         return Path(env_dir).resolve()
-    
+
     # Check for legacy local .aja folder for backward compatibility
     legacy_dir = PROJECT_ROOT / ".aja"
     new_dir = Path(platformdirs.user_data_dir("AJA", "Anixes"))
-    
+
     if legacy_dir.exists() and legacy_dir.is_dir() and not new_dir.exists():
         lock_path = new_dir.parent / ".aja_migration.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,17 +62,23 @@ def _get_data_dir() -> Path:
             with filelock.FileLock(str(lock_path), timeout=10):
                 # Re-check inside the lock to handle parallel worker races
                 if legacy_dir.exists() and not new_dir.exists():
-                    logger.info("Migrating legacy data directory from %s to %s", legacy_dir, new_dir)
+                    logger.info(
+                        "Migrating legacy data directory from %s to %s",
+                        legacy_dir,
+                        new_dir,
+                    )
                     new_dir.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(legacy_dir), str(new_dir))
         except Exception as e:
             logger.error("Failed to migrate legacy directory: %s", e)
             return legacy_dir
-            
+
     return new_dir
+
 
 DATA_DIR = _get_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Load and validate configuration with Pydantic
 def load_and_validate_config() -> AJAConfig:
@@ -83,16 +95,23 @@ def load_and_validate_config() -> AJAConfig:
             logger.error("Configuration validation failed for %s: %s", config_path, e)
             try:
                 from rich import print as rprint
-                rprint(f"\n[bold red]Configuration Validation Error:[/] Malformed config in {config_path}")
+
+                rprint(
+                    f"\n[bold red]Configuration Validation Error:[/] Malformed config in {config_path}"
+                )
                 rprint(f"[bold red]{e}[/]\n")
             except ImportError:
-                print(f"\nConfiguration Validation Error: Malformed config in {config_path}")
+                print(
+                    f"\nConfiguration Validation Error: Malformed config in {config_path}"
+                )
                 print(f"{e}\n")
             return AJAConfig()
     return AJAConfig()
 
+
 # Loaded configuration object
 CONFIG = load_and_validate_config()
+
 
 # Model Selection
 def _get_default_model(key, default):
@@ -103,8 +122,19 @@ def _get_default_model(key, default):
         logger.exception("Failed to load model default %s", key)
     return default
 
-AJA_PLANNER_MODEL = os.getenv("AJA_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash"))
-AJA_WORKER_MODEL = os.getenv("AJA_WORKER_MODEL", _get_default_model("worker", "google:gemini-2.0-flash"))
+
+AJA_PLANNER_MODEL = os.getenv(
+    "AJA_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash")
+)
+AJA_WORKER_MODEL = os.getenv(
+    "AJA_WORKER_MODEL", _get_default_model("worker", "google:gemini-2.0-flash")
+)
+# Critic defaults to the planner model (adversarial separation by system prompt).
+# Override with AJA_CRITIC_MODEL env var or aja.json swarm_settings.models.critic
+# to wire a dedicated reasoning model (e.g. o1) for critique passes.
+AJA_CRITIC_MODEL = os.getenv(
+    "AJA_CRITIC_MODEL", _get_default_model("critic", AJA_PLANNER_MODEL)
+)
 
 # Telegram Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")

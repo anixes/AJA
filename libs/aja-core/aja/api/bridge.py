@@ -1,36 +1,46 @@
 import asyncio
-import sys
-import os
-from pathlib import Path
-from contextlib import asynccontextmanager
-
 import json
+import os
 import shutil
 import subprocess
+import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Header, Depends, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from aja.security.stripper import CommandStripper
-from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.api.routes import attach_route_groups
-from aja.api.services.command_policy import analyze_shell_command as analyze_shell_command_policy
+from aja.api.services.command_policy import (
+    analyze_shell_command as analyze_shell_command_policy,
+)
 from aja.api.services.legacy_dashboard import dashboard_unavailable_payload
+from aja.config import DATA_DIR, PROJECT_ROOT
 from aja.memory.secretary import (
     AJAMemory,
-    get_aja_memory,
     format_communication_for_mobile,
     format_tasks_for_mobile,
+    get_aja_memory,
     parse_communication_intent,
     parse_task_intent,
 )
+from aja.security.stripper import CommandStripper
 from aja.utils.maintenance import run_maintenance
-import threading
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,14 +49,14 @@ async def lifespan(app: FastAPI):
     if TELEGRAM_BOT_TOKEN:
         print(f"[*] AJA Voice Gateway: Initializing Telegram Poller...")
         polling_task = asyncio.create_task(telegram_polling_loop())
-    
+
     # Launch Maintenance Service in a background thread
     print(f"[*] AJA Core: Initializing Maintenance Service...")
     maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
     maintenance_thread.start()
-    
+
     yield
-    
+
     # Shutdown
     if polling_task:
         print(f"[*] AJA Voice Gateway: Stopping Telegram Poller...")
@@ -55,6 +65,7 @@ async def lifespan(app: FastAPI):
             await polling_task
         except asyncio.CancelledError:
             pass
+
 
 app = FastAPI(lifespan=lifespan)
 attach_route_groups(app)
@@ -81,6 +92,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/tools")
 def list_available_tools():
     """Returns a list of tools available to the AJA swarm via this bridge."""
@@ -91,28 +103,28 @@ def list_available_tools():
                 "name": "Check GPU",
                 "description": "Returns current NVIDIA GPU status and memory usage.",
                 "action": "execute",
-                "command": "nvidia-smi"
+                "command": "nvidia-smi",
             },
             {
                 "id": "mission_launcher",
                 "name": "Run Mission",
                 "description": "Launches a background mission with a specific objective.",
                 "action": "mission",
-                "params": ["objective", "worker_id"]
+                "params": ["objective", "worker_id"],
             },
             {
                 "id": "task_create",
                 "name": "Create Task",
                 "description": "Saves a new task to the local AJA memory.",
                 "action": "aja",
-                "params": ["title", "priority", "due_date"]
+                "params": ["title", "priority", "due_date"],
             },
             {
                 "id": "comm_broadcast",
                 "name": "Broadcast Message",
                 "description": "Sends a message to all connected mobile clients.",
-                "action": "broadcast"
-            }
+                "action": "broadcast",
+            },
         ]
     }
 
@@ -122,7 +134,7 @@ BATON_DIR = DATA_DIR / "batons"
 API_TOKEN = os.getenv("AJA_API_TOKEN", "dev-token-123")
 TELEGRAM_HISTORY_PATH = DATA_DIR / "telegram-history.jsonl"
 TELEGRAM_PENDING_PATH = DATA_DIR / "telegram-pending.json"  # debug export only
-APPROVAL_AUDIT_PATH = DATA_DIR / "approval-audit.jsonl"   # debug export only
+APPROVAL_AUDIT_PATH = DATA_DIR / "approval-audit.jsonl"  # debug export only
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
@@ -166,12 +178,14 @@ ASK_PATTERNS = {
     "recursive-delete-flag": "The command includes recursive destructive flags.",
 }
 
+
 def verify_token(authorization: str = Header(None)):
     if not authorization or authorization.replace("Bearer ", "") != API_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 from aja.presence.state import get_system_state
+
 
 class ConnectionManager:
     def __init__(self):
@@ -195,7 +209,9 @@ class ConnectionManager:
         for dead in dead_connections:
             self.disconnect(dead)
 
+
 ws_manager = ConnectionManager()
+
 
 @app.websocket("/ws/mobile")
 async def websocket_endpoint(websocket: WebSocket):
@@ -224,16 +240,18 @@ def append_telegram_history(event: dict):
 
 def append_approval_audit(event: dict):
     """Persist an approval audit entry to LanceDB (authoritative) and JSONL (debug export)."""
-    get_aja_memory().log_approval_audit({
-        "approval_id": event.get("id", "unknown"),
-        "action": event.get("action", "unknown"),
-        "requester_source": event.get("requester_source"),
-        "command": event.get("command"),
-        "risk_level": event.get("risk_level"),
-        "reasons": event.get("reasons"),
-        "exit_code": event.get("exit_code"),
-        "note": event.get("note"),
-    })
+    get_aja_memory().log_approval_audit(
+        {
+            "approval_id": event.get("id", "unknown"),
+            "action": event.get("action", "unknown"),
+            "requester_source": event.get("requester_source"),
+            "command": event.get("command"),
+            "risk_level": event.get("risk_level"),
+            "reasons": event.get("reasons"),
+            "exit_code": event.get("exit_code"),
+            "note": event.get("note"),
+        }
+    )
     # Debug export to JSONL (optional, non-authoritative)
     try:
         APPROVAL_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -255,15 +273,22 @@ def save_runtime_state(state: dict):
 
 def add_runtime_event(event: dict):
     """Append a runtime event to LanceDB (authoritative source of truth)."""
-    get_aja_memory().add_runtime_event({
-        "event_type": event.get("type", "INFO"),
-        "tool": event.get("tool"),
-        "message": event.get("message", ""),
-        "command": event.get("command"),
-        "root_binary": event.get("rootBinary"),
-        "level": event.get("level"),
-        "metadata": {k: v for k, v in event.items() if k not in {"type", "tool", "message", "command", "rootBinary", "level"}},
-    })
+    get_aja_memory().add_runtime_event(
+        {
+            "event_type": event.get("type", "INFO"),
+            "tool": event.get("tool"),
+            "message": event.get("message", ""),
+            "command": event.get("command"),
+            "root_binary": event.get("rootBinary"),
+            "level": event.get("level"),
+            "metadata": {
+                k: v
+                for k, v in event.items()
+                if k
+                not in {"type", "tool", "message", "command", "rootBinary", "level"}
+            },
+        }
+    )
 
 
 def set_runtime_pending_approval(approval: dict | None):
@@ -281,23 +306,26 @@ def set_runtime_pending_approval(approval: dict | None):
 
 def create_approval_in_db(approval: dict) -> str:
     """Persist a new approval object to LanceDB and return the approval_id."""
-    return get_aja_memory().create_approval({
-        "approval_id": approval.get("id"),
-        "tool": approval.get("tool", "bash"),
-        "command": approval.get("command"),
-        "command_preview": approval.get("commandPreview") or approval.get("command"),
-        "action_type": approval.get("actionType"),
-        "root_binary": approval.get("rootBinary"),
-        "risk_level": approval.get("riskLevel", "medium"),
-        "level": approval.get("level"),
-        "reasons": approval.get("reasons", []),
-        "operator_reason": approval.get("operatorReason"),
-        "rollback_path": approval.get("rollbackPath"),
-        "dry_run_summary": approval.get("dryRunSummary"),
-        "requester_source": approval.get("requesterSource", "CLI"),
-        "telegram_meta": approval.get("telegram") or {},
-        "expires_at": approval.get("expiresAt"),
-    })
+    return get_aja_memory().create_approval(
+        {
+            "approval_id": approval.get("id"),
+            "tool": approval.get("tool", "bash"),
+            "command": approval.get("command"),
+            "command_preview": approval.get("commandPreview")
+            or approval.get("command"),
+            "action_type": approval.get("actionType"),
+            "root_binary": approval.get("rootBinary"),
+            "risk_level": approval.get("riskLevel", "medium"),
+            "level": approval.get("level"),
+            "reasons": approval.get("reasons", []),
+            "operator_reason": approval.get("operatorReason"),
+            "rollback_path": approval.get("rollbackPath"),
+            "dry_run_summary": approval.get("dryRunSummary"),
+            "requester_source": approval.get("requesterSource", "CLI"),
+            "telegram_meta": approval.get("telegram") or {},
+            "expires_at": approval.get("expiresAt"),
+        }
+    )
 
 
 def load_telegram_pending():
@@ -389,43 +417,122 @@ def generate_definition_of_done(objective: str) -> list[str]:
     AJA refuses to delegate without clear success criteria.
     """
     o = objective.lower()
-    items: list[str] = ["Goal achieved as described in the brief", "Handoff summary or output note provided"]
+    items: list[str] = [
+        "Goal achieved as described in the brief",
+        "Handoff summary or output note provided",
+    ]
 
-    if any(k in o for k in ("code", "build", "implement", "create", "write", "develop", "scaffold", "generate")):
-        items += ["Code reviewed and clean", "Unit tests pass", "No secret or key leakage"]
+    if any(
+        k in o
+        for k in (
+            "code",
+            "build",
+            "implement",
+            "create",
+            "write",
+            "develop",
+            "scaffold",
+            "generate",
+        )
+    ):
+        items += [
+            "Code reviewed and clean",
+            "Unit tests pass",
+            "No secret or key leakage",
+        ]
 
-    if any(k in o for k in ("auth", "login", "token", "session", "security", "password", "credential")):
-        items += ["Authentication works end-to-end", "Rollback path documented", "No credentials hardcoded"]
+    if any(
+        k in o
+        for k in (
+            "auth",
+            "login",
+            "token",
+            "session",
+            "security",
+            "password",
+            "credential",
+        )
+    ):
+        items += [
+            "Authentication works end-to-end",
+            "Rollback path documented",
+            "No credentials hardcoded",
+        ]
 
     if any(k in o for k in ("fix", "debug", "resolve", "patch", "repair", "bug")):
-        items += ["Root cause identified and documented", "Fix verified with test", "No regressions introduced"]
+        items += [
+            "Root cause identified and documented",
+            "Fix verified with test",
+            "No regressions introduced",
+        ]
 
     if any(k in o for k in ("refactor", "clean", "restructure", "reorganize")):
-        items += ["Behaviour unchanged (no regressions)", "Readability improved", "PR summary generated"]
+        items += [
+            "Behaviour unchanged (no regressions)",
+            "Readability improved",
+            "PR summary generated",
+        ]
 
     if any(k in o for k in ("test", "verify", "validate", "check", "qa")):
         items += ["All cases pass (happy path + edge cases)", "Results documented"]
 
     if any(k in o for k in ("deploy", "release", "publish", "ship", "launch")):
-        items += ["Deployment verified in target environment", "Health checks pass", "Rollback plan documented"]
+        items += [
+            "Deployment verified in target environment",
+            "Health checks pass",
+            "Rollback plan documented",
+        ]
 
     if any(k in o for k in ("email", "message", "reply", "send", "draft", "notify")):
-        items += ["Message content reviewed and approved", "Recipient confirmed", "Tone appropriate for context"]
+        items += [
+            "Message content reviewed and approved",
+            "Recipient confirmed",
+            "Tone appropriate for context",
+        ]
 
-    if any(k in o for k in ("research", "find", "analyze", "analyse", "report", "investigate")):
-        items += ["Findings documented with sources", "Conclusions are actionable", "Gaps / unknowns flagged"]
+    if any(
+        k in o
+        for k in ("research", "find", "analyze", "analyse", "report", "investigate")
+    ):
+        items += [
+            "Findings documented with sources",
+            "Conclusions are actionable",
+            "Gaps / unknowns flagged",
+        ]
 
-    if any(k in o for k in ("apply", "application", "resume", "cv", "recruiter", "interview", "job")):
-        items += ["Application submitted and confirmation received", "Follow-up reminder set", "Status logged in AJA memory"]
+    if any(
+        k in o
+        for k in (
+            "apply",
+            "application",
+            "resume",
+            "cv",
+            "recruiter",
+            "interview",
+            "job",
+        )
+    ):
+        items += [
+            "Application submitted and confirmation received",
+            "Follow-up reminder set",
+            "Status logged in AJA memory",
+        ]
 
     if any(k in o for k in ("payment", "pay", "bill", "invoice", "transfer")):
         items += ["Transaction confirmed", "Receipt logged", "Amount verified"]
 
     if any(k in o for k in ("pr", "pull request", "merge")):
-        items += ["PR description complete", "Review comments addressed", "Merge approved by owner"]
+        items += [
+            "PR description complete",
+            "Review comments addressed",
+            "Merge approved by owner",
+        ]
 
     # Always append PR summary for engineering tasks
-    if any(k in o for k in ("code", "build", "implement", "fix", "debug", "deploy", "refactor")):
+    if any(
+        k in o
+        for k in ("code", "build", "implement", "fix", "debug", "deploy", "refactor")
+    ):
         items.append("PR summary or handoff note generated")
 
     # Deduplicate preserving order
@@ -449,22 +556,37 @@ async def send_communication_if_supported(message: dict):
 
     result = await send_telegram_message(message["recipient"], message["draft_content"])
     if not result.get("ok"):
-        return {"ok": False, "message": f"Telegram send failed: {result.get('description', 'unknown error')}"}
-    sent = get_aja_memory().mark_communication_sent(message["message_id"], "Sent through Telegram Bot API.")
-    return {"ok": True, "message": f"Sent Telegram message {sent['message_id']} to {sent['recipient']}."}
+        return {
+            "ok": False,
+            "message": f"Telegram send failed: {result.get('description', 'unknown error')}",
+        }
+    sent = get_aja_memory().mark_communication_sent(
+        message["message_id"], "Sent through Telegram Bot API."
+    )
+    return {
+        "ok": True,
+        "message": f"Sent Telegram message {sent['message_id']} to {sent['recipient']}.",
+    }
 
 
-async def deliver_executive_review(kind: str, chat_id: int | str | None = None, force: bool = False):
+async def deliver_executive_review(
+    kind: str, chat_id: int | str | None = None, force: bool = False
+):
     memory = get_aja_memory()
     if not force and kind not in memory.due_review_kinds():
         return {"ok": False, "message": f"{kind} review is not due."}
     review = await asyncio.to_thread(memory.generate_executive_review, kind, True)
-    target_chat = chat_id or os.getenv("TELEGRAM_REVIEW_CHAT_ID") or TELEGRAM_ALLOWED_USER_ID
+    target_chat = (
+        chat_id or os.getenv("TELEGRAM_REVIEW_CHAT_ID") or TELEGRAM_ALLOWED_USER_ID
+    )
     if not target_chat:
         return {"ok": False, "message": "No Telegram review chat is configured."}
     result = await send_telegram_message(target_chat, review["summary"])
     if not result.get("ok"):
-        return {"ok": False, "message": f"Telegram delivery failed: {result.get('description', 'unknown error')}"}
+        return {
+            "ok": False,
+            "message": f"Telegram delivery failed: {result.get('description', 'unknown error')}",
+        }
     event = await asyncio.to_thread(
         memory.record_scheduler_event,
         f"{kind}_review",
@@ -539,21 +661,27 @@ def execute_aja_command_sync(text: str, source: str, owner: str = "AJA"):
         "todays priorities",
     }:
         result = run_priority_engine(memory)
-        focus = [t for t in result["top3"] if t.get("urgency_tier") in ("critical", "high")]
+        focus = [
+            t for t in result["top3"] if t.get("urgency_tier") in ("critical", "high")
+        ]
         ignore = result.get("ignore_candidates", [])
         lines = []
         if focus:
             lines.append("What actually matters today:\n")
             for item in focus:
                 lines.append(f"• {item['title']}")
-                lines.append(f"  → {item.get('decision_recommendation','')}")
+                lines.append(f"  → {item.get('decision_recommendation', '')}")
                 if item.get("urgency_challenge"):
                     lines.append(f"  Note: {item['urgency_challenge']}")
                 lines.append("")
         else:
-            lines.append("Nothing truly critical today. Consider working on medium-priority items.")
+            lines.append(
+                "Nothing truly critical today. Consider working on medium-priority items."
+            )
         if ignore:
-            lines.append(f"\nSafe to defer: {', '.join(t['title'] for t in ignore[:3])}")
+            lines.append(
+                f"\nSafe to defer: {', '.join(t['title'] for t in ignore[:3])}"
+            )
         return "\n".join(lines).strip()
 
     if lowered in {
@@ -569,7 +697,9 @@ def execute_aja_command_sync(text: str, source: str, owner: str = "AJA"):
             return "Nothing can safely be ignored this week — all tasks have meaningful priority scores."
         lines = ["Safe to defer or archive this week:\n"]
         for item in ignore:
-            reason = item.get("ignore_reason", "Low urgency and low consequence of delay.")
+            reason = item.get(
+                "ignore_reason", "Low urgency and low consequence of delay."
+            )
             lines.append(f"• {item['title']}")
             lines.append(f"  Reason: {reason}")
             lines.append("")
@@ -588,16 +718,30 @@ def execute_aja_command_sync(text: str, source: str, owner: str = "AJA"):
         except KeyError:
             return f"No AJA task found for {task_id}."
 
-    for prefix, action in (("complete ", "complete"), ("done ", "complete"), ("archive ", "archive")):
+    for prefix, action in (
+        ("complete ", "complete"),
+        ("done ", "complete"),
+        ("archive ", "archive"),
+    ):
         if lowered.startswith(prefix):
             task_id = normalized.split(maxsplit=1)[1].strip()
             try:
-                task = memory.complete_task(task_id) if action == "complete" else memory.archive_task(task_id)
+                task = (
+                    memory.complete_task(task_id)
+                    if action == "complete"
+                    else memory.archive_task(task_id)
+                )
                 return f"{action.title()}d: {task['title']}\nid: {task['task_id']}\nstatus: {task['status']}"
             except KeyError:
                 return f"No AJA task found for {task_id}."
 
-    if lowered in {"communications", "communication summary", "drafts", "message drafts", "check pending unanswered messages"}:
+    if lowered in {
+        "communications",
+        "communication summary",
+        "drafts",
+        "message drafts",
+        "check pending unanswered messages",
+    }:
         return memory.communication_summary()
 
     if lowered.startswith("approve message "):
@@ -621,7 +765,9 @@ def execute_aja_command_sync(text: str, source: str, owner: str = "AJA"):
         if len(parts) < 4:
             return "Use: edit message <message_id> <new text>"
         try:
-            message = memory.edit_communication(parts[2], parts[3], "Edited from command.")
+            message = memory.edit_communication(
+                parts[2], parts[3], "Edited from command."
+            )
             return format_communication_for_mobile(message)
         except KeyError:
             return f"No message found for {parts[2]}."
@@ -686,7 +832,13 @@ def build_supported_command(text: str):
     if normalized == "status":
         return {"kind": "status"}
     if normalized in {"check gpu", "gpu status", "gpu", "/gpu", "check_gpu"}:
-        return {"kind": "execute", "command": "nvidia-smi", "requires_confirmation": False, "action_type": "gpu_check", "risk_level": "low"}
+        return {
+            "kind": "execute",
+            "command": "nvidia-smi",
+            "requires_confirmation": False,
+            "action_type": "gpu_check",
+            "risk_level": "low",
+        }
     if normalized == "run training job":
         return {
             "kind": "execute",
@@ -769,15 +921,26 @@ def build_dry_run_summary(action_type: str, command: str):
     return f"Would execute: {command}"
 
 
-def build_approval_object(text: str, command: str, spec: dict, classification: dict, user_id: int, chat_id: int | str):
+def build_approval_object(
+    text: str,
+    command: str,
+    spec: dict,
+    classification: dict,
+    user_id: int,
+    chat_id: int | str,
+):
     action_type = spec.get("action_type", "shell_command")
     reasons = [spec.get("reason")] if spec.get("reason") else []
     reasons.extend(classification.get("reasons", []))
-    risk_level = normalize_risk_level(classification.get("risk_level") or classification.get("level", "MEDIUM"))
+    risk_level = normalize_risk_level(
+        classification.get("risk_level") or classification.get("level", "MEDIUM")
+    )
     if spec.get("risk_level"):
         risk_level = spec["risk_level"]
     request_id = f"approval-{int(time.time())}-{abs(hash((user_id, command, time.time()))) % 10000}"
-    expires_at = (datetime.now().astimezone() + timedelta(minutes=10)).isoformat(timespec="seconds")
+    expires_at = (datetime.now().astimezone() + timedelta(minutes=10)).isoformat(
+        timespec="seconds"
+    )
     analysis = classification.get("analysis") or {}
     return {
         "id": request_id,
@@ -790,7 +953,12 @@ def build_approval_object(text: str, command: str, spec: dict, classification: d
         "level": classification.get("level", "MEDIUM"),
         "riskLevel": risk_level,
         "reasons": [reason for reason in reasons if reason],
-        "operatorReason": spec.get("reason") or (reasons[0] if reasons else "This action needs operator review before execution."),
+        "operatorReason": spec.get("reason")
+        or (
+            reasons[0]
+            if reasons
+            else "This action needs operator review before execution."
+        ),
         "rollbackPath": build_rollback_path(action_type, command),
         "expiresAt": expires_at,
         "requesterSource": "Telegram",
@@ -802,7 +970,9 @@ def build_approval_object(text: str, command: str, spec: dict, classification: d
 
 def format_approval_for_mobile(approval: dict):
     reasons = approval.get("reasons") or []
-    reason_text = "\n".join(f"- {reason}" for reason in reasons) or "- Manual review required."
+    reason_text = (
+        "\n".join(f"- {reason}" for reason in reasons) or "- Manual review required."
+    )
     return "\n".join(
         [
             "Approval request",
@@ -840,7 +1010,7 @@ async def run_shell_command(command: str):
         return {
             "ok": False,
             "code": 1,
-            "output": f"Execution blocked: {classification['reasons'][0]}"
+            "output": f"Execution blocked: {classification['reasons'][0]}",
         }
 
     from aja.runtime.execution import ExecutionRequest, get_default_execution_manager
@@ -865,26 +1035,28 @@ async def run_shell_command(command: str):
 
 
 async def run_file_guardian_check(command: str):
-    def _run():
-        return subprocess.run(
-            [resolve_npx_executable(), "tsx", "apps/cli-ts/src/telegram_file_guardian_check.ts", str(DATA_DIR / "telegram-command.txt"), command],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+    """Python-native command safety check replacing the removed TypeScript file guardian.
 
-    result = await asyncio.to_thread(_run)
+    Delegates to the same ``classify_command`` engine used by CommandGuard so
+    the decision logic is consistent across all execution paths.  Returns a dict
+    with a ``decision`` key of ``"ALLOW"`` or ``"DENY"`` to preserve the
+    interface expected by callers.
+    """
+    from aja.security.command_guard import classify_command as _classify
+
     try:
-        payload = json.loads((result.stdout or result.stderr).strip())
-    except Exception:
-        payload = {"decision": "DENY", "error": (result.stderr or result.stdout).strip()}
-
-    decision = str(payload.get("decision", "DENY")).upper()
-    if result.returncode != 0 and decision != "DENY":
-        payload["decision"] = "DENY"
-
-    return payload
+        result = _classify(command)
+        raw_decision = result.get("decision", "deny")
+        # Map classify_command decisions → file-guardian style uppercase decision.
+        # "allow" → ALLOW; "ask" or "deny" → DENY (conservative default).
+        decision = "ALLOW" if raw_decision == "allow" else "DENY"
+        return {
+            "decision": decision,
+            "level": result.get("level", "UNKNOWN"),
+            "reasons": result.get("reasons", []),
+        }
+    except Exception as exc:
+        return {"decision": "DENY", "error": str(exc)}
 
 
 def get_pending_approval_by_id(request_id: str):
@@ -900,7 +1072,10 @@ def approval_is_expired(approval: dict):
     if not expires_at:
         return False
     try:
-        return datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")).timestamp() <= time.time()
+        return (
+            datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")).timestamp()
+            <= time.time()
+        )
     except Exception:
         return True
 
@@ -911,15 +1086,27 @@ async def approve_runtime_approval(request_id: str, user_id: int | None = None):
         return {"ok": False, "message": "No pending approval found for that id."}
     if user_id is not None:
         telegram_meta = approval.get("telegram_meta") or {}
-        telegram_user = telegram_meta.get("userId") or telegram_meta.get("userId") or approval.get("user_id")
+        telegram_user = (
+            telegram_meta.get("userId")
+            or telegram_meta.get("userId")
+            or approval.get("user_id")
+        )
         if telegram_user is not None and int(telegram_user) != int(user_id):
-            return {"ok": False, "message": "That approval belongs to a different Telegram user."}
+            return {
+                "ok": False,
+                "message": "That approval belongs to a different Telegram user.",
+            }
     if approval_is_expired(approval):
         mem = get_aja_memory()
         mem.update_approval(request_id, "expired", "Expired without action.")
-        mem.log_approval_audit({"approval_id": request_id, "action": "expired",
-                                "requester_source": approval.get("requester_source"),
-                                "command": approval.get("command")})
+        mem.log_approval_audit(
+            {
+                "approval_id": request_id,
+                "action": "expired",
+                "requester_source": approval.get("requester_source"),
+                "command": approval.get("command"),
+            }
+        )
         return {"ok": False, "message": "Approval expired. Send the command again."}
 
     command = approval.get("command")
@@ -934,29 +1121,58 @@ async def approve_runtime_approval(request_id: str, user_id: int | None = None):
         reasons = classification.get("reasons", [])
         if file_guardian.get("error"):
             reasons.append(file_guardian["error"])
-        mem.log_approval_audit({"approval_id": request_id, "action": "blocked_at_execution",
-                                "command": command, "reasons": reasons})
-        return {"ok": False, "message": "Approval blocked at execution re-check: " + "; ".join(reasons or ["FileGuardian denied the command."])}
+        mem.log_approval_audit(
+            {
+                "approval_id": request_id,
+                "action": "blocked_at_execution",
+                "command": command,
+                "reasons": reasons,
+            }
+        )
+        return {
+            "ok": False,
+            "message": "Approval blocked at execution re-check: "
+            + "; ".join(reasons or ["FileGuardian denied the command."]),
+        }
 
     mem = get_aja_memory()
-    mem.log_approval_audit({"approval_id": request_id, "action": "approved",
-                            "requester_source": approval.get("requester_source"), "command": command})
+    mem.log_approval_audit(
+        {
+            "approval_id": request_id,
+            "action": "approved",
+            "requester_source": approval.get("requester_source"),
+            "command": command,
+        }
+    )
     result = await run_shell_command(command)
-    mem.update_approval(request_id, "resolved" if result["ok"] else "failed",
-                        compact_text(result["output"], 300))
-    mem.add_runtime_event({
-        "event_type": "APPROVED" if result["ok"] else "DENY",
-        "tool": approval.get("tool", "bash"),
-        "message": compact_text(result["output"], 500),
-        "command": command,
-        "root_binary": approval.get("root_binary"),
-        "level": approval.get("level"),
-    })
-    mem.log_approval_audit({"approval_id": request_id,
-                            "action": "executed" if result["ok"] else "execution_failed",
-                            "exit_code": result["code"], "command": command})
+    mem.update_approval(
+        request_id,
+        "resolved" if result["ok"] else "failed",
+        compact_text(result["output"], 300),
+    )
+    mem.add_runtime_event(
+        {
+            "event_type": "APPROVED" if result["ok"] else "DENY",
+            "tool": approval.get("tool", "bash"),
+            "message": compact_text(result["output"], 500),
+            "command": command,
+            "root_binary": approval.get("root_binary"),
+            "level": approval.get("level"),
+        }
+    )
+    mem.log_approval_audit(
+        {
+            "approval_id": request_id,
+            "action": "executed" if result["ok"] else "execution_failed",
+            "exit_code": result["code"],
+            "command": command,
+        }
+    )
     prefix = "OK" if result["ok"] else f"Failed ({result['code']})"
-    return {"ok": result["ok"], "message": f"{prefix}: {approval.get('action_type', 'action')}\n{result['output']}"}
+    return {
+        "ok": result["ok"],
+        "message": f"{prefix}: {approval.get('action_type', 'action')}\n{result['output']}",
+    }
 
 
 def reject_runtime_approval(request_id: str, user_id: int | None = None):
@@ -967,21 +1183,31 @@ def reject_runtime_approval(request_id: str, user_id: int | None = None):
         telegram_meta = approval.get("telegram_meta") or {}
         telegram_user = telegram_meta.get("userId") or approval.get("user_id")
         if telegram_user is not None and int(telegram_user) != int(user_id):
-            return {"ok": False, "message": "That approval belongs to a different Telegram user."}
+            return {
+                "ok": False,
+                "message": "That approval belongs to a different Telegram user.",
+            }
 
     mem = get_aja_memory()
     mem.update_approval(request_id, "rejected", "Rejected by operator.")
-    mem.log_approval_audit({"approval_id": request_id, "action": "rejected",
-                            "requester_source": approval.get("requester_source"),
-                            "command": approval.get("command")})
-    mem.add_runtime_event({
-        "event_type": "DENIED",
-        "tool": approval.get("tool", "bash"),
-        "message": f"Rejected approval {request_id}.",
-        "command": approval.get("command"),
-        "root_binary": approval.get("root_binary"),
-        "level": approval.get("level"),
-    })
+    mem.log_approval_audit(
+        {
+            "approval_id": request_id,
+            "action": "rejected",
+            "requester_source": approval.get("requester_source"),
+            "command": approval.get("command"),
+        }
+    )
+    mem.add_runtime_event(
+        {
+            "event_type": "DENIED",
+            "tool": approval.get("tool", "bash"),
+            "message": f"Rejected approval {request_id}.",
+            "command": approval.get("command"),
+            "root_binary": approval.get("root_binary"),
+            "level": approval.get("level"),
+        }
+    )
     return {"ok": True, "message": f"Rejected approval {request_id}."}
 
 
@@ -993,7 +1219,10 @@ def _escape_mdv2(text: str) -> str:
         escaped = escaped.replace(char, f"\\{char}")
     return escaped
 
-async def send_telegram_message(chat_id: int | str, text: str, parse_mode: str = "MarkdownV2"):
+
+async def send_telegram_message(
+    chat_id: int | str, text: str, parse_mode: str = "MarkdownV2"
+):
     """Robust message delivery to Telegram with auto-escaping for MarkdownV2."""
     if not TELEGRAM_BOT_TOKEN:
         return {"ok": False, "description": "TELEGRAM_BOT_TOKEN is not configured."}
@@ -1001,7 +1230,7 @@ async def send_telegram_message(chat_id: int | str, text: str, parse_mode: str =
     formatted_text = text
     if parse_mode == "MarkdownV2":
         if "\\" not in text or not any(c in text for c in "_*[]()"):
-             formatted_text = _escape_mdv2(text)
+            formatted_text = _escape_mdv2(text)
 
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -1012,10 +1241,10 @@ async def send_telegram_message(chat_id: int | str, text: str, parse_mode: str =
             "disable_web_page_preview": "true",
         }
         req = urllib.request.Request(
-            url, 
+            url,
             data=json.dumps(data).encode("utf-8"),
             headers={"Content-Type": "application/json"},
-            method="POST"
+            method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -1040,19 +1269,25 @@ def build_aja_chat_context(limit: int = 5):
     context: list[str] = []
     try:
         # 1. Active Tasks
-        tasks = memory.list_tasks(statuses=["pending", "active", "blocked"], limit=limit)
+        tasks = memory.list_tasks(
+            statuses=["pending", "active", "blocked"], limit=limit
+        )
         if tasks:
             context.append("Current tasks:")
             for task in tasks:
                 due = task.get("due_at") or task.get("due_date") or "no due date"
-                context.append(f"- {task.get('title')} [{task.get('priority')}, due {due}]")
-        
+                context.append(
+                    f"- {task.get('title')} [{task.get('priority')}, due {due}]"
+                )
+
         # 2. Pending Approvals
         approvals = memory.list_approvals(statuses=["pending"], limit=limit)
         if approvals:
             context.append("\nPending Approvals:")
             for app in approvals:
-                context.append(f"- [{app.get('id')}] {app.get('action_type')}: {app.get('command')[:50]}...")
+                context.append(
+                    f"- [{app.get('id')}] {app.get('action_type')}: {app.get('command')[:50]}..."
+                )
 
     except Exception as e:
         logger.error(f"Error building chat context: {e}")
@@ -1069,13 +1304,17 @@ def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
     mem = get_aja_memory()
     # 1. Fetch Context
     context_data = build_aja_chat_context(limit=5)
-    
+
     # 2. Fetch Recent History from LanceDB
     history_rows = mem.get_communication_history(f"telegram:{user_id}", limit=3)
     history_context = ""
     if history_rows:
         history_context = "Recent history:\n" + "\n".join(
-            [f"User: {h.get('content')}\nAJA: {h.get('draft_content')}" for h in reversed(history_rows) if h.get('content')]
+            [
+                f"User: {h.get('content')}\nAJA: {h.get('draft_content')}"
+                for h in reversed(history_rows)
+                if h.get("content")
+            ]
         )
 
     system_prompt = (
@@ -1087,7 +1326,7 @@ def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
         "Use the provided context to answer specifically. If a task is blocked or an approval is pending, mention it politely. "
         "Never hallucinate system state. Keep replies natural, helpful, and under 1000 characters for mobile readability."
     )
-    
+
     full_prompt = (
         f"CONTEXT:\n{context_data}\n\n"
         f"{history_context}\n\n"
@@ -1097,20 +1336,23 @@ def generate_aja_chat_reply(text: str, user_id: int, chat_id: int | str):
 
     try:
         from aja.llm import completion
+
         reply = completion(full_prompt, system_prompt=system_prompt)
-        
+
         if not reply or len(reply.strip()) < 2:
             return "I'm here, but the LLM provider returned an empty response. Check your API keys."
-            
+
         # Record this communication in LanceDB for future context
-        mem.create_communication({
-            "recipient": f"telegram:{user_id}",
-            "content": text,
-            "draft_content": reply,
-            "channel": "telegram",
-            "approval_status": "approved"
-        })
-        
+        mem.create_communication(
+            {
+                "recipient": f"telegram:{user_id}",
+                "content": text,
+                "draft_content": reply,
+                "channel": "telegram",
+                "approval_status": "approved",
+            }
+        )
+
         return compact_text(reply, 1800)
     except Exception as e:
         logger.error(f"[Chat] Generation failed: {e}")
@@ -1126,13 +1368,22 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         otc = normalized.split(maxsplit=1)[1].strip()
         try:
             from aja.orchestration.handover import HandoverManager
+
             manager = HandoverManager()
             session_data = manager.resolve_otc(otc)
             if session_data:
                 # Update whitelist if this was an anonymous handover
                 global TELEGRAM_ALLOWED_USER_ID
                 TELEGRAM_ALLOWED_USER_ID = str(user_id)
-                append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "handover_success", "session_id": session_data.get("session_id")})
+                append_telegram_history(
+                    {
+                        "user_id": user_id,
+                        "chat_id": chat_id,
+                        "command": text,
+                        "decision": "handover_success",
+                        "session_id": session_data.get("session_id"),
+                    }
+                )
                 return f"🚀 Handover Successful!\nAJA is now linked to terminal session: {session_data.get('session_id')}\nYou are now authorized to command this instance."
             else:
                 return "❌ Invalid or expired OTC. Please generate a new one from your terminal using 'aja-handover'."
@@ -1140,29 +1391,66 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
             return f"❌ Handover failed: {e}"
 
     if lower.startswith("approve message ") or lower.startswith("reject message "):
-        aja_reply = await asyncio.to_thread(execute_aja_command_sync, text, "Telegram", f"telegram:{user_id}")
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "communication_approval"})
+        aja_reply = await asyncio.to_thread(
+            execute_aja_command_sync, text, "Telegram", f"telegram:{user_id}"
+        )
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "communication_approval",
+            }
+        )
         return aja_reply or "Unable to update message approval."
 
     if lower.startswith("reject ") or lower.startswith("deny "):
         request_id = normalized.split(maxsplit=1)[1].strip()
         result = reject_runtime_approval(request_id, user_id)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "approval_rejected", "approval_id": request_id})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "approval_rejected",
+                "approval_id": request_id,
+            }
+        )
         return result["message"]
 
     if lower.startswith("approve ") or lower.startswith("confirm "):
         request_id = normalized.split(maxsplit=1)[1].strip()
         result = await approve_runtime_approval(request_id, user_id)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "approval_approved" if result["ok"] else "approval_failed", "approval_id": request_id})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "approval_approved" if result["ok"] else "approval_failed",
+                "approval_id": request_id,
+            }
+        )
         return result["message"]
 
     if lower.startswith("send message "):
         message_id = normalized.split(maxsplit=2)[2].strip()
-        message = await asyncio.to_thread(get_aja_memory().get_communication, message_id)
+        message = await asyncio.to_thread(
+            get_aja_memory().get_communication, message_id
+        )
         if not message:
             return f"No message found for {message_id}."
         result = await send_communication_if_supported(message)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "communication_send" if result["ok"] else "communication_send_failed", "message_id": message_id})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "communication_send"
+                if result["ok"]
+                else "communication_send_failed",
+                "message_id": message_id,
+            }
+        )
         return result["message"]
 
     spec = build_supported_command(text)
@@ -1170,62 +1458,134 @@ async def execute_telegram_command(text: str, user_id: int, chat_id: int | str):
         return spec["message"]
     if spec["kind"] == "status":
         payload = await asyncio.to_thread(build_status_payload)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "status"})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "status",
+            }
+        )
         return format_status_for_mobile(payload)
 
     # Only if it's not a hardcoded command or status/help, try AJA
     if spec["kind"] == "chat":
-        aja_reply = await asyncio.to_thread(execute_aja_command_sync, text, "Telegram", f"telegram:{user_id}")
+        aja_reply = await asyncio.to_thread(
+            execute_aja_command_sync, text, "Telegram", f"telegram:{user_id}"
+        )
         if aja_reply:
-            append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "aja_memory"})
+            append_telegram_history(
+                {
+                    "user_id": user_id,
+                    "chat_id": chat_id,
+                    "command": text,
+                    "decision": "aja_memory",
+                }
+            )
             return aja_reply
 
         # Fallback to general AI chat
         reply = await asyncio.to_thread(generate_aja_chat_reply, text, user_id, chat_id)
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "aja_chat"})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "aja_chat",
+            }
+        )
         return reply
 
     # If we are here, it's an 'execute' kind from build_supported_command
     command = spec["command"]
     file_guardian = await run_file_guardian_check(command)
     if file_guardian["decision"] == "DENY":
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "mapped_command": command, "decision": "blocked_by_file_guardian", "error": file_guardian.get("error")})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "mapped_command": command,
+                "decision": "blocked_by_file_guardian",
+                "error": file_guardian.get("error"),
+            }
+        )
         detail = f": {file_guardian['error']}" if file_guardian.get("error") else "."
         return f"Command denied by FileGuardian{detail}"
 
     classification = analyze_shell_command(command)
     if classification["decision"] == "deny":
         reason_text = "\n".join(f"- {reason}" for reason in classification["reasons"])
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "mapped_command": command, "decision": "blocked", "reasons": classification["reasons"]})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "mapped_command": command,
+                "decision": "blocked",
+                "reasons": classification["reasons"],
+            }
+        )
         return f"Command denied by AJA Safety Gate.\n{reason_text}"
 
-    if spec.get("requires_confirmation") or classification["decision"] == "ask" or file_guardian["decision"] == "ASK":
+    if (
+        spec.get("requires_confirmation")
+        or classification["decision"] == "ask"
+        or file_guardian["decision"] == "ASK"
+    ):
         if file_guardian["decision"] == "ASK":
-            classification["reasons"].append("FileGuardian requested review before execution.")
-        approval = build_approval_object(text, command, spec, classification, user_id, chat_id)
+            classification["reasons"].append(
+                "FileGuardian requested review before execution."
+            )
+        approval = build_approval_object(
+            text, command, spec, classification, user_id, chat_id
+        )
         # --- AJA Brain: persist approval to LanceDB (single source of truth) ---
         create_approval_in_db(approval)
         mem = get_aja_memory()
-        mem.add_runtime_event({
-            "event_type": "ASK",
-            "tool": "bash",
-            "message": approval["operatorReason"],
-            "command": command,
-            "root_binary": approval.get("rootBinary"),
-            "level": approval.get("level"),
-        })
-        mem.log_approval_audit({
-            "approval_id": approval["id"],
-            "action": "requested",
-            "requester_source": "Telegram",
-            "command": command,
-            "risk_level": approval["riskLevel"],
-        })
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "mapped_command": command, "decision": "approval_requested", "approval_id": approval["id"], "reasons": approval["reasons"]})
+        mem.add_runtime_event(
+            {
+                "event_type": "ASK",
+                "tool": "bash",
+                "message": approval["operatorReason"],
+                "command": command,
+                "root_binary": approval.get("rootBinary"),
+                "level": approval.get("level"),
+            }
+        )
+        mem.log_approval_audit(
+            {
+                "approval_id": approval["id"],
+                "action": "requested",
+                "requester_source": "Telegram",
+                "command": command,
+                "risk_level": approval["riskLevel"],
+            }
+        )
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "mapped_command": command,
+                "decision": "approval_requested",
+                "approval_id": approval["id"],
+                "reasons": approval["reasons"],
+            }
+        )
         return format_approval_for_mobile(approval)
 
     result = await run_shell_command(command)
-    append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "mapped_command": command, "decision": "executed", "exit_code": result["code"]})
+    append_telegram_history(
+        {
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "command": text,
+            "mapped_command": command,
+            "decision": "executed",
+            "exit_code": result["code"],
+        }
+    )
     prefix = "OK" if result["ok"] else f"Failed ({result['code']})"
     return f"{prefix}: {text}\n{result['output']}"
 
@@ -1239,16 +1599,24 @@ def run_runtime_action(action: str):
             check=False,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to launch runtime action: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to launch runtime action: {exc}"
+        ) from exc
 
     payload_raw = (result.stdout or result.stderr).strip()
     try:
-        payload = json.loads(payload_raw) if payload_raw else {"ok": result.returncode == 0, "message": ""}
+        payload = (
+            json.loads(payload_raw)
+            if payload_raw
+            else {"ok": result.returncode == 0, "message": ""}
+        )
     except json.JSONDecodeError:
         payload = {"ok": result.returncode == 0, "message": payload_raw}
 
     if result.returncode != 0:
-      raise HTTPException(status_code=500, detail=payload.get("message") or "Runtime action failed.")
+        raise HTTPException(
+            status_code=500, detail=payload.get("message") or "Runtime action failed."
+        )
 
     return payload
 
@@ -1265,7 +1633,8 @@ def load_runtime_state():
             "id": pending_row.get("approval_id"),
             "tool": pending_row.get("tool"),
             "command": pending_row.get("command"),
-            "commandPreview": pending_row.get("command_preview") or pending_row.get("command"),
+            "commandPreview": pending_row.get("command_preview")
+            or pending_row.get("command"),
             "actionType": pending_row.get("action_type"),
             "rootBinary": pending_row.get("root_binary"),
             "riskLevel": pending_row.get("risk_level"),
@@ -1318,7 +1687,9 @@ def build_status_payload(runtime_state=None):
     pending = runtime_state.get("pendingApproval")
     return {
         "territories": territories,
-        "total_files": sum(len(files) for _, _, files in os.walk("src")) if Path("src").exists() else 0,
+        "total_files": sum(len(files) for _, _, files in os.walk("src"))
+        if Path("src").exists()
+        else 0,
         "active_agents": len(territories),
         "safety_alerts": 1 if pending else 0,
         "pending_approval": pending,
@@ -1337,11 +1708,11 @@ def load_baton_state():
             baton = json.loads(baton_file.read_text(encoding="utf-8"))
             baton["file"] = baton_file.name
             baton["history_count"] = len(baton.get("history", []))
-            
+
             # Extract live telemetry
             baton["progress"] = baton.get("progress", 0)
             baton["last_pulse"] = baton.get("updated_at", time.time())
-            
+
             batons.append(baton)
         except Exception:
             batons.append(
@@ -1455,7 +1826,7 @@ def _days_until(due_date_str: str | None) -> float | None:
         return None
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
         try:
-            due = datetime.strptime(due_date_str[:19], fmt[:len(due_date_str[:19])])
+            due = datetime.strptime(due_date_str[:19], fmt[: len(due_date_str[:19])])
             return (due - datetime.now()).total_seconds() / 86400
         except ValueError:
             continue
@@ -1530,11 +1901,11 @@ def run_priority_engine(memory: "AJAMemory") -> dict:
         # ── 1. Urgency score (0-40) ─────────────────────────────────────────
         urgency_pts = 0
         if days_left is not None:
-            if days_left < 0:          # overdue
+            if days_left < 0:  # overdue
                 urgency_pts = 40
-            elif days_left < 1:        # due today
+            elif days_left < 1:  # due today
                 urgency_pts = 35
-            elif days_left < 3:        # due very soon
+            elif days_left < 3:  # due very soon
                 urgency_pts = 25
             elif days_left < 7:
                 urgency_pts = 15
@@ -1563,7 +1934,9 @@ def run_priority_engine(memory: "AJAMemory") -> dict:
             intent_pts = 8
 
         # ── Composite priority_score (0-100) ────────────────────────────────
-        priority_score = min(100, urgency_pts + stakeholder_pts + consequence_pts + intent_pts)
+        priority_score = min(
+            100, urgency_pts + stakeholder_pts + consequence_pts + intent_pts
+        )
 
         # ── Urgency tier ────────────────────────────────────────────────────
         if priority_score >= 80:
@@ -1579,9 +1952,13 @@ def run_priority_engine(memory: "AJAMemory") -> dict:
         delegation_rec = _delegation_recommendation(task)
 
         # ── Escalation recommendation ────────────────────────────────────────
-        should_escalate = escalation < 2 and (days_left is not None and days_left < 0 or priority_score >= 80)
-        escalation_rec = "Escalate now — overdue or critical" if should_escalate else (
-            "Monitor" if priority_score >= 50 else "No escalation needed"
+        should_escalate = escalation < 2 and (
+            days_left is not None and days_left < 0 or priority_score >= 80
+        )
+        escalation_rec = (
+            "Escalate now — overdue or critical"
+            if should_escalate
+            else ("Monitor" if priority_score >= 50 else "No escalation needed")
         )
 
         # ── Ignore / Archive suggestion ─────────────────────────────────────
@@ -1589,36 +1966,46 @@ def run_priority_engine(memory: "AJAMemory") -> dict:
         ignore_reason = None
         if can_ignore:
             if days_left and days_left > 14:
-                ignore_reason = f"Due in {int(days_left)} days — low urgency, no stakeholder risk."
+                ignore_reason = (
+                    f"Due in {int(days_left)} days — low urgency, no stakeholder risk."
+                )
             else:
-                ignore_reason = "Low priority, no deadline pressure, no stakeholder consequence."
+                ignore_reason = (
+                    "Low priority, no deadline pressure, no stakeholder consequence."
+                )
 
         # ── Approval recommendation ──────────────────────────────────────────
         approval_rec = (
-            "Approve immediately" if priority_score >= 80
-            else "Review before acting" if priority_score >= 50
+            "Approve immediately"
+            if priority_score >= 80
+            else "Review before acting"
+            if priority_score >= 50
             else "No approval needed — low risk"
         )
 
         # ── Urgency challenge ────────────────────────────────────────────────
         challenge = _urgency_challenge(days_left, priority)
 
-        scored.append({
-            **task,
-            "priority_score": priority_score,
-            "urgency_tier": tier,
-            "urgency_pts": urgency_pts,
-            "stakeholder_pts": stakeholder_pts,
-            "consequence_pts": consequence_pts,
-            "intent_pts": intent_pts,
-            "decision_recommendation": delegation_rec,
-            "escalation_recommendation": escalation_rec,
-            "can_ignore": can_ignore,
-            "ignore_reason": ignore_reason,
-            "approval_recommendation": approval_rec,
-            "urgency_challenge": challenge,
-            "days_until_due": round(days_left, 1) if days_left is not None else None,
-        })
+        scored.append(
+            {
+                **task,
+                "priority_score": priority_score,
+                "urgency_tier": tier,
+                "urgency_pts": urgency_pts,
+                "stakeholder_pts": stakeholder_pts,
+                "consequence_pts": consequence_pts,
+                "intent_pts": intent_pts,
+                "decision_recommendation": delegation_rec,
+                "escalation_recommendation": escalation_rec,
+                "can_ignore": can_ignore,
+                "ignore_reason": ignore_reason,
+                "approval_recommendation": approval_rec,
+                "urgency_challenge": challenge,
+                "days_until_due": round(days_left, 1)
+                if days_left is not None
+                else None,
+            }
+        )
 
     scored.sort(key=lambda t: -t["priority_score"])
     top3 = scored[:3]
@@ -1637,14 +2024,73 @@ def run_priority_engine(memory: "AJAMemory") -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _TASK_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "code": ["code", "implement", "build", "create", "feature", "develop", "write code", "add"],
-    "fix": ["fix", "bug", "error", "broken", "issue", "debug", "patch", "repair", "crash"],
-    "refactor": ["refactor", "restructure", "clean", "reorganize", "simplify", "modularize"],
-    "test": ["test", "spec", "coverage", "unit test", "e2e", "integration test", "assert", "tdd"],
-    "deploy": ["deploy", "release", "ci/cd", "pipeline", "production", "staging", "publish"],
+    "code": [
+        "code",
+        "implement",
+        "build",
+        "create",
+        "feature",
+        "develop",
+        "write code",
+        "add",
+    ],
+    "fix": [
+        "fix",
+        "bug",
+        "error",
+        "broken",
+        "issue",
+        "debug",
+        "patch",
+        "repair",
+        "crash",
+    ],
+    "refactor": [
+        "refactor",
+        "restructure",
+        "clean",
+        "reorganize",
+        "simplify",
+        "modularize",
+    ],
+    "test": [
+        "test",
+        "spec",
+        "coverage",
+        "unit test",
+        "e2e",
+        "integration test",
+        "assert",
+        "tdd",
+    ],
+    "deploy": [
+        "deploy",
+        "release",
+        "ci/cd",
+        "pipeline",
+        "production",
+        "staging",
+        "publish",
+    ],
     "review": ["review", "audit", "inspect", "check", "evaluate", "pr review"],
-    "research": ["research", "investigate", "analyze", "explore", "study", "compare", "evaluate"],
-    "documentation": ["document", "readme", "docs", "wiki", "explain", "api doc", "specification"],
+    "research": [
+        "research",
+        "investigate",
+        "analyze",
+        "explore",
+        "study",
+        "compare",
+        "evaluate",
+    ],
+    "documentation": [
+        "document",
+        "readme",
+        "docs",
+        "wiki",
+        "explain",
+        "api doc",
+        "specification",
+    ],
     "git": ["git", "commit", "branch", "merge", "rebase", "cherry-pick", "stash"],
     "pr": ["pull request", "pr", "merge request"],
     "maintenance": ["maintain", "health", "monitor", "clean up", "optimize", "repair"],
@@ -1827,14 +2273,18 @@ def recommend_workers_for_task(
             perf_pts = min(10, success_rate / 10)
             score += perf_pts
             if success_rate >= 90:
-                reasons.append(f"Proven track record ({success_rate:.0f}% success over {total_executed} tasks)")
+                reasons.append(
+                    f"Proven track record ({success_rate:.0f}% success over {total_executed} tasks)"
+                )
             elif success_rate < 60:
                 cautions.append(f"Low success rate ({success_rate:.0f}%)")
 
         # ── 8. Strength keyword overlap (0-5) bonus ──────────────────────────
         strengths = " ".join(worker.get("primary_strengths") or []).lower()
         objective_lower = objective.lower()
-        strength_hits = sum(1 for word in objective_lower.split() if word in strengths and len(word) > 3)
+        strength_hits = sum(
+            1 for word in objective_lower.split() if word in strengths and len(word) > 3
+        )
         if strength_hits > 0:
             score += min(5, strength_hits * 2)
             reasons.append(f"Strength keywords overlap ({strength_hits} matches)")
@@ -1842,21 +2292,23 @@ def recommend_workers_for_task(
         # Final composite
         final_score = max(0, min(100, score))
 
-        recommendations.append({
-            "worker_id": worker["worker_id"],
-            "worker_name": worker["worker_name"],
-            "worker_type": worker["worker_type"],
-            "recommendation_score": round(final_score, 1),
-            "reasons": reasons,
-            "cautions": cautions,
-            "execution_speed": worker.get("execution_speed"),
-            "reliability_score": worker.get("reliability_score"),
-            "cost_profile": worker.get("cost_profile"),
-            "supports_tests": worker.get("supports_tests"),
-            "supports_git": worker.get("supports_git_operations"),
-            "supports_deploy": worker.get("supports_deployment"),
-            "recent_failures": (worker.get("recent_failures") or [])[:3],
-        })
+        recommendations.append(
+            {
+                "worker_id": worker["worker_id"],
+                "worker_name": worker["worker_name"],
+                "worker_type": worker["worker_type"],
+                "recommendation_score": round(final_score, 1),
+                "reasons": reasons,
+                "cautions": cautions,
+                "execution_speed": worker.get("execution_speed"),
+                "reliability_score": worker.get("reliability_score"),
+                "cost_profile": worker.get("cost_profile"),
+                "supports_tests": worker.get("supports_tests"),
+                "supports_git": worker.get("supports_git_operations"),
+                "supports_deploy": worker.get("supports_deployment"),
+                "recent_failures": (worker.get("recent_failures") or [])[:3],
+            }
+        )
 
     recommendations.sort(key=lambda r: -r["recommendation_score"])
 
@@ -1864,9 +2316,14 @@ def recommend_workers_for_task(
     top = recommendations[0] if recommendations else None
     advisory: list[str] = []
     if top and top["cautions"]:
-        advisory.append(f"Top pick ({top['worker_name']}) has cautions: {'; '.join(top['cautions'])}")
+        advisory.append(
+            f"Top pick ({top['worker_name']}) has cautions: {'; '.join(top['cautions'])}"
+        )
     if len(recommendations) >= 2:
-        gap = recommendations[0]["recommendation_score"] - recommendations[1]["recommendation_score"]
+        gap = (
+            recommendations[0]["recommendation_score"]
+            - recommendations[1]["recommendation_score"]
+        )
         if gap < 5:
             advisory.append(
                 f"Close match between {recommendations[0]['worker_name']} and {recommendations[1]['worker_name']} "
@@ -1893,18 +2350,22 @@ def recommend_workers_for_task(
 # Capabilities / Tools API
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @app.get("/tools", dependencies=[Depends(verify_token)])
 async def list_tools_api():
     """List all registered capabilities in the swarm."""
     from aja.capabilities import registry
+
     tools = []
     for name, cap in registry.capabilities.items():
-        tools.append({
-            "name": name,
-            "description": cap.__doc__ or "No description provided.",
-            "parameters": getattr(cap, "schema", {}),
-            "type": cap.__class__.__name__
-        })
+        tools.append(
+            {
+                "name": name,
+                "description": cap.__doc__ or "No description provided.",
+                "parameters": getattr(cap, "schema", {}),
+                "type": cap.__class__.__name__,
+            }
+        )
     return {"tools": tools, "total": len(tools)}
 
 
@@ -1912,10 +2373,13 @@ async def list_tools_api():
 # Worker Registry API Endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @app.get("/workers", dependencies=[Depends(verify_token)])
 async def list_workers_api(status: str | None = None, limit: int = 50):
     """List all registered workers, optionally filtered by availability status."""
-    workers = await asyncio.to_thread(get_aja_memory().list_workers, status, min(limit, 100))
+    workers = await asyncio.to_thread(
+        get_aja_memory().list_workers, status, min(limit, 100)
+    )
     return {"workers": workers, "total": len(workers)}
 
 
@@ -1944,7 +2408,9 @@ async def update_worker_api(worker_id: str, request: Request):
     """Update an existing worker's profile."""
     body = await request.json()
     try:
-        worker = await asyncio.to_thread(get_aja_memory().update_worker, worker_id, body)
+        worker = await asyncio.to_thread(
+            get_aja_memory().update_worker, worker_id, body
+        )
         return {"ok": True, "worker": worker}
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1998,7 +2464,9 @@ async def recommend_workers_api(request: Request):
 @app.get("/workers/{worker_id}/history", dependencies=[Depends(verify_token)])
 async def get_worker_history_api(worker_id: str, limit: int = 20):
     """Get execution history for a worker."""
-    history = await asyncio.to_thread(get_aja_memory().get_worker_execution_history, worker_id, min(limit, 100))
+    history = await asyncio.to_thread(
+        get_aja_memory().get_worker_execution_history, worker_id, min(limit, 100)
+    )
     return {"worker_id": worker_id, "history": history, "total": len(history)}
 
 
@@ -2028,7 +2496,9 @@ async def list_memory_tasks(
     limit: int = 50,
 ):
     statuses = [item.strip().lower() for item in status.split(",")] if status else None
-    tasks = await asyncio.to_thread(get_aja_memory().list_tasks, statuses, include_archived, limit)
+    tasks = await asyncio.to_thread(
+        get_aja_memory().list_tasks, statuses, include_archived, limit
+    )
     return {"tasks": tasks}
 
 
@@ -2065,7 +2535,9 @@ async def update_memory_task(task_id: str, request: Request):
 async def complete_memory_task(task_id: str, request: Request):
     body = await request.json()
     try:
-        task = await asyncio.to_thread(get_aja_memory().complete_task, task_id, str(body.get("note") or ""))
+        task = await asyncio.to_thread(
+            get_aja_memory().complete_task, task_id, str(body.get("note") or "")
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "task": task}
@@ -2131,7 +2603,9 @@ async def get_communication(message_id: str):
 async def update_communication(message_id: str, request: Request):
     body = await request.json()
     try:
-        message = await asyncio.to_thread(get_aja_memory().update_communication, message_id, body)
+        message = await asyncio.to_thread(
+            get_aja_memory().update_communication, message_id, body
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "message": message}
@@ -2155,7 +2629,9 @@ async def edit_communication(message_id: str, request: Request):
 @app.post("/communications/{message_id}/approve", dependencies=[Depends(verify_token)])
 async def approve_communication(message_id: str):
     try:
-        message = await asyncio.to_thread(get_aja_memory().approve_communication, message_id)
+        message = await asyncio.to_thread(
+            get_aja_memory().approve_communication, message_id
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "message": message}
@@ -2165,7 +2641,11 @@ async def approve_communication(message_id: str):
 async def reject_communication(message_id: str, request: Request):
     body = await request.json()
     try:
-        message = await asyncio.to_thread(get_aja_memory().reject_communication, message_id, str(body.get("reason") or ""))
+        message = await asyncio.to_thread(
+            get_aja_memory().reject_communication,
+            message_id,
+            str(body.get("reason") or ""),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "message": message}
@@ -2204,17 +2684,25 @@ async def update_scheduler_config(request: Request):
 @app.get("/scheduler/review/{kind}", dependencies=[Depends(verify_token)])
 async def get_scheduler_review(kind: str, escalate: bool = True):
     if kind not in {"morning", "night", "weekly"}:
-        raise HTTPException(status_code=400, detail="Review kind must be morning, night, or weekly.")
-    review = await asyncio.to_thread(get_aja_memory().generate_executive_review, kind, escalate)
+        raise HTTPException(
+            status_code=400, detail="Review kind must be morning, night, or weekly."
+        )
+    review = await asyncio.to_thread(
+        get_aja_memory().generate_executive_review, kind, escalate
+    )
     return {"review": review}
 
 
 @app.post("/scheduler/review/{kind}/deliver", dependencies=[Depends(verify_token)])
 async def deliver_scheduler_review(kind: str, request: Request):
     if kind not in {"morning", "night", "weekly"}:
-        raise HTTPException(status_code=400, detail="Review kind must be morning, night, or weekly.")
+        raise HTTPException(
+            status_code=400, detail="Review kind must be morning, night, or weekly."
+        )
     body = await request.json()
-    result = await deliver_executive_review(kind, body.get("chat_id"), bool(body.get("force", False)))
+    result = await deliver_executive_review(
+        kind, body.get("chat_id"), bool(body.get("force", False))
+    )
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result
@@ -2225,7 +2713,11 @@ async def run_scheduler_due_reviews(request: Request):
     body = await request.json()
     force = bool(body.get("force", False))
     chat_id = body.get("chat_id")
-    kinds = ["morning", "night", "weekly"] if force else await asyncio.to_thread(get_aja_memory().due_review_kinds)
+    kinds = (
+        ["morning", "night", "weekly"]
+        if force
+        else await asyncio.to_thread(get_aja_memory().due_review_kinds)
+    )
     results = []
     for kind in kinds:
         results.append(await deliver_executive_review(kind, chat_id, force=force))
@@ -2257,14 +2749,23 @@ async def post_telegram_command(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="Missing text.")
     if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "unauthorized"})
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "unauthorized",
+            }
+        )
         raise HTTPException(status_code=403, detail="Telegram user is not whitelisted.")
     reply = await execute_telegram_command(text, user_id, chat_id)
     return {"ok": True, "reply": reply}
 
 
 @app.post("/telegram/webhook")
-async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)):
+async def telegram_webhook(
+    request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)
+):
     """Telegram Bot API webhook entrypoint."""
     ensure_telegram_secret(x_telegram_bot_api_secret_token)
     update = await request.json()
@@ -2279,13 +2780,26 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         return {"ok": True, "ignored": "non-message update"}
 
     if not text:
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "decision": "ignored_non_text"})
-        await send_telegram_message(chat_id, "Text commands only for now. Send /help for the allowlist.")
+        append_telegram_history(
+            {"user_id": user_id, "chat_id": chat_id, "decision": "ignored_non_text"}
+        )
+        await send_telegram_message(
+            chat_id, "Text commands only for now. Send /help for the allowlist."
+        )
         return {"ok": True}
 
     if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
-        append_telegram_history({"user_id": user_id, "chat_id": chat_id, "command": text, "decision": "unauthorized"})
-        await send_telegram_message(chat_id, "Access denied: this Telegram user is not whitelisted for AJA.")
+        append_telegram_history(
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": text,
+                "decision": "unauthorized",
+            }
+        )
+        await send_telegram_message(
+            chat_id, "Access denied: this Telegram user is not whitelisted for AJA."
+        )
         return {"ok": True}
 
     reply = await execute_telegram_command(text, int(user_id), chat_id)
@@ -2296,9 +2810,13 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
 @app.get("/diff")
 def get_diff():
     try:
-        diff = subprocess.check_output(["git", "diff", "HEAD"], stderr=subprocess.STDOUT).decode()
+        diff = subprocess.check_output(
+            ["git", "diff", "HEAD"], stderr=subprocess.STDOUT
+        ).decode()
         if not diff.strip():
-            return {"diff": "// All systems synchronized. No pending structural changes."}
+            return {
+                "diff": "// All systems synchronized. No pending structural changes."
+            }
         return {"diff": diff}
     except Exception:
         return {"diff": "// Unable to access structural history."}
@@ -2375,7 +2893,9 @@ async def approve_pending():
             raise HTTPException(status_code=400, detail=result["message"])
         chat_id = (pending.get("telegram") or {}).get("chatId")
         if chat_id:
-            await send_telegram_message(chat_id, f"Dashboard approved {pending.get('id')}.\n{result['message']}")
+            await send_telegram_message(
+                chat_id, f"Dashboard approved {pending.get('id')}.\n{result['message']}"
+            )
         return result
     return await asyncio.to_thread(run_runtime_action, "approve")
 
@@ -2390,7 +2910,9 @@ async def deny_pending():
         result = reject_runtime_approval(pending.get("id"))
         chat_id = (pending.get("telegram") or {}).get("chatId")
         if chat_id:
-            await send_telegram_message(chat_id, f"Dashboard rejected {pending.get('id')}.")
+            await send_telegram_message(
+                chat_id, f"Dashboard rejected {pending.get('id')}."
+            )
         return result
     return await asyncio.to_thread(run_runtime_action, "deny")
 
@@ -2405,7 +2927,9 @@ async def get_approval_audit_trail(approval_id: str):
 @app.get("/runtime/events/db", dependencies=[Depends(verify_token)])
 async def get_runtime_events_from_db(limit: int = 50):
     """Return recent runtime events from aja_runtime_events (authoritative LanceDB source)."""
-    events = await asyncio.to_thread(get_aja_memory().get_runtime_events, min(limit, 200))
+    events = await asyncio.to_thread(
+        get_aja_memory().get_runtime_events, min(limit, 200)
+    )
     return {"events": events}
 
 
@@ -2423,7 +2947,9 @@ async def swarm_run(request: Request):
     raw_dod = body.get("definition_of_done") or []
     if isinstance(raw_dod, str):
         raw_dod = [line.strip() for line in raw_dod.splitlines() if line.strip()]
-    definition_of_done: list[str] = raw_dod if raw_dod else generate_definition_of_done(objective)
+    definition_of_done: list[str] = (
+        raw_dod if raw_dod else generate_definition_of_done(objective)
+    )
 
     # Write a delegation brief so BatonBoard can display DoD immediately
     brief_slug = objective[:40].replace(" ", "-").replace("/", "-").lower()
@@ -2443,14 +2969,28 @@ async def swarm_run(request: Request):
     }
     try:
         BATON_DIR.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(brief_file.write_text, json.dumps(brief_data, indent=2), encoding="utf-8")
+        await asyncio.to_thread(
+            brief_file.write_text, json.dumps(brief_data, indent=2), encoding="utf-8"
+        )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to write delegation brief: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write delegation brief: {exc}"
+        ) from exc
 
     try:
         proc = await asyncio.to_thread(
             subprocess.Popen,
-            [sys.executable, "-m", "aja.orchestration.swarm", "--mode", "baton", "--objective", objective, "--worker", worker_id],
+            [
+                sys.executable,
+                "-m",
+                "aja.orchestration.swarm",
+                "--mode",
+                "baton",
+                "--objective",
+                objective,
+                "--worker",
+                worker_id,
+            ],
             cwd=str(PROJECT_ROOT),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -2462,10 +3002,11 @@ async def swarm_run(request: Request):
             "definition_of_done": definition_of_done,
             "worker_id": worker_id,
             "brief_file": brief_file.name,
-
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to launch SwarmEngine: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to launch SwarmEngine: {exc}"
+        ) from exc
 
 
 @app.get("/safety/pending")
@@ -2539,12 +3080,14 @@ async def telegram_polling_loop():
             continue
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
+
             def _fetch():
                 try:
                     with urllib.request.urlopen(url, timeout=35) as response:
                         return json.loads(response.read().decode("utf-8"))
                 except Exception as e:
                     return {"ok": False, "error": str(e)}
+
             res = await asyncio.to_thread(_fetch)
             if res.get("ok"):
                 consecutive_errors = 0
@@ -2555,33 +3098,50 @@ async def telegram_polling_loop():
                     chat_id = (message.get("chat") or {}).get("id")
                     user_id = (message.get("from") or {}).get("id")
                     text = message.get("text")
-                    if not chat_id or not user_id or not text: continue
+                    if not chat_id or not user_id or not text:
+                        continue
                     print(f"[Telegram Poller] Ingress: {user_id} > {text[:50]}...")
-                    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
+                    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(
+                        TELEGRAM_ALLOWED_USER_ID
+                    ):
                         print(f"[Telegram Poller] Blocked unauthorized user: {user_id}")
-                        await send_telegram_message(chat_id, "🔒 *Access Denied*: User is not whitelisted.")
+                        await send_telegram_message(
+                            chat_id, "🔒 *Access Denied*: User is not whitelisted."
+                        )
                         continue
                     try:
-                        reply = await execute_telegram_command(text, int(user_id), chat_id)
+                        reply = await execute_telegram_command(
+                            text, int(user_id), chat_id
+                        )
                         await send_telegram_message(chat_id, reply)
                     except Exception as exec_err:
                         print(f"[Telegram Poller] Execution error: {exec_err}")
-                        await send_telegram_message(chat_id, f"❌ *Internal Error*: {exec_err}")
+                        await send_telegram_message(
+                            chat_id, f"❌ *Internal Error*: {exec_err}"
+                        )
             else:
                 error_msg = str(res.get("error", "Unknown"))
                 if "409" in error_msg:
-                    print("[Telegram Poller] Conflict (409): Another instance or webhook is active. Waiting 20s...")
+                    print(
+                        "[Telegram Poller] Conflict (409): Another instance or webhook is active. Waiting 20s..."
+                    )
                     await asyncio.sleep(20)
                 elif "401" in error_msg:
-                    print("[Telegram Poller] Unauthorized (401): Bot token is invalid. Hibernating...")
+                    print(
+                        "[Telegram Poller] Unauthorized (401): Bot token is invalid. Hibernating..."
+                    )
                     await asyncio.sleep(300)
-                elif "timeout" in error_msg.lower(): pass
+                elif "timeout" in error_msg.lower():
+                    pass
                 else:
                     consecutive_errors += 1
-                    wait_time = min(60, 2 ** consecutive_errors)
-                    print(f"[Telegram Poller] Fetch failed: {error_msg}. Retrying in {wait_time}s...")
+                    wait_time = min(60, 2**consecutive_errors)
+                    print(
+                        f"[Telegram Poller] Fetch failed: {error_msg}. Retrying in {wait_time}s..."
+                    )
                     await asyncio.sleep(wait_time)
-        except asyncio.CancelledError: break
+        except asyncio.CancelledError:
+            break
         except Exception as e:
             print(f"[Telegram Poller] Critical Loop Error: {e}")
             await asyncio.sleep(10)
@@ -2594,6 +3154,8 @@ def start_dashboard():
     print(f"[!] {payload['message']} ({payload['path']})")
     return payload
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

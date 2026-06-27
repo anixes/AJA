@@ -19,6 +19,8 @@ class PermissionPolicyConfig(BaseModel):
     scopes: Dict[str, PermissionDecision] = Field(
         default_factory=lambda: {
             "shell.*": "allow",
+            "shell.destructive": "ask",
+            "shell.exec.dangerous": "ask",
             "python.*": "allow",
             "mcp.*": "ask",
             "browser.read": "allow",
@@ -51,6 +53,8 @@ class SwarmSettings(BaseModel):
     operating_mode: str = "offline"
     direct_execution: bool = True
     allow_out_of_bounds_paths: bool = False
+    sandbox_mode: Literal["local", "docker"] = "local"
+    auto_proceed_local: bool = False
     context_limit_tokens: Optional[int] = Field(
         default=None,
         ge=1024,

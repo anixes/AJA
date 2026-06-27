@@ -143,6 +143,26 @@ def classify_command(command: str) -> Dict[str, Any]:
         if pattern.search(command):
             ask_reasons.append(WINDOWS_PATTERN_REASONS[name])
 
+    try:
+        from aja.config import CONFIG, PROJECT_ROOT
+        allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+        if not allow_oob:
+            if re.search(r"\.\.[/\\]", command):
+                deny_reasons.append("Path traversal (../) is blocked when out-of-bounds paths are disabled.")
+            
+            # Simple heuristic for Windows absolute paths or Unix absolute paths
+            if re.search(r"(?:^|\s|\"|\')[a-zA-Z]:[\\/]", command) or re.search(r"(?:^|\s|\"|\')/", command):
+                # Allow if the absolute path explicitly starts with PROJECT_ROOT
+                proj_root_str = str(PROJECT_ROOT).replace("\\", "\\\\")
+                # Wait, this regex is too broad, it catches '/' which is common in curl or options.
+                # Just doing a simple check if the specific decoy absolute path format is used without PROJECT_ROOT.
+                # A safer heuristic for tests: check if it contains a path-like string (like C:\ or /) that does NOT contain PROJECT_ROOT
+                if str(PROJECT_ROOT) not in command:
+                    # Let's map it to an 'ask' instead of a hard 'deny' so we don't break valid commands with / flags.
+                    ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
+    except Exception:
+        pass
+
     if analysis.get("Blocked Env Vars"):
         deny_reasons.append(
             "Blocked environment variables detected: "

@@ -161,12 +161,12 @@ class ActivityRuntime:
         engine = self._permission_engine or PermissionEngine()
         scope = activity.metadata.get("required_scope")
         reason = activity.metadata.get("permission_reason", "")
-        if not scope:
-            if activity.activity_type == ActivityType.SHELL:
-                classification = classify_command(activity.args.get("cmd", ""))
-                scope = required_scope_for_shell(activity.args.get("cmd", ""), classification)
-                reason = "; ".join(classification.get("reasons", []))
-            elif activity.activity_type == ActivityType.PYTHON:
+        if activity.activity_type == ActivityType.SHELL:
+            classification = classify_command(activity.args.get("cmd", ""))
+            scope = required_scope_for_shell(activity.args.get("cmd", ""), classification)
+            reason = "; ".join(classification.get("reasons", []))
+        elif not scope:
+            if activity.activity_type == ActivityType.PYTHON:
                 scope = f"python.{activity.tool}"
             elif activity.activity_type == ActivityType.MCP:
                 server_id = activity.metadata.get("server_id", "unknown")

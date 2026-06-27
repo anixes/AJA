@@ -277,7 +277,7 @@ AJA's memory architecture is split into four cognitive layers, leveraging LanceD
 * **Stability Guard**: Automatically disables planning learning if the rolling task success rate drops below `40%`, isolating the planning engine from junk context loops.
 
 ### Agent Evaluation Harness
-An automated validation suite (`scratch/agent_evaluation_harness.py`) profiles model performance and safeguards behavioral contracts:
+An automated validation suite (`scripts/eval_harness.py`) profiles model performance and safeguards behavioral contracts:
 * **Format Compliance & Stability**: Measures average latencies and verifies that LLM outputs remain 100% JSON compliant under reasoning pretext and Markdown fence drifting.
 * **Adversarial Resilience**: Audits and blocks prompt injection payloads (e.g. `format c:`), mapping attacks to benign conversation nodes.
 
