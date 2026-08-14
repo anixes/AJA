@@ -47,7 +47,8 @@ def load_providers():
         "together": "https://api.together.xyz/v1",
         "openrouter": "https://openrouter.ai/api/v1",
         "openai": "https://api.openai.com/v1",
-        "llama_cpp": "http://localhost:8080/v1",
+        "llama_cpp": os.getenv("LLAMA_CPP_URL", "http://localhost:8080/v1"),
+        "ollama": os.getenv("OLLAMA_URL", "http://localhost:11434/v1"),
         "google": "https://generativelanguage.googleapis.com/v1beta/openai",
         "copilot": "https://api.githubcopilot.com",
     }
@@ -161,6 +162,8 @@ class LLMGateway:
 
         if self.provider == "google":
             self.api_key = google_api_key(raw_key)
+        elif not raw_key:
+            self.api_key = "no-key-required"
         else:
             self.api_key = raw_key
 
@@ -479,10 +482,11 @@ class LLMGateway:
                 headers.update(self.extra_headers)
 
                 async with AsyncOpenAI(
-                    api_key=self.api_key,
+                    api_key=self.api_key or "dummy-local-key",
                     base_url=self.base_url,
                     default_headers=headers,
                 ) as client:
+
                     response = await client.chat.completions.create(**kwargs)
 
                 msg = response.choices[0].message

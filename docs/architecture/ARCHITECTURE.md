@@ -98,6 +98,17 @@ Every journal event carries a `schema_version` field. The `VersionedEventRehydra
 
 ---
 
+## Security & Execution Boundaries
+
+AJA enforces defense-in-depth across every layer of execution:
+
+1. **CommandGuard Fail-Fast Filter**: Shell commands are analyzed via regex and AST before permission authorization or process spawning. High-risk commands (e.g., destructive system mutations, fork bombs) are immediately rejected in `<1ms`.
+2. **Permission Engine**: Scoped access policies (`shell.*`, `mcp.*`, `browser.*`, `desktop.*`, `fs.*`) govern tool invocations. Automated test environments bypass interactive prompt timeouts (`PYTEST_CURRENT_TEST`) to prevent test hangs.
+3. **Workspace Isolation & Git Diffs**: Sandbox executions operate in isolated ephemeral copies with heavy asset ignore lists (`.understand-anything`, `docker`, `docs`, `packages`) and automated `git diff` tracking to detect unauthorized file tree mutations.
+4. **Intent Router Fast-Path**: Layer 1 deterministic matching fast-paths direct terminal and file commands (`dir`, `ls`, `read`, `open`) directly into execution, bypassing expensive multi-second LLM classification latency.
+
+---
+
 ## Hybrid Rust/Python Design Philosophy
 
 AJA is built as a hybrid runtime to maximize both performance and developer velocity.

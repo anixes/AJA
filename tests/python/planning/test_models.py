@@ -77,7 +77,7 @@ class TestPlanNode:
         assert n2.outputs == n.outputs
         assert n2.uncertainty == n.uncertainty
 
-    @pytest.mark.parametrize("strategy", VALID_STRATEGIES)
+    @pytest.mark.parametrize("strategy", sorted(VALID_STRATEGIES))
     def test_all_strategies_accepted(self, strategy):
         n = self._make(strategy=strategy)
         assert n.strategy == strategy

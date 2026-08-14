@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from aja.server.mobile_bridge import app
+from aja.api.bridge import app
 from aja.runtime.event_bus import bus, EVENTS
 
 def test_websocket_event_broadcasting():

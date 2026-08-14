@@ -75,6 +75,28 @@ class ActivityRuntime:
         self._desktop_backend = desktop_backend
 
     async def run(self, activity: Activity) -> ActivityResult:
+        if activity.activity_type == ActivityType.SHELL:
+            from aja.security.command_guard import classify_command
+            classification = classify_command(activity.args.get("cmd", ""))
+            if classification.get("decision") == "deny":
+                result = ActivityResult(
+                    tool=activity.tool,
+                    success=False,
+                    data=None,
+                    error="CommandGuard blocked: " + "; ".join(classification.get("reasons", [])),
+                    authorized_scope="shell.blocked",
+                    permission_decision="deny",
+                )
+                if self._journal:
+                    self._journal.emit("TOOL_FAILED", {
+                        "tool": activity.tool,
+                        "error": result.error,
+                        "trace_id": activity.trace_id,
+                        "authorized_scope": "shell.blocked",
+                        "permission_decision": "deny",
+                    })
+                return result
+
         authorization = self._authorize(activity)
         if not authorization.allowed:
             result = ActivityResult(

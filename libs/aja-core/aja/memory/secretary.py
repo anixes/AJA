@@ -241,7 +241,12 @@ class AJAMemory:
         now = datetime.now(timezone.utc)
         for w in workers:
             try:
-                hb = datetime.fromisoformat(w["last_heartbeat"])
+                hb_str = w.get("last_heartbeat")
+                if not hb_str:
+                    continue
+                hb = datetime.fromisoformat(hb_str)
+                if hb.tzinfo is None:
+                    hb = hb.replace(tzinfo=timezone.utc)
                 if (now - hb).total_seconds() < timeout_seconds:
                     active.append(w)
             except Exception:

@@ -156,9 +156,11 @@ def test_cli_projection_rebuilding_command():
     Verify that the rebuild-projections CLI command correctly iterates over
     journals and regeneratesderived projections in LanceDB.
     """
+    import uuid
     mem = get_aja_memory()
-    mission_id = "TEST-M-V6"
-    job_id = "TEST-JOB-V6"
+    suffix = uuid.uuid4().hex[:6]
+    mission_id = f"TEST-M-V6-{suffix}"
+    job_id = f"TEST-JOB-V6-{suffix}"
     
     # Clean previous journal files if any
     mission_journal = MissionJournal(mission_id)

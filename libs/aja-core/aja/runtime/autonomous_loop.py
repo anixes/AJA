@@ -46,38 +46,46 @@ async def main_loop():
     from aja.goals.goal_engine import goal_engine
     
     print(f"[*] AJA Autonomous Worker Started (ID: {worker_id})")
-    
+
+    MAX_CONSECUTIVE_ERRORS = 5
+    MAX_PENDING_GOALS = 20
+    BASE_SLEEP = 2
+    consecutive_errors = 0
+
     while True:
         try:
             active_goals = goal_engine.get_active_goals()
-            # if not active_goals:
-            #     # Part C - Self-Practice Loop
-            #     from aja.self_evolve.task_generator import curriculum_manager
-            #     if curriculum_manager.should_train():
-            #         print("[AutonomousLoop] System idle. Generating practice task...")
-            #         gap = getattr(goal_engine, "_last_skill_gap", {"focus": "General practice"})
-            #         task = curriculum_manager.generate_training_task(gap)
-            #         curriculum_manager.mark_training_started()
-            #         
-            #         obj = task.get("goal", "Practice task")
-            #         # Part F - Safe Sandbox Only
-            #         goal_engine.add_goal(f"SANDBOX TRAINING: {obj}", priority=0, is_sandbox=True)
-            #         print(f"[AutonomousLoop] Added training task: {obj}")
- 
-            # 4. Run next step in the goal queue in a separate worker thread
-            await asyncio.to_thread(goal_engine.run_step)
             
-            # 5. Sleep / Cooldown
-            await asyncio.sleep(2) # 2 second tick rate
-            
+            # Backpressure: pause polling if queue is overflowing
+            if len(active_goals) > MAX_PENDING_GOALS:
+                print(f"[AutonomousLoop] Backpressure threshold reached ({len(active_goals)} active goals). Pausing mission intake.")
+                await asyncio.sleep(10)
+                continue
+
+            # Run next step asynchronously directly in event loop
+            await goal_engine.run_step()
+            consecutive_errors = 0  # Reset error counter on successful step
+
+            # Adaptive sleep: 2s when active, 5s when idle
+            sleep_time = BASE_SLEEP if active_goals else 5
+            await asyncio.sleep(sleep_time)
+
         except KeyboardInterrupt:
             print("[!] Autonomous loop stopped by user.")
             intent_engine.stop()
             heartbeat_task.cancel()
             break
         except Exception as e:
-            print(f"[!] Error in autonomous loop: {e}")
-            await asyncio.sleep(5)
+            consecutive_errors += 1
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                print(f"[!] Circuit Breaker OPEN: {consecutive_errors} consecutive failures ({e}). Cooling down for 60s.")
+                await asyncio.sleep(60)
+                consecutive_errors = 0
+            else:
+                backoff = min(30, BASE_SLEEP * (2 ** consecutive_errors))
+                print(f"[!] Error in autonomous loop (#{consecutive_errors}): {e}. Backing off {backoff}s.")
+                await asyncio.sleep(backoff)
+
 
 if __name__ == "__main__":
     asyncio.run(main_loop())

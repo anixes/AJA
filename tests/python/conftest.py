@@ -1,8 +1,13 @@
+import os
 import asyncio
 import logging
 import sys
 
 import pytest
+
+# Global performance flags for test suite speedup
+os.environ["AJA_MOCK_EMBEDDINGS"] = "1"
+os.environ["AJA_FAST_SANDBOX"] = "1"
 
 if sys.platform == "win32":
     # ProactorEventLoop is required on Windows for async subprocess support.
@@ -12,6 +17,11 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(params=["asyncio"])
+def anyio_backend(request):
+    return request.param
 
 
 @pytest.fixture(autouse=True)

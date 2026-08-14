@@ -73,9 +73,15 @@ python-source = "libs/aja-core"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+pythonpath = ["libs/aja-core"]
 markers = [
     "e2e: real-LLM end-to-end tests (deselect with '-m not e2e')",
+    "unit: Fast unit tests without disk or network bottlenecks",
+    "integration: Subsystem integration and durable workflow tests",
+    "planning: Task decomposition and DAG planning tests",
+    "slow: Tests with extensive duration or multiple timeouts",
 ]
+addopts = "-ra --durations=10"
 
 # ---------------------------------------------------------------------------
 # Ruff — linter + formatter

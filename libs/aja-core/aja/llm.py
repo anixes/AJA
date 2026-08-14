@@ -82,10 +82,14 @@ def get_gateway_for_model(model_str):
         # Smart detection fallback
         if "gemini" in model_str.lower():
             provider = "google"
-        elif "gemma" in model_str.lower() or "llama" in model_str.lower():
+        elif "ollama" in model_str.lower():
+            provider = "ollama"
+        elif "gemma" in model_str.lower() or "llama" in model_str.lower() or "qwen" in model_str.lower() or "mistral" in model_str.lower():
             provider = "llama_cpp"
         elif "copilot" in model_str.lower():
             provider = "copilot"
+            if model_name.lower() in ("copilot", ""):
+                model_name = "gpt-4o"
 
     # 2. Apply Operating Mode Override
     if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
@@ -450,51 +454,38 @@ discover_providers()
 
 # --- Core completion API ---
 
-def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None):
+def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None):
     """
     Standard completion interface used across AJA.
-    Routes to the correct provider, preferring registered pluggable providers.
+    Enforces operating_mode (online/offline/hybrid) from aja.json.
     """
     if model is None:
         try:
             config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
             with open(config_path, "r") as f:
                 config = json.load(f)
-                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "google:gemini-2.5-flash")
+                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
         except Exception:
-            model = "google:gemini-2.5-flash"
-            
-    # Resolve the model's provider and name
-    provider = "openrouter"
-    model_name = model
-    if ":" in model:
-        parts = model.split(":", 1)
-        provider = parts[0]
-        model_name = parts[1]
-    else:
-        if "gemini" in model.lower():
-            provider = "google"
-        elif "gemma" in model.lower() or "llama" in model.lower():
-            provider = "llama_cpp"
-        elif "copilot" in model.lower():
-            provider = "copilot"
-            
+            model = "llama_cpp:LFM2.5-VL-1.6B"
+
+    # Enforce operating mode override (offline/online/hybrid)
+    gw, model_name = get_gateway_for_model(model)
+    provider = gw.provider
+
     # Try dynamic provider registry first
     provider_cls = provider_registry.get(provider)
     if provider_cls:
-        # Resolve api_key
         api_key = os.getenv(f"{provider.upper()}_API_KEY", "")
         if not api_key and provider == "google":
             api_key = os.getenv("GEMINI_API_KEY", "")
-            
+
         provider_inst = provider_cls({
             "model": model_name,
             "provider": provider,
             "api_key": api_key,
             "temperature": temperature
         })
-        
-        # Build standard messages format
+
         messages = [{"role": "system", "content": system_prompt}]
         if isinstance(prompt, list):
             for m in prompt:
@@ -504,7 +495,7 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
                 })
         else:
             messages.append({"role": "user", "content": prompt})
-            
+
         try:
             res = provider_inst.chat_completions(messages)
             choices = res.get("choices", [])
@@ -513,7 +504,8 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
             return ""
         except Exception as e:
             print(f"[LLM] Error using registered provider '{provider}': {e}. Falling back to LLMGateway.")
-            
-    # Legacy fallback
-    gw, model_name = get_gateway_for_model(model)
-    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature)) or ""
+
+    # Gateway execution path
+    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)) or ""
+
+

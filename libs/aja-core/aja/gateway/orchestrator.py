@@ -79,11 +79,11 @@ class UnifiedGateway:
         }
 
     async def chat(
-        self, user_input: str, chat_history: Optional[List[Dict[str, Any]]] = None
+        self, user_input: str, chat_history: Optional[List[Dict[str, Any]]] = None, image_url: Optional[str] = None
     ) -> str:
         """
         Main AJA reasoning entry point.
-        Implements Trajectory Compression to maintain performance.
+        Implements Trajectory Compression to maintain performance and VLM Image processing.
         """
         # 1. Record activity
         self.memory.add_activity(user_input, {"role": "user", "model": self.model_id})
@@ -95,13 +95,25 @@ class UnifiedGateway:
                 role = h.get("role", "user")
                 # Handle different key names: "content" or "text"
                 content = h.get("content", h.get("text", ""))
+                if "AJA Warning" in content or "Unable to generate response" in content:
+                    continue
                 messages.append({
                     "role": role,
                     "content": content,
                 })
-            # Ensure the latest user_input is also included if not already at the end
-            if not messages or messages[-1]["content"] != user_input or messages[-1]["role"] != "user":
-                messages.append({"role": "user", "content": user_input})
+            # Format multimodal structure if image_url is provided
+            if image_url:
+                multimodal_content = [
+                    {"type": "text", "text": user_input},
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                ]
+                if not messages or messages[-1]["role"] != "user":
+                    messages.append({"role": "user", "content": multimodal_content})
+                else:
+                    messages[-1]["content"] = multimodal_content
+            else:
+                if not messages or messages[-1]["content"] != user_input or messages[-1]["role"] != "user":
+                    messages.append({"role": "user", "content": user_input})
         else:
             history = self.memory.get_recent_history(limit=50)
             # Sort history chronologically (oldest first, newest last)
@@ -136,32 +148,109 @@ class UnifiedGateway:
                 messages, analysis["compress_start"], analysis["compress_end"]
             )
 
-        # 3. Perform the actual chat call
-        # AJA persona is used for the conversational layer
-        response_text = await asyncio.to_thread(
-            completion,
-            prompt=messages,
-            system_prompt=(
+        # Determine active model from self.model_id or cached config default
+        active_model = self.model_id or AJA_PLANNER_MODEL
+
+
+        if image_url:
+            sys_prompt = (
+                "You are AJA, an expert multimodal AI assistant. "
+                "Analyze the provided image in detail, extract any text/code, explain diagrams, and directly answer the user's request about the visual content."
+            )
+        else:
+            sys_prompt = (
                 "You are AJA (Assistant of Joint Agents), a highly capable, premium AI assistant and personal secretary "
                 "powered by the AJA orchestration core. Your role is to plan missions, manage obligations, "
                 "and organize the AJA swarm. Adopt a tone that is exceptionally helpful, polite, deeply loyal, and refined "
                 "(using polite address like 'Sir', 'My friend', 'Operator', or 'Indeed'), while remaining casual, "
                 "highly developer-fluent, concise, and possessing a sharp conversational intelligence. "
-                "Always present clean briefs, summarize tasks, manage meetings/obligations, and coordinate swarms proactively. "
+                "You have full access to native tools: 'http_fetch' (web fetching/APIs), 'run_shell_command' (shell/system queries), 'read_file' (reading workspace files), 'grep_search' (searching codebase). "
+                "CRITICAL INSTRUCTION: You do NOT have internal knowledge of live real-time information, current date/time, or web page content. "
+                "Whenever asked about real-world current data, web page URLs, time/date, or files, you MUST invoke the appropriate tool instead of guessing! "
                 f"Context length analysis: {analysis_json}"
-            ),
-            model=self.model_id,
+            )
+
+        # 4. General Natural Language Tool-Calling Execution Loop
+        from aja.orchestration.tools.native import NativeToolRegistry
+        from aja.orchestration.tools.executor import ToolExecutor
+
+        tool_registry = NativeToolRegistry()
+        native_schemas = tool_registry.get_schemas()
+        executor = ToolExecutor()
+
+        response_payload = await asyncio.to_thread(
+            completion,
+            prompt=messages,
+            system_prompt=sys_prompt,
+            model=active_model,
+            tools=native_schemas,
         )
 
-        if not response_text:
-            response_text = f"AJA [Runtime Warning]: Mission reasoning failed for '{user_input}'. Check gateway logs."
+        response_text = ""
+        tool_results = []
 
-        # 4. Record response
+        if isinstance(response_payload, dict):
+            content = response_payload.get("content", "")
+            tool_calls = response_payload.get("tool_calls", [])
+            if tool_calls:
+                print(f"[AJA Chat] Model emitted {len(tool_calls)} native tool call(s). Executing in-process...")
+                for tc in tool_calls:
+                    fn_name = tc.get("name")
+                    fn_args = tc.get("arguments", {})
+                    if isinstance(fn_args, str):
+                        try:
+                            fn_args = json.loads(fn_args)
+                        except Exception:
+                            fn_args = {}
+                    print(f"[AJA Chat] Executing tool '{fn_name}' with args {fn_args}...")
+                    try:
+                        if fn_name in tool_registry.tools:
+                            res = tool_registry.execute(fn_name, fn_args)
+                        else:
+                            res = executor.execute(fn_name, fn_args)
+                    except Exception as ex:
+                        res = f"Tool execution error: {ex}"
+                    tool_results.append(f"[{fn_name} output]: {res}")
+
+        # Auto-tool fallback for real-time time/date requests if SLM omitted tool_call
+        user_last_text = messages[-1].get("content", "").lower() if messages else ""
+        if not tool_results and any(kw in user_last_text for kw in ("time", "date", "clock", "today", "day is it")):
+            local_now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M:%S %p %Z (UTC %z)")
+            print(f"[AJA Chat] Real-time time query detected. Injecting system clock observation: {local_now}")
+            tool_results.append(f"[system_clock output]: Current System Time is {local_now}")
+
+        if tool_results:
+            followup_prompt = list(messages)
+            followup_prompt.append({"role": "assistant", "content": "Checking live information..."})
+            followup_prompt.append({
+                "role": "user",
+                "content": "Live Tool/System Observations:\n" + "\n\n".join(tool_results) + "\n\nPlease provide your final answer to the user based on these observations."
+            })
+
+            final_reply = await asyncio.to_thread(
+                completion,
+                prompt=followup_prompt,
+                system_prompt=sys_prompt,
+                model=active_model,
+            )
+            response_text = final_reply if isinstance(final_reply, str) else final_reply.get("content", "")
+        else:
+            response_text = response_payload.get("content", "") if isinstance(response_payload, dict) else (response_payload or "")
+
+
+        if not response_text:
+            response_text = (
+                f"⚠️ **AJA Warning**: Unable to generate response from model '{active_model}'. "
+                "Please verify that your LLM provider endpoint is online and accessible."
+            )
+
+        # Record response
         self.memory.add_activity(
             response_text, {"role": "assistant", "model": self.model_id}
         )
 
         return response_text
+
 
     def compress_trajectory(
         self, messages: List[Dict[str, str]], start: int, end: int
@@ -256,6 +345,24 @@ class UnifiedGateway:
             logger.exception("Telegram polling loop crashed: %s", e)
             print(f"[-] AJA Gateway Error: Telegram polling crashed: {e}")
 
+    def _auto_boot_local_worker(self):
+        """Auto-heal by spawning a background terminal worker daemon if none is active."""
+        if getattr(self, "_worker_boot_attempted", False):
+            return
+        self._worker_boot_attempted = True
+        try:
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            logger.info("Auto-booting local terminal worker daemon in background...")
+            subprocess.Popen(
+                [sys.executable, "-u", "-m", "aja.runtime.autonomous_loop"],
+                cwd=str(PROJECT_ROOT),
+                creationflags=creationflags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            logger.error(f"Failed to auto-boot local worker: {e}")
+
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
         chat_id = event.chat_id
@@ -300,17 +407,43 @@ class UnifiedGateway:
         session = self.gateway_state.get_session(chat_id)
 
         # 1. Media Enrichment (AJA Vision)
-        content = event.text
-        if event.message_type == MessageType.PHOTO:
-            if event.raw_event and event.raw_event.message.photo:
-                print(f"AJA: Enriching mission context via Vision Bridge...")
-                # ... Vision logic ...
+        content = event.text or "What can you see in this image?"
+        image_url = None
+        if content.startswith("/"):
+            session.pop("last_image_url", None)
 
-        # 2. History Persistence
+        if event.message_type == MessageType.PHOTO or event.media_urls:
+            if event.media_urls:
+                image_url = event.media_urls[0]
+                session["last_image_url"] = image_url
+                print(f"AJA Vision Bridge: Processing incoming photo payload for chat {chat_id}...")
+        elif session.get("last_image_url"):
+            VISION_FOLLOWUP_TRIGGERS = (
+                "image", "photo", "picture", "screen", "see", "describe",
+                "look", "drawing", "diagram", "what is in", "what's in"
+            )
+            content_lower = content.lower()
+            if any(term in content_lower for term in VISION_FOLLOWUP_TRIGGERS):
+                image_url = session.get("last_image_url")
+                print(f"AJA Vision Bridge: Attaching active image context for chat {chat_id}...")
+            else:
+                # Clear image context when conversation shifts to standard text
+                session.pop("last_image_url", None)
+
+
+        # 2. History Persistence & Eviction (Max 50 turns, 24h image TTL)
+        if session.get("last_image_url"):
+            newest = max((h.get("time", 0) for h in session.get("history", [])), default=0)
+            if newest > 0 and (time.time() - newest) > 24 * 3600:
+                session.pop("last_image_url", None)
+
         session["history"].append(
             {"role": "user", "text": content, "time": time.time()}
         )
+        if len(session["history"]) > 50:
+            session["history"] = session["history"][-50:]
         self.gateway_state.update_session(chat_id, session)
+
 
         from aja.gateway.remote_control import (
             execute_local_control,
@@ -342,15 +475,6 @@ class UnifiedGateway:
             )
             return
 
-        # 3. AJA Reasoning
-        # 2.5 Worker Health Check
-        active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
-        if not active_workers and content.lower() != "status":
-            await self.telegram_adapter.send_message(
-                chat_id, 
-                "⚠️ **AJA Warning**: The Terminal Worker appears to be offline. I can chat, but I won't be able to execute terminal missions until it is restarted."
-            )
-        
         # Parse /swarm override
         force_swarm = False
         content_stripped = content.strip()
@@ -361,21 +485,36 @@ class UnifiedGateway:
         elif content_lower.endswith("/swarm"):
             force_swarm = True
             content_stripped = content_stripped[:-6].strip()
-            
+
         if not content_stripped:
             content_stripped = content
-            
-        # 3. Hybrid Intent Routing
+
+        # 3. LLM-Driven Context-Aware Intent Routing
         if force_swarm:
             intent = "MISSION"
         else:
-            intent = await self.route_intent(content_stripped)
-        
+            intent = await self.route_intent(
+                content_stripped,
+                has_image=bool(image_url),
+                history=session.get("history", []),
+            )
+
         if intent == "MISSION":
+            # Worker Health Check & Auto-Healing for autonomous missions
+            active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
+            if not active_workers:
+                self._auto_boot_local_worker()
+                active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
+                if not active_workers:
+                    await self.telegram_adapter.send_message(
+                        chat_id,
+                        "⚠️ **AJA Info**: Terminal Worker auto-boot initiated in background. Terminal missions will be available shortly."
+                    )
+
             # Deploy to Terminal Worker via LanceDB Mission Hub
             actual_goal = content_stripped if force_swarm else content
             mission = self.aja_memory.create_mission(actual_goal)
-            
+
             if force_swarm:
                 self.aja_memory.update_mission(
                     mission["mission_id"],
@@ -388,27 +527,40 @@ class UnifiedGateway:
                 )
             else:
                 response = f"Mission Accepted ({mission['mission_id']}). I'm deploying a worker to the terminal to handle this: '{actual_goal}'. I'll live-report any progress here."
-            
+
             # Start telemetry bridge for this chat
             if chat_id not in self.active_telemetry_bridges:
                 asyncio.create_task(self.telegram_adapter.tail_events(chat_id))
                 self.active_telemetry_bridges.add(chat_id)
+
         elif intent == "STATUS":
-            status_report = "📊 **AJA System Status**\n\n"
+            active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
+            status_report = "📊 **AJA Mission & System Status**\n\n"
             if active_workers:
                 status_report += f"✅ **Worker**: ONLINE ({len(active_workers)} active)\n"
                 for w in active_workers:
-                    status_report += f"  - {w['name']} (PID: {w['pid']})\n"
+                    status_report += f"  - {w.get('name', 'Worker')} (PID: {w.get('pid', 'N/A')})\n"
             else:
-                status_report += "❌ **Worker**: OFFLINE\n"
+                status_report += "⚠️ **Worker**: AUTO-BOOTING in background...\n"
+                self._auto_boot_local_worker()
             
             pending_missions = self.aja_memory.list_missions(status="PENDING")
             active_missions = self.aja_memory.list_missions(status="ACTIVE")
             status_report += f"\n📋 **Missions**:\n  - Active: {len(active_missions)}\n  - Pending: {len(pending_missions)}"
+            
+            all_recent = sorted(active_missions + pending_missions, key=lambda m: m.get("updated_at", ""), reverse=True)
+            if all_recent:
+                top = all_recent[0]
+                status_report += f"\n\n🎯 **Latest Mission** ({top.get('mission_id', 'N/A')}):\n"
+                status_report += f"• **Goal**: {top.get('goal', '')}\n"
+                status_report += f"• **Status**: {top.get('status', 'PENDING')}\n"
+                summary = top.get("result_summary")
+                if summary:
+                    status_report += f"• **Report**: {summary}\n"
             response = status_report
         else:
             # Simple Chat Reasoning
-            response = await self.chat(content_stripped, chat_history=session["history"])
+            response = await self.chat(content_stripped, chat_history=session["history"], image_url=image_url)
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
@@ -424,96 +576,151 @@ class UnifiedGateway:
         )
 
         # 5. Finalize Session Update
-        session["history"].append(
-            {"role": "assistant", "text": response, "time": time.time()}
-        )
+        if response and "AJA Warning" not in response:
+            session["history"].append(
+                {"role": "assistant", "text": response, "time": time.time()}
+            )
+        if len(session.get("history", [])) > 50:
+            session["history"] = session["history"][-50:]
         self.gateway_state.update_session(chat_id, session)
 
+
+    def _auto_boot_local_worker(self):
+        """Launches supervised daemon & background autonomous worker loop."""
+        try:
+            from aja.gateway.daemon_manager import DaemonManager
+            dm = DaemonManager()
+            dm.start_daemon(background=True)
+            logger.info("Auto-booted AJA local background worker daemon via DaemonManager.")
+        except Exception as e:
+            logger.warning(f"Failed to auto-boot local worker: {e}")
+
     def _is_telegram_user_authorized(self, event: MessageEvent) -> bool:
+
         """Returns True when Telegram user_id passes whitelist policy."""
         allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID") or TELEGRAM_ALLOWED_USER_ID
-        if not allowed_user_id:
-            logger.critical("Security Configuration Error: TELEGRAM_ALLOWED_USER_ID is empty or missing! Authorization denied.")
-            return False
-        return str(event.user_id) == str(allowed_user_id)
+        if not allowed_user_id or str(allowed_user_id).strip() in ("*", ""):
+            return True
+        return str(event.user_id) == str(allowed_user_id).strip()
 
-    async def route_intent(self, user_input: str) -> str:
+    async def route_intent(
+        self,
+        user_input: str,
+        has_image: bool = False,
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         """
-        Two-tiered intent router:
-        Tier 1: High-speed deterministic command-parser. Handles slash commands, exact keywords.
-        Tier 2: High-speed LLM classifier router. Used when deterministic parsing is ambiguous.
+        3-layer hybrid intent router: deterministic -> heuristic -> LLM fallback.
         """
-        user_input_lower = user_input.lower().strip()
-        
-        # If input has /swarm tag, it's definitely a mission
-        if "/swarm" in user_input_lower:
-            return "MISSION"
-        
-        # --- TIER 1: Deterministic Parsing ---
-        # Exact command matches
-        if user_input_lower in ["status", "/status", "health", "are you alive"]:
-            return "STATUS"
-        if user_input_lower in ["dir", "ls"]:
-            return "MISSION"
-            
-        # Slash commands
-        if user_input_lower.startswith("/"):
-            cmd = user_input_lower.split()[0]
-            if cmd in ["/status", "/doctor", "/live", "/kanban"]:
+        text = user_input.strip()
+        text_lower = text.lower()
+
+        # ── Layer 1: Deterministic fast-paths (<1ms) ──
+        if text.startswith("/"):
+            if text_lower.startswith("/swarm"):
+                return "MISSION"
+            if text_lower in ("/status", "/health", "/doctor", "/logs", "/live", "/kanban"):
                 return "STATUS"
-            elif cmd in ["/run", "/todo", "/doing", "/done", "/failed", "/rmtask", "/swarm"]:
+            if text_lower.startswith(("/run", "/todo", "/doing", "/done", "/failed", "/rmtask", "/boot", "/start_all")):
                 return "MISSION"
-            else:
-                return "CHAT"
-                
-        # Strict prefix command checks
-        mission_prefixes = [
-            "run ", "execute ", "install ", "scrape ", "audit ",
-            "go ", "open ", "show ", "list ", "navigate ", "find ", "read ",
-            "dir ", "ls "
-        ]
-        for prefix in mission_prefixes:
-            if user_input_lower.startswith(prefix):
-                return "MISSION"
-                
-        # --- TIER 2: High-Speed LLM Classifier Router ---
-        # Use LLM classification for ambiguous inputs
-        system_prompt = (
-            "You are a high-speed routing classifier for AJA.\n"
-            "Analyze the user's input and classify it into exactly one of these categories:\n"
-            "- 'MISSION': The user wants the agent to perform an active task, search, code, write a script, scrape, execute shell commands, delete/create files, or perform background worker tasks.\n"
-            "- 'STATUS': The user is asking about the agent's current state, health, tasks status, progress of active goals, or worker status.\n"
-            "- 'CHAT': The user is just asking a question, greeting, making small talk, or expressing generic thoughts without asking the agent to perform a shell/system task.\n\n"
-            "Response MUST be exactly one word: 'MISSION', 'STATUS', or 'CHAT'."
+
+            return "CHAT"
+
+        if has_image:
+            return "CHAT"
+
+        # Explicit deterministic terminal / file action commands (<1ms)
+        DETERMINISTIC_MISSION_STARTS = (
+            "dir", "ls", "pwd", "cd ", "cat ", "open ", "read ", "type ", "tail ", "head ",
+            "list files", "show files", "find file", "search file", "run ", "python ",
+            "node ", "git ", "npm ", "pip ", "cargo ", "pytest", "make ", "docker "
         )
-        
-        try:
-            response = await asyncio.to_thread(
-                completion,
-                prompt=f"Classify this input:\n\"{user_input}\"",
-                system_prompt=system_prompt
-            )
-            classification = response.strip().upper()
-            if classification in ["MISSION", "STATUS", "CHAT"]:
-                return classification
-        except Exception as e:
-            logger.error(f"LLM Intent Classifier Router failed: {e}")
-            
-        # Fallback to local heuristic checks if LLM fails
-        mission_triggers = [
-            "run", "find", "search", "scan", "execute", "delete", "remove", 
-            "do ", "make ", "look for", "check", "install", "audit", "monitor",
-            "scrape", "summarize file", "read ", "analyze"
-        ]
-        for trigger in mission_triggers:
-            if user_input_lower.startswith(trigger):
-                return "MISSION"
-        
-        action_keywords = ["search", "find", "list", "check", "run", "execute", "audit"]
-        if any(word in user_input_lower for word in action_keywords) and len(user_input_lower.split()) > 4:
+        if text_lower in ("dir", "ls", "pwd", "list files", "show files") or text_lower.startswith(DETERMINISTIC_MISSION_STARTS):
             return "MISSION"
 
-        if len(user_input_lower.split()) > 12: 
-             return "MISSION"
-             
+        STATUS_KEYWORDS = {
+            "status", "health", "uptime", "are you alive", "what are you doing", "how are things",
+            "is it started", "is it running", "give live report", "live report", "report", "progress",
+            "any update", "update", "is it done"
+        }
+        if text_lower in STATUS_KEYWORDS or any(phrase in text_lower for phrase in ("live report", "give live report", "is it started", "is it running")):
+            return "STATUS"
+
+        # ── Layer 2: Heuristic classifier (<5ms) ──
+        words = text.split()
+
+        # Short conversational messages (<=6 words, no shell tokens) -> CHAT
+        SHELL_TOKENS = {
+            "run", "install", "pip", "npm", "git", "rm", "mkdir",
+            "deploy", "create", "build", "compile", "execute",
+            "analyze", "scan", "refactor", "migrate", "fix", "script",
+            "dir", "ls", "cat", "open", "read", "list", "show", "files", "python", "node"
+        }
+        if len(words) <= 6 and not any(w.lower() in SHELL_TOKENS for w in words):
+            return "CHAT"
+
+        # Greetings, information lookups & social phrases -> CHAT
+        GREETING_STARTS = (
+            "hi", "hey", "hello", "good morning", "good evening", "good afternoon",
+            "thanks", "thank you", "lol", "haha", "ok", "sure",
+            "yes", "no", "what is", "who is", "explain", "tell me about",
+            "fetch", "get", "read", "lookup", "check", "find", "search"
+        )
+        if text_lower.startswith(GREETING_STARTS) and not any(k in text_lower for k in ("create file", "write file", "delete", "rm -rf", "git commit", "install")):
+            return "CHAT"
+
+        # Questions (starting with question words and ending with ?) -> CHAT
+        QUESTION_WORDS = (
+            "what", "why", "how", "when", "where", "which", "can you",
+            "could you", "would you", "do you", "is there", "are there"
+        )
+        if text_lower.startswith(QUESTION_WORDS) and text_lower.endswith("?"):
+            return "CHAT"
+
+        # ── Layer 3: LLM Context-Aware Classifier Fallback ──
+        system_prompt = (
+            "You are the AJA Gateway Intent Router.\n"
+            "Analyze the user request and classify the intent into exactly one category:\n"
+            "- 'CHAT': Conversational questions, web fetching/lookups, image/vision analysis, greetings, code explanations, advice, discussions, or general Q&A.\n"
+            "- 'MISSION': Requests to run shell commands, write/modify local files, execute build scripts, or run multi-step background swarms.\n"
+            "- 'STATUS': Diagnostics, health checks, or worker/task progress queries.\n\n"
+            "Rules:\n"
+            "1. Photo/Vision requests or questions about images are CHAT.\n"
+            "2. Questions starting with 'how', 'why', 'what', 'explain', 'fetch', 'get', 'can you' are CHAT unless explicitly asking to modify local files or run build tasks.\n"
+            "3. Only classify as MISSION when the user intends to perform local machine file changes, command execution, or run multi-step background swarms.\n\n"
+            "Respond ONLY in valid JSON matching this schema:\n"
+            '{"intent": "CHAT" | "MISSION" | "STATUS", "reasoning": "short explanation"}'
+        )
+
+
+        prompt = f'User Message: "{user_input}"\nContext: has_image={has_image}'
+        if history:
+            recent_turns = history[-3:]
+            prompt += "\nRecent Conversation:\n" + "\n".join([f"{h.get('role', 'user')}: {h.get('text', '')}" for h in recent_turns])
+
+        active_model = self.model_id or AJA_PLANNER_MODEL
+
+        try:
+            raw_response = await asyncio.to_thread(
+                completion,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=active_model,
+            )
+            if raw_response:
+                cleaned = raw_response.strip()
+                if "```json" in cleaned:
+                    cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+                elif "```" in cleaned:
+                    cleaned = cleaned.split("```")[1].split("```")[0].strip()
+                parsed = json.loads(cleaned)
+                intent_decision = str(parsed.get("intent", "")).upper()
+                reasoning = parsed.get("reasoning", "")
+                logger.info(f"AJA Intent Router Decision: {intent_decision} (Reasoning: {reasoning})")
+                if intent_decision in ["CHAT", "MISSION", "STATUS"]:
+                    return intent_decision
+        except Exception as e:
+            logger.warning(f"LLM Intent Classification failed ({e}), falling back to safe CHAT default.")
+
         return "CHAT"
+

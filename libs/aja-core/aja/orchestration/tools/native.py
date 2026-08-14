@@ -54,6 +54,7 @@ class NativeToolRegistry:
         self.tools["move_path"] = self.move_path
         self.tools["query_past_experiences"] = self.query_past_experiences
         self.tools["ask_user"] = self.ask_user
+        self.tools["get_datetime"] = self.get_datetime
 
     def get_schemas(self, interactive: bool = True) -> List[Dict[str, Any]]:
         schemas = [
@@ -554,6 +555,22 @@ class NativeToolRegistry:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_datetime",
+                    "activity_type": "python",
+                    "retry_policy": "safe",
+                    "required_scope": "python.read",
+                    "description": "Get current real-time system date, time, day of the week, and timezone.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {"type": "string", "description": "Optional location or timezone name"}
+                        }
+                    }
+                }
+            },
         ]
         
         if interactive:
@@ -914,6 +931,11 @@ class NativeToolRegistry:
                     return f"Fetched binary data ({len(content)} bytes)."
         except Exception as e:
             return f"Error fetching URL: {e}"
+
+    def get_datetime(self, location: str = "local") -> str:
+        from datetime import datetime
+        now = datetime.now().astimezone()
+        return f"Current Time ({location}): {now.strftime('%A, %B %d, %Y at %I:%M:%S %p %Z (UTC %z)')}"
 
     def apply_patch(self, path: str, diff_text: str) -> str:
         err = self._validate_path(path, mode="write")

@@ -7,11 +7,14 @@ from typing import Any, Dict, List
 
 import aja.config
 from aja.config import DATA_DIR
-from aja.memory.secretary import AJAMemory
 from aja.planning.planner import Planner
+from aja.planning.verifier import verify_plan
+from aja.decision.critic import critic_score, critique_plan
 from aja.runtime.event_bus import EVENTS, bus
 
 GLOBAL_STATE_FILE = aja.config.DATA_DIR / "agent_state.json"
+
+
 
 
 class Goal:
@@ -28,8 +31,13 @@ class Goal:
         self.deadline = deadline or float("inf")
         self.is_sandbox = is_sandbox
         self.subgoals = []
-        self.status = "PENDING"
+        self.status = "PENDING"  # PENDING -> PLANNING -> EXECUTING -> VERIFYING -> DONE / FAILED
         self.metadata = {}
+
+        self.current_node_index = 0
+        self.plan = None
+        self.replan_count = 0
+        self.max_replans = 2
 
         self.progress = {
             "completed_steps": [],
@@ -40,6 +48,13 @@ class Goal:
         self.retries = 0
 
     def to_dict(self):
+        plan_dict = None
+        if self.plan and hasattr(self.plan, "to_dict"):
+            try:
+                plan_dict = self.plan.to_dict()
+            except Exception as e:
+                print(f"[GoalEngine] Failed to serialize plan: {e}")
+
         return {
             "id": self.id,
             "objective": self.objective,
@@ -50,7 +65,10 @@ class Goal:
             "progress": self.progress,
             "failures": self.failures,
             "retries": self.retries,
+            "current_node_index": self.current_node_index,
+            "replan_count": self.replan_count,
             "metadata": getattr(self, "metadata", {}),
+            "plan": plan_dict,
         }
 
     @classmethod
@@ -62,14 +80,27 @@ class Goal:
             data.get("is_sandbox", False),
         )
         g.id = data["id"]
-        g.status = data["status"]
+        g.status = data.get("status", "PENDING")
         g.progress = data.get(
             "progress", {"completed_steps": [], "failed_steps": [], "current_state": ""}
         )
         g.failures = data.get("failures", 0)
         g.retries = data.get("retries", 0)
+        g.current_node_index = data.get("current_node_index", 0)
+        g.replan_count = data.get("replan_count", 0)
         g.metadata = data.get("metadata", {})
+
+        plan_data = data.get("plan")
+        if plan_data and isinstance(plan_data, dict):
+            try:
+                from aja.planning.models import PlanGraph
+                g.plan = PlanGraph.from_dict(plan_data)
+            except Exception as e:
+                print(f"[GoalEngine] Failed to restore plan from dict: {e}")
+                g.plan = None
         return g
+
+
 
 
 class GoalEngine:
@@ -233,13 +264,15 @@ class GoalEngine:
         print(
             f"[GoalEngine] Modifying strategy for goal {goal.objective} due to failures."
         )
-        # Trigger Self-Build Cycle (Part D - Self-Improvement Loop)
-        from aja.self_build.capability_builder import self_build_cycle
-
-        self_build_cycle(goal.objective)
+        try:
+            from aja.self_build.capability_builder import self_build_cycle
+            self_build_cycle(goal.objective)
+        except Exception as e:
+            print(f"[GoalEngine] Self-build strategy update skipped: {e}")
 
         goal.objective = f"fallback: {goal.objective}"
         goal.retries = 0
+
 
     def save_state(self):
         # Update LanceDB for each goal
@@ -329,7 +362,7 @@ class GoalEngine:
                 print(f"[GoalEngine] Mission {cid} approved/resumed. Clearing pause.")
                 self.paused_mission_ids.remove(cid)
 
-    def run_step(self):
+    async def run_step(self):
         if not self.autonomy_enabled:
             return
 
@@ -346,7 +379,6 @@ class GoalEngine:
 
         # Part G - Granular Lock Check
         if goal.id in self.paused_mission_ids:
-            # If the top goal is paused, try to find the next non-paused goal
             found_next = False
             for g in active[1:]:
                 if g.id not in self.paused_mission_ids:
@@ -354,19 +386,27 @@ class GoalEngine:
                     found_next = True
                     break
             if not found_next:
-                # All active goals are paused
                 return
 
-        if not self.loop_control_check(goal):
-            return
-        if goal.failures > 2 and goal.retries > 0:
-            self.modify_goal_strategy(goal)
+        # FSM STATE DISPATCH
 
-        print(f"\n[GoalEngine] Executing next step for goal: {goal.objective}")
+        if goal.status == "PENDING":
+            await self._step_planning(goal)
+        elif goal.status == "PLANNING":
+            goal.status = "EXECUTING"
+            self.save_state()
+        elif goal.status == "EXECUTING":
+            await self._step_executing(goal)
+        elif goal.status == "VERIFYING":
+            await self._step_verifying(goal)
+
+    async def _step_planning(self, goal: Goal):
+        print(f"\n[GoalEngine] Planning for goal: {goal.objective}")
         try:
-            plan = self.expand_goal(goal)
+            goal.plan = self.expand_goal(goal)
+            goal.current_node_index = 0
+            plan = goal.plan
 
-            # Emit PLAN_CREATED event with a quick summary
             plan_summary = f"Objective: {goal.objective}"
             if hasattr(plan, "nodes") and plan.nodes:
                 plan_summary += f"\nSteps: {len(plan.nodes)}"
@@ -382,149 +422,151 @@ class GoalEngine:
                 metadata={"plan_summary": plan_summary, "message": plan_summary},
                 status=True,
             )
+            goal.status = "PLANNING"
+            self.save_state()
+        except Exception as e:
+            print(f"[GoalEngine] Planning failed for {goal.objective}: {str(e)}")
+            goal.status = "FAILED"
+            self.save_state()
 
-            # Simple simulation of execution
-            if hasattr(plan, "nodes") and plan.nodes:
-                node = plan.nodes[0]
-            elif isinstance(plan, list) and len(plan) > 0:
-                node = plan[0]
+    async def _step_executing(self, goal: Goal):
+        plan = goal.plan
+        nodes = []
+        if hasattr(plan, "nodes"):
+            nodes = plan.nodes
+        elif isinstance(plan, list) and plan:
+            nodes = plan
+
+        if not nodes:
+            node = type("Node", (), {"id": "n1", "risk": 0.5, "task": goal.objective, "dependencies": []})()
+            nodes = [node]
+
+        completed = set(goal.progress.get("completed_steps", []))
+        if len(completed) >= len(nodes):
+            goal.status = "VERIFYING"
+            self.save_state()
+            return
+
+        # Find all ready nodes whose dependencies are satisfied and haven't completed
+        ready_nodes = []
+        for n in nodes:
+            nid = getattr(n, "id", f"node_{len(ready_nodes)}")
+            if nid in completed:
+                continue
+            deps = getattr(n, "dependencies", [])
+            if not deps or all(d in completed for d in deps):
+                ready_nodes.append(n)
+
+        if not ready_nodes:
+            uncompleted = [n for n in nodes if getattr(n, "id", "") not in completed]
+            if not uncompleted:
+                goal.status = "VERIFYING"
+                self.save_state()
             else:
-                node = type("Node", (), {"id": "n1", "risk": 0.5, "tool": "dummy"})()
+                print(f"[GoalEngine] Waiting on unresolved dependencies for nodes: {[getattr(n, 'id', '') for n in uncompleted]}")
+            return
 
-            # Part H - Autonomy Safety Rules
-            from aja.decision.critic import critic_score, critique_plan
-            from aja.planning.verifier import verify_plan
+        import anyio
+        from aja.orchestration.swarm import SwarmEngine
 
+        async def _run_single_node(node):
+            node_id = getattr(node, "id", "node_0")
+            task_str = getattr(node, "task", goal.objective)
+
+            # Safety & Risk check
             risk = getattr(node, "risk", 0.5)
-            # Estimate confidence
             state = {
                 "completed_steps": goal.progress.get("completed_steps", []),
                 "system_operational": True,
             }
-            fb = verify_plan(plan, state=state)
-            c_score = critic_score(plan, critique_plan(plan, {}))
-            confidence = getattr(plan, "confidence", max(0.0, c_score * (1.0 - risk)))
+            fb = verify_plan(plan, state=state) if (plan and hasattr(plan, "goal")) else None
+            c_score = critic_score(plan, critique_plan(plan, {})) if (plan and hasattr(plan, "nodes")) else 1.0
+            confidence = getattr(plan, "confidence", max(0.0, c_score * (1.0 - risk * 0.5)))
 
             if c_score == 0 and risk == 0.5 and self._is_safe_read_only(goal.objective):
-                print(
-                    f"[GoalEngine] Risk Gate Correction: safe/read-only fallback plan detected. Correcting confidence to 0.75."
-                )
                 confidence = 0.75
 
             if risk > 0.7 or confidence < 0.6:
-                print(
-                    f"[GoalEngine] Node requires approval! Risk: {risk:.2f}, Confidence: {confidence:.2f}"
-                )
+                print(f"[GoalEngine] Node {node_id} requires approval! Risk: {risk:.2f}, Confidence: {confidence:.2f}")
                 self.escalate_to_user(
                     "High risk / low confidence task requires approval.",
                     mission_id=goal.id,
                 )
-                self.paused_mission_ids.add(goal.id)  # Pause this specific mission
+                self.paused_mission_ids.add(goal.id)
                 return
 
-            import asyncio
+            print(f"\n[GoalEngine] Executing Node [{node_id}]: {task_str}")
 
-            from aja.orchestration.swarm import SwarmEngine
-
-            engine = SwarmEngine()
-            task_str = getattr(node, "task", goal.objective)
-            asyncio.run(engine.execute_direct(task_str))
-
-            self.update_goal_state(
-                goal, {"success": True}, getattr(node, "id", "unknown_node")
-            )
-
-            # Phase 26: RL-lite Policy Update
             try:
-                from aja.rl.policy_store import policy_store
+                engine = SwarmEngine()
+                result = await engine.execute_direct(task_str)
 
+                if "node_outputs" not in goal.progress:
+                    goal.progress["node_outputs"] = {}
+                goal.progress["node_outputs"][node_id] = {"success": True, "result": str(result) if result else "OK"}
+
+                self.update_goal_state(goal, {"success": True}, node_id)
+                goal.current_node_index = len(goal.progress.get("completed_steps", []))
+                goal.retries = 0
+                self.save_state()
+
+            except Exception as e:
+                print(f"[GoalEngine] Execution failed for node {node_id}: {str(e)}")
+                self.update_goal_state(goal, {"success": False, "error": str(e)}, node_id)
+
+                if goal.retries <= self.max_retries:
+                    print(f"[GoalEngine] Node {node_id} retry {goal.retries}/{self.max_retries} scheduled.")
+                elif goal.replan_count < goal.max_replans:
+                    print(f"[GoalEngine] Node {node_id} retries exhausted. Triggering re-plan ({goal.replan_count + 1}/{goal.max_replans}).")
+                    goal.replan_count += 1
+                    goal.retries = 0
+                    goal.status = "PENDING"
+                    self.save_state()
+                else:
+                    print(f"[GoalEngine] Goal {goal.objective} max re-plans reached. Marking FAILED.")
+                    goal.status = "FAILED"
+                    self.save_state()
+                    self.escalate_to_user(f"Goal {goal.objective} repeatedly failed after max re-plans.", mission_id=goal.id)
+
+        async with anyio.create_task_group() as tg:
+            for node in ready_nodes:
+                tg.start_soon(_run_single_node, node)
+
+
+    async def _step_verifying(self, goal: Goal):
+        plan = goal.plan
+        try:
+            from aja.rl.policy_store import policy_store
+            if plan:
                 policy_store.update_policy(
                     plan, {"success": True}, latency=0.1, rollbacks=0, repairs=0
                 )
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-            # Part F & H - Improvement Trigger & Loop
-            try:
+        try:
+            if plan:
                 from aja.self_evolve.reflection import process_execution
-
                 process_execution(goal.objective, plan, {"success": True})
 
                 from aja.learning.strategy_store import process_strategy_learning
-
                 process_strategy_learning(goal.objective, plan, {"success": True})
 
-                from aja.self_evolve.task_generator import curriculum_manager
-
-                if goal.is_sandbox:
-                    curriculum_manager.evaluate_training_result({"success": True})
-            except Exception as e:
-                print(f"[SelfEvolve] Failed to process execution: {e}")
-
-            # Mark done if all done
-            goal.status = "DONE"
-            self.save_state()
-            self.memory.record_scheduler_event(
-                kind="MISSION_DONE",
-                target=goal.id,
-                metadata={"message": f"Goal completed successfully: {goal.objective}"},
-                status=True,
-            )
-
+            from aja.self_evolve.task_generator import curriculum_manager
+            if goal.is_sandbox:
+                curriculum_manager.evaluate_training_result({"success": True})
         except Exception as e:
-            print(f"[GoalEngine] Execution failed for {goal.objective}: {str(e)}")
-            self.update_goal_state(
-                goal, {"success": False, "error": str(e)}, "expansion_step"
-            )
-            self.memory.record_scheduler_event(
-                kind="NODE_FAILED",
-                target=goal.id,
-                metadata={"message": f"Execution failed: {str(e)}"},
-                status=False,
-            )
+            print(f"[SelfEvolve] Failed to process execution: {e}")
 
-            # Phase 26: RL-lite Policy Update
-            try:
-                from aja.rl.policy_store import policy_store
+        goal.status = "DONE"
+        self.save_state()
+        self.memory.record_scheduler_event(
+            kind="MISSION_DONE",
+            target=goal.id,
+            metadata={"message": f"Goal completed successfully: {goal.objective}"},
+            status=True,
+        )
 
-                if "plan" in locals():
-                    policy_store.update_policy(
-                        plan, {"success": False}, latency=0.1, rollbacks=0, repairs=0
-                    )
-            except Exception:
-                pass
-
-            # Part F & H - Improvement Trigger & Loop
-            try:
-                if "plan" in locals():
-                    from aja.self_evolve.reflection import process_execution
-
-                    process_execution(
-                        goal.objective, plan, {"success": False, "error": str(e)}
-                    )
-
-                    from aja.learning.strategy_store import process_strategy_learning
-
-                    process_strategy_learning(
-                        goal.objective, plan, {"success": False, "error": str(e)}
-                    )
-
-                from aja.self_evolve.task_generator import curriculum_manager
-
-                if goal.is_sandbox:
-                    curriculum_manager.evaluate_training_result(
-                        {"success": False, "error": str(e)}
-                    )
-                else:
-                    # Part A - Skill Gap Detection
-                    gap = curriculum_manager.detect_skill_gap(
-                        {"success": False, "error": str(e)}
-                    )
-                    if gap:
-                        print(f"[Curriculum] Detected skill gap: {gap}")
-                        self._last_skill_gap = gap
-            except Exception as ev_err:
-                print(f"[SelfEvolve] Failed to process failure execution: {ev_err}")
 
 
 goal_engine = GoalEngine()

@@ -82,11 +82,11 @@ class TelegramAdapter(BasePlatformAdapter):
         self._bot = self._app.bot
 
         # Register Handlers
-        # Specific command handlers must be registered before the catch-all text MessageHandler
+        # Specific command handlers must be registered before the catch-all message MessageHandler
         self._app.add_handler(CommandHandler("start", self._handle_start))
         self._app.add_handler(
             MessageHandler(
-                filters.TEXT, self._handle_text_message
+                filters.TEXT | filters.PHOTO, self._handle_message
             )
         )
         self._app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -138,19 +138,50 @@ class TelegramAdapter(BasePlatformAdapter):
     async def _handle_text_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        if not update.message or not update.message.text:
+        """Backward compatibility alias for test suites and scripts."""
+        return await self._handle_message(update, context)
+
+    async def _handle_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        if not update.message:
+            return
+
+        text_content = getattr(update.message, "text", None) or getattr(update.message, "caption", None) or ""
+        media_urls = []
+        msg_type = MessageType.TEXT
+
+        photos = getattr(update.message, "photo", None)
+        if photos:
+            msg_type = MessageType.PHOTO
+            try:
+                # Highest resolution photo is last in photo array
+                photo = photos[-1]
+                tg_file = await context.bot.get_file(photo.file_id)
+                byte_array = await tg_file.download_as_bytearray()
+                import base64
+                b64_data = base64.b64encode(byte_array).decode("utf-8")
+                data_url = f"data:image/jpeg;base64,{b64_data}"
+                media_urls.append(data_url)
+                if not text_content:
+                    text_content = "What can you see in this image? Please analyze and describe it in detail."
+            except Exception as e:
+                logger.error(f"Failed to download photo from Telegram: {e}")
+
+        if not text_content and not media_urls:
             return
 
         event = MessageEvent(
             platform="telegram",
             chat_id=str(update.message.chat_id),
             user_id=str(update.message.from_user.id),
-            message_type=MessageType.TEXT,
-            text=update.message.text,
+            message_type=msg_type,
+            text=text_content,
+            media_urls=media_urls,
             message_id=str(update.message.message_id),
             raw_event=update,
         )
-        logger.info(f"Received message from {event.user_id}: {event.text}")
+        logger.info(f"Received message ({msg_type.value}) from {event.user_id}: {event.text[:50]}")
         self.metrics["events_received"] += 1
         self.metrics["queue_size"] = self._queue.qsize() + 1
         self.metrics["queue_lag_seconds"] = 0.0

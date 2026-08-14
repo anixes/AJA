@@ -79,6 +79,10 @@ def _get_data_dir() -> Path:
 DATA_DIR = _get_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+CONFIG_PATH = DATA_DIR / "aja.json"
+if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
+    CONFIG_PATH = PROJECT_ROOT / "aja.json"
+
 
 # Load and validate configuration with Pydantic
 def load_and_validate_config() -> AJAConfig:

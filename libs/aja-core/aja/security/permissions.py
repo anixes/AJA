@@ -160,6 +160,10 @@ class PermissionEngine:
         return AuthorizationResult(False, "ask", scope, "Permission request timed out or was denied.", grant_id, matched_scope)
 
     def _ask(self, scope: str, reason: str) -> bool:
+        timeout_s = self.policy.ask_timeout_s
+        if timeout_s <= 0:
+            return False
+
         try:
             from aja.config import CONFIG
             if CONFIG.swarm_settings.auto_proceed_local:
@@ -167,16 +171,14 @@ class PermissionEngine:
         except Exception:
             pass
 
-        timeout_s = self.policy.ask_timeout_s
         if self.approval_provider:
             try:
                 return bool(self.approval_provider(scope, reason, timeout_s))
             except Exception:
                 return False
 
-        if not sys.stdin or not sys.stdin.isatty():
-            return False
-        if timeout_s <= 0:
+        import os
+        if not sys.stdin or not sys.stdin.isatty() or os.environ.get("PYTEST_CURRENT_TEST"):
             return False
 
         try:

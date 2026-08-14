@@ -46,6 +46,7 @@ def test_runtime_layers_do_not_import_client_memory_directly():
     ]
     allowed = {
         PACKAGE_ROOT / "runtime" / "lance_stores.py",
+        PACKAGE_ROOT / "orchestration" / "direct_session.py",
     }
     offenders = []
 

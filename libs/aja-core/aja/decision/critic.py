@@ -9,7 +9,7 @@ def critique_plan(plan: PlanGraph, state: dict) -> dict:
 
     for node in plan.nodes:
         # Missing preconditions
-        for key, val in node.preconditions.items():
+        for key, val in getattr(node, "preconditions", {}).items():
             if key not in state:
                 issues.append({
                     "type": "missing_precondition",
@@ -18,7 +18,7 @@ def critique_plan(plan: PlanGraph, state: dict) -> dict:
                 })
 
         # Logical gaps
-        if not node.dependencies and node.preconditions:
+        if not getattr(node, "dependencies", []) and getattr(node, "preconditions", {}):
             issues.append({
                 "type": "logic_gap",
                 "node": node.id,
@@ -26,11 +26,12 @@ def critique_plan(plan: PlanGraph, state: dict) -> dict:
             })
 
         # Effect mismatch
-        if not node.effects:
+        if not getattr(node, "effects", {}):
             issues.append({
                 "type": "no_effect",
                 "node": node.id
             })
+
 
     return {
         "issues": issues,

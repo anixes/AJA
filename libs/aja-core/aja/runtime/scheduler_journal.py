@@ -86,7 +86,7 @@ class SchedulerJournal:
             f.write(json.dumps(event) + "\n")
             
         try:
-            rebuild_scheduler_projections()
+            rebuild_scheduler_projections(payload.get("job_id"))
         except Exception as e:
             import logging
             logging.getLogger("aja.runtime.scheduler_journal").warning(
@@ -106,10 +106,17 @@ class SchedulerJournal:
                     events.append(json.loads(line))
         return events
 
-def rebuild_scheduler_projections() -> None:
+def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
     journal = SchedulerJournal()
     events = journal.read_events()
+    if not events:
+        return
     
+    if target_job_id:
+        events = [e for e in events if e.get("job_id") == target_job_id]
+        if not events:
+            return
+            
     reducer = SchedulerReducer()
     jobs = reducer.reduce(events)
     

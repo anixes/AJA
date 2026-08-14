@@ -11,6 +11,7 @@ import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi import (
     Depends,
@@ -185,19 +186,26 @@ def verify_token(authorization: str = Header(None)):
 
 
 from aja.presence.state import get_system_state
+from aja.runtime.event_bus import bus, EVENTS
 
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self.queues: list[asyncio.Queue] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> asyncio.Queue:
         await websocket.accept()
         self.active_connections.append(websocket)
+        q: asyncio.Queue = asyncio.Queue()
+        self.queues.append(q)
+        return q
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket, q: asyncio.Queue | None = None):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        if q is not None and q in self.queues:
+            self.queues.remove(q)
 
     async def broadcast(self, message: str):
         dead_connections = []
@@ -209,22 +217,45 @@ class ConnectionManager:
         for dead in dead_connections:
             self.disconnect(dead)
 
+    def broadcast_event(self, event_type: str, data: Any):
+        msg = {"type": "event_broadcast", "event_type": event_type, "data": data}
+        for q in list(self.queues):
+            try:
+                q.put_nowait(msg)
+            except Exception:
+                pass
+
 
 ws_manager = ConnectionManager()
 
 
+def _setup_event_bus_subscriptions():
+    for event_name, event_type in EVENTS.items():
+        def make_handler(etype):
+            def handler(payload):
+                ws_manager.broadcast_event(etype, payload)
+            return handler
+        bus.subscribe_once(event_type, make_handler(event_type), key=f"ws_manager:{event_type}")
+
+
+_setup_event_bus_subscriptions()
+
+
 @app.websocket("/ws/mobile")
 async def websocket_endpoint(websocket: WebSocket):
-    await ws_manager.connect(websocket)
+    q = await ws_manager.connect(websocket)
     try:
         while True:
-            state = get_system_state()
-            await websocket.send_json({"type": "state_update", "data": state})
-            await asyncio.sleep(2)
+            try:
+                msg = await asyncio.wait_for(q.get(), timeout=2.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                state = get_system_state()
+                await websocket.send_json({"type": "state_update", "data": state})
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        ws_manager.disconnect(websocket, q)
     except Exception:
-        ws_manager.disconnect(websocket)
+        ws_manager.disconnect(websocket, q)
 
 
 def now_iso():

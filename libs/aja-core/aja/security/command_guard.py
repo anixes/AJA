@@ -1,7 +1,10 @@
+import logging
 import re
 from typing import Any, Dict, List
 
 from aja.security.stripper import CommandStripper
+
+logger = logging.getLogger(__name__)
 
 
 DENY_BINARIES = {
@@ -160,8 +163,8 @@ def classify_command(command: str) -> Dict[str, Any]:
                 if str(PROJECT_ROOT) not in command:
                     # Let's map it to an 'ask' instead of a hard 'deny' so we don't break valid commands with / flags.
                     ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Path check failed: %s", e)
 
     if analysis.get("Blocked Env Vars"):
         deny_reasons.append(

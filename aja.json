@@ -8,15 +8,15 @@
     }
   ],
   "swarm_settings": {
-    "offline_mode": false,
+    "offline_mode": true,
     "max_agents": 5,
     "check_interval": 30,
     "models": {
-      "planner": "copilot",
-      "worker": "copilot",
-      "critic": "copilot"
+      "planner": "llama_cpp:LFM2.5-VL-1.6B",
+      "worker": "llama_cpp:LFM2.5-VL-1.6B",
+      "critic": "llama_cpp:LFM2.5-VL-1.6B"
     },
-    "operating_mode": "online",
+    "operating_mode": "offline",
     "allow_out_of_bounds_paths": false
   },
   "mcp_servers": [
