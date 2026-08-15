@@ -89,7 +89,12 @@ class ToolExecutor:
                 return {"status": "error", "message": "Command blocked by security policy: " + "; ".join(classification["reasons"])}
 
         # 2. Preparation
-        target_cwd = cwd or str(PROJECT_ROOT)
+        if cwd:
+            target_cwd = cwd
+        else:
+            from aja.workspace.context import get_current_workspace
+            ctx = get_current_workspace()
+            target_cwd = str(ctx.path if ctx else PROJECT_ROOT)
         
         try:
             output = self._run_execution(command, target_cwd, workspace_mode)

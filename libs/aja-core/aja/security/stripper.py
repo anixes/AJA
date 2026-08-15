@@ -37,7 +37,9 @@ class CommandStripper:
         self.command_count = 0
 
     def strip(self):
-        self.operators = [match for match in self.OPERATOR_PATTERN.findall(self.original)]
+        import os
+        unquoted = re.sub(r'"[^"]*"|\'[^\']*\'', ' ', self.original)
+        self.operators = [match for match in self.OPERATOR_PATTERN.findall(unquoted)]
         self.command_count = self._estimate_command_count()
         self._detect_dangerous_patterns()
 
@@ -45,9 +47,9 @@ class CommandStripper:
             return
 
         try:
-            parts = shlex.split(self.original, posix=True)
+            parts = [p.strip("\"'") for p in shlex.split(self.original, posix=(os.name != "nt")) if p.strip("\"'")]
         except ValueError:
-            parts = self.original.split()
+            parts = [p.strip("\"'") for p in self.original.split() if p.strip("\"'")]
             self.dangerous_patterns.append("unbalanced-shell-syntax")
 
         if not parts:

@@ -28,6 +28,7 @@ from aja.cli.commands.mcp_cmd import cmd_mcp
 from aja.cli.commands.pickup import cmd_pickup
 from aja.cli.commands.tui_cmd import cmd_tui, cmd_live, cmd_ui
 from aja.cli.commands.projections import cmd_rebuild_projections
+from aja.cli.commands.ws_cmd import cmd_ws
 from aja.cli.commands.help_cmd import show_help
 
 AGENT_MODE = False

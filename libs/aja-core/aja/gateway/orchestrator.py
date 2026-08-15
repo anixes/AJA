@@ -464,6 +464,47 @@ class UnifiedGateway:
             is_local_control_command,
             strip_local_control_prefix,
         )
+        from aja.workspace.manager import get_workspace_registry
+
+        reg = get_workspace_registry()
+        content_stripped = content.strip()
+
+        # Handle Multi-Workspace Telegram Commands
+        if content_stripped.lower() in ("/workspaces", "/ws", "/projects"):
+            workspaces = reg.list_all()
+            if not workspaces:
+                ws_msg = "ℹ️ **AJA Kernel**: No workspaces registered yet.\n\nRun `aja ws add <path>` on your host/VPS to register a project."
+            else:
+                lines = ["🗂️ **AJA Agent OS — Registered Workspaces**\n"]
+                for w in workspaces:
+                    badge = "🟢 **[ACTIVE]**" if w.active else "⚪"
+                    lines.append(f"{badge} `{w.name}` (`{w.id}`)\n  📁 `{w.path}`")
+                lines.append("\n_Use `/switch <name>` to change default workspace or `@<name> <goal>` for single tasks._")
+                ws_msg = "\n".join(lines)
+            await self.telegram_adapter.send_message(chat_id, ws_msg)
+            return
+
+        if content_stripped.lower().startswith("/switch ") or content_stripped.lower().startswith("/use "):
+            parts = content_stripped.split(maxsplit=1)
+            target = parts[1].strip() if len(parts) > 1 else ""
+            if reg.set_active(target):
+                ws = reg.get(target)
+                msg = f"✅ **Switched Active Workspace to:** `{ws.name}`\n📁 `{ws.path}`"
+            else:
+                msg = f"❌ Workspace `{target}` not found. Use `/workspaces` to see registered projects."
+            await self.telegram_adapter.send_message(chat_id, msg)
+            return
+
+        # Check for @<workspace> syntax (e.g. "@backend fix migrations")
+        explicit_ws = None
+        if content_stripped.startswith("@") and " " in content_stripped:
+            ws_token, rest = content_stripped.split(" ", 1)
+            candidate_name = ws_token[1:].strip()
+            ws_match = reg.get(candidate_name)
+            if ws_match:
+                explicit_ws = ws_match
+                content_stripped = rest.strip()
+                content = content_stripped
 
         if is_local_control_command(content):
             local_request = strip_local_control_prefix(content)

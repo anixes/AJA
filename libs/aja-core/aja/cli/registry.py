@@ -113,6 +113,11 @@ class CommandRegistry:
             dry_run = "--dry-run" in args
             cmd_tui(dry_run=dry_run)
 
+        elif cmd in ("ws", "workspace", "workspaces"):
+            from aja.cli.commands.ws_cmd import cmd_ws
+
+            cmd_ws(args[1:])
+
         elif cmd == "rebuild-projections":
             from aja.cli.commands.projections import cmd_rebuild_projections
 

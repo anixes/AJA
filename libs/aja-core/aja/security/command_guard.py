@@ -1,5 +1,7 @@
 import logging
+import os
 import re
+import sys
 from typing import Any, Dict, List
 
 from aja.security.stripper import CommandStripper
@@ -191,7 +193,13 @@ def _classify_single(command: str) -> Dict[str, Any]:
     stripper = CommandStripper(command)
     stripper.strip()
     analysis = stripper.report()
-    root = (analysis.get("Root Binary") or "").lower()
+    raw_root = (analysis.get("Root Binary") or "").lower()
+    try:
+        from pathlib import Path as _Path
+        root = _Path(raw_root).name.lower().replace(".exe", "") if raw_root else ""
+    except Exception:
+        root = raw_root
+
     args = analysis.get("Argument Tokens", [])
     known_safe = is_known_safe(command, root, args)
 
@@ -219,25 +227,52 @@ def _classify_single(command: str) -> Dict[str, Any]:
 
     try:
         from aja.config import CONFIG, PROJECT_ROOT
-        allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+        from aja.workspace.context import get_current_workspace
+        
+        ctx = get_current_workspace()
+        active_root = str(ctx.path.resolve() if ctx else PROJECT_ROOT.resolve())
+
+        if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
+            allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
+        else:
+            allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
         if not allow_oob:
             if re.search(r"\.\.[/\\]", command):
                 deny_reasons.append("Path traversal (../) is blocked when out-of-bounds paths are disabled.")
             
             safe_system_prefixes = [
-                str(PROJECT_ROOT),
+                active_root,
                 sys.executable,
                 sys.prefix,
                 getattr(sys, "base_prefix", sys.prefix),
                 getattr(sys, "exec_prefix", sys.prefix),
             ]
+            if not ctx:
+                safe_system_prefixes.append(str(PROJECT_ROOT.resolve()))
+
             for token in args:
+                # Ignore Windows switch flags like /c, /s, /q
+                if os.name == "nt" and re.match(r"^/[a-zA-Z]$", token):
+                    continue
+
                 if re.match(r"^[a-zA-Z]:[\\/]", token) or (token.startswith("/") and not token.startswith("/dev/")):
-                    if not any(token.startswith(prefix) for prefix in safe_system_prefixes if prefix):
-                        ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
+                    # Check canonical resolved path if path exists
+                    try:
+                        resolved_token = str(Path(token).resolve())
+                    except Exception:
+                        resolved_token = token
+
+                    is_safe = any(
+                        token.lower().startswith(prefix.lower()) or resolved_token.lower().startswith(prefix.lower())
+                        for prefix in safe_system_prefixes
+                        if prefix
+                    )
+                    if not is_safe:
+                        ask_reasons.append("Absolute paths outside the workspace root are flagged when out-of-bounds paths are disabled.")
                         break
     except Exception as e:
         logger.debug("Path check failed: %s", e)
+
 
     if analysis.get("Blocked Env Vars"):
         deny_reasons.append(
