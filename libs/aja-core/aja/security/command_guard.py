@@ -54,6 +54,8 @@ DENY_PATTERNS = {
     "system-path-write": "Redirecting output into protected system paths is blocked.",
     "command-substitution": "Shell substitution syntax can hide unsafe behavior.",
     "unbalanced-shell-syntax": "Command parsing failed due to invalid shell syntax.",
+    "root-deletion": "Root filesystem destructive deletion is strictly blocked.",
+    "fork-bomb": "Fork bomb execution is strictly blocked.",
 }
 
 ASK_PATTERNS = {

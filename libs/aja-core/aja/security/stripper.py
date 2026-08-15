@@ -109,6 +109,11 @@ class CommandStripper:
             "ssh-write": [r">+\s*~?/?\.ssh/", r"authorized_keys", r"known_hosts"],
             "system-path-write": [r">+\s*/etc/", r">+\s*/usr/", r">+\s*[A-Za-z]:\\Windows\\System32", r">+\s*[A-Za-z]:\\Program Files"],
             "recursive-delete-flag": [r"\s-rf?\b", r"\s/fr\b"],
+            "root-deletion": [
+                r"\brm\b\s+-(?:rf?|fr|r\s+-f|f\s+-r)\s+(?:--no-preserve-root\s+)?(?:\/\*?|\/[a-zA-Z0-9_\-*\s/]*|C:\\\*)",
+                r"\bRemove-Item\b.*-(?:recurse|r)\b.*-(?:force|f)\b.*[/\\]",
+            ],
+            "fork-bomb": [r":\(\)\s*\{\s*:\|:&\s*\};:", r"\b:\(\)\s*\{\s*:\|:&\s*\};:"],
         }
 
         for label, patterns in checks.items():

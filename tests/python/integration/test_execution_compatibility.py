@@ -38,6 +38,8 @@ def test_sandbox_execute_command_async(monkeypatch):
 
 
 def test_terminal_exec_preserves_capability_result_shape(monkeypatch):
+    from aja.config import CONFIG
+    monkeypatch.setattr(CONFIG.swarm_settings, "auto_proceed_local", True)
     monkeypatch.setattr(sandbox, "docker_available", lambda: False)
     result = TerminalExec().execute({"cmd": py_cmd("print('terminal')"), "timeout": 30})
 

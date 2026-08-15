@@ -35,6 +35,10 @@ class CodeActResult:
             return f"STDOUT:\n{self.stdout}\nSTDERR:\n{self.stderr}"
         return self.stdout or self.stderr or "(no output)"
 
+    @property
+    def success(self) -> bool:
+        return self.status == "success" and self.exit_code == 0
+
 
 class CodeActExecutor:
     """
@@ -42,16 +46,20 @@ class CodeActExecutor:
     ambient working directory resolution, and stdout/stderr capture.
     """
 
-    def __init__(self, default_timeout_seconds: float = 60.0):
-        self.default_timeout = default_timeout_seconds
+    def __init__(self, default_timeout_seconds: float = 60.0, **kwargs):
+        self.default_timeout = kwargs.get("default_timeout_s", kwargs.get("default_timeout", default_timeout_seconds))
 
     @staticmethod
     def extract_code(raw_text: str) -> tuple[str, str]:
         """
-        Extracts language and code body from markdown code blocks or plain text.
+        Extracts language and code body from the first markdown code block or plain text.
         Returns (language, code).
         """
-        match = re.search(r"```(python|bash|sh|shell|pwsh|powershell)?\s*\n(.*?)```", raw_text, re.DOTALL | re.IGNORECASE)
+        match = re.search(
+            r"(?:^|\n)```([a-zA-Z0-9_\-]+)?\s*\n(.*?)\n```(?:\n|$)",
+            raw_text,
+            re.DOTALL,
+        )
         if match:
             lang = (match.group(1) or "python").lower()
             code = match.group(2).strip()
@@ -61,8 +69,51 @@ class CodeActExecutor:
                 lang = "python"
             return lang, code
 
-        # Default fallback: if raw_text has multiple lines of python-like syntax
+        # Fallback to loose search if no strict fence found
+        match_loose = re.search(r"```([a-zA-Z0-9_\-]+)?\s*\n(.*?)```", raw_text, re.DOTALL)
+        if match_loose:
+            lang = (match_loose.group(1) or "python").lower()
+            code = match_loose.group(2).strip()
+            if lang in {"bash", "sh", "shell", "pwsh", "powershell"}:
+                lang = "shell"
+            else:
+                lang = "python"
+            return lang, code
+
         return "python", raw_text.strip()
+
+    @staticmethod
+    def extract_code_blocks(raw_text: str) -> list[tuple[str, str]]:
+        """
+        Extracts all markdown code blocks in order.
+        Returns list of (language, code).
+        """
+        blocks = []
+        matches = list(re.finditer(
+            r"(?:^|\n)```([a-zA-Z0-9_\-]+)?\s*\n(.*?)\n```(?:\n|$)",
+            raw_text,
+            re.DOTALL,
+        ))
+        if not matches:
+            matches = list(re.finditer(r"```([a-zA-Z0-9_\-]+)?\s*\n(.*?)```", raw_text, re.DOTALL))
+
+        for match in matches:
+            raw_lang = (match.group(1) or "python").lower()
+            code = match.group(2).strip()
+            if raw_lang in {"bash", "sh", "shell", "pwsh", "powershell"}:
+                lang = "bash"
+            else:
+                lang = "python"
+            blocks.append((lang, code))
+        return blocks
+
+    def execute_python(self, code: str, cwd: Optional[Path] = None, timeout: Optional[float] = None) -> CodeActResult:
+        """Executes Python code directly with timeout trapping."""
+        return self.execute(code, language="python", cwd=cwd, timeout=timeout)
+
+    def execute_shell(self, code: str, cwd: Optional[Path] = None, timeout: Optional[float] = None) -> CodeActResult:
+        """Executes Shell / Bash commands directly with timeout trapping."""
+        return self.execute(code, language="shell", cwd=cwd, timeout=timeout)
 
     def execute(
         self,
@@ -76,7 +127,7 @@ class CodeActExecutor:
         """
         extracted_lang, code = self.extract_code(code_or_block)
         lang = (language or extracted_lang).lower()
-        timeout_sec = timeout or self.default_timeout
+        timeout_sec = timeout if timeout is not None else self.default_timeout
         exec_cwd = str((cwd or Path.home()).resolve())
 
         start_time = time.perf_counter()

@@ -111,6 +111,7 @@ class CognitiveOrchestrator:
         goal: str,
         domain: Optional[str] = None,
         cwd: Optional[Path] = None,
+        max_turns: int = 5,
     ) -> Dict[str, Any]:
         """
         Executes a full mission across the CoALA loop with live action execution,
