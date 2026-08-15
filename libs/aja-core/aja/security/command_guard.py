@@ -13,6 +13,9 @@ DENY_BINARIES = {
     "format": "Filesystem formatting is blocked.",
     "diskpart": "Disk partition manipulation is blocked.",
     "bcdedit": "Boot configuration changes are blocked.",
+    "fdisk": "Disk partition manipulation is blocked.",
+    "parted": "Disk partition manipulation is blocked.",
+    "gparted": "Disk partition manipulation is blocked.",
 }
 
 ASK_BINARIES = {
@@ -197,6 +200,8 @@ def _classify_single(command: str) -> Dict[str, Any]:
 
     if root in DENY_BINARIES:
         deny_reasons.append(DENY_BINARIES[root])
+    elif "." in root and root.split(".")[0] in DENY_BINARIES:
+        deny_reasons.append(DENY_BINARIES[root.split(".")[0]])
 
     for pattern in analysis.get("Dangerous Patterns", []):
         if pattern in DENY_PATTERNS:

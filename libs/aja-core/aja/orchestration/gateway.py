@@ -160,33 +160,37 @@ class LLMGateway:
         else:
             raw_key = ""
 
+        self.extra_headers = dict(extra_headers or {})
+
         if self.provider == "google":
             self.api_key = google_api_key(raw_key)
-        elif not raw_key:
-            self.api_key = "no-key-required"
-        else:
-            self.api_key = raw_key
-
-        self.extra_headers = extra_headers or {}
-
-        # Handle Copilot Token Exchange and Header Construction
-        if self.provider == "copilot":
+        elif self.provider == "copilot":
             from aja.copilot_auth import (
                 copilot_request_headers,
                 get_copilot_api_token,
                 resolve_copilot_token,
             )
 
-            if not self.api_key:
+            raw_token = raw_key if (raw_key and raw_key != "no-key-required") else ""
+            if not raw_token:
                 raw_token, _ = resolve_copilot_token()
-            else:
-                raw_token = self.api_key
 
             if raw_token:
-                self.api_key = get_copilot_api_token(raw_token)
+                exchanged = get_copilot_api_token(raw_token)
+                self.api_key = exchanged or raw_token
+            else:
+                self.api_key = "no-key-required"
 
             copilot_headers = copilot_request_headers(is_agent_turn=True)
             self.extra_headers = {**copilot_headers, **self.extra_headers}
+        elif self.provider == "openai":
+            self.api_key = raw_key or os.getenv("OPENAI_API_KEY", "no-key-required")
+        elif self.provider == "openrouter":
+            self.api_key = raw_key or os.getenv("OPENROUTER_API_KEY", "no-key-required")
+        elif not raw_key:
+            self.api_key = "no-key-required"
+        else:
+            self.api_key = raw_key
 
         # Ensure copilot defaults to its specific api base URL if not in PROVIDERS
         default_url = (

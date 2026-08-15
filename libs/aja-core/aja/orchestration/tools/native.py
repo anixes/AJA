@@ -636,15 +636,16 @@ class NativeToolRegistry:
             p = p.resolve()
             if not p.is_relative_to(PROJECT_ROOT):
                 if not getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False):
-                    scope = f"fs.{mode}.global"
-                    reason = f"Agent attempting to {mode} an out-of-bounds path: {p}"
-                    if self.engine:
-                        result = self.engine.authorize(scope, reason=reason)
-                    else:
-                        from aja.security.permissions import PermissionEngine
-                        result = PermissionEngine().authorize(scope, reason=reason)
-                    if not result.allowed:
-                        return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
+                    return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
+                scope = f"fs.{mode}.global"
+                reason = f"Agent attempting to {mode} an out-of-bounds path: {p}"
+                if self.engine:
+                    result = self.engine.authorize(scope, reason=reason)
+                else:
+                    from aja.security.permissions import PermissionEngine
+                    result = PermissionEngine().authorize(scope, reason=reason)
+                if not result.allowed:
+                    return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
             return None
         except Exception as e:
             return f"Security Error: Invalid path '{path}': {e}"

@@ -276,8 +276,20 @@ class NativeWorkerAdapter(BaseAdapter):
         # Local import to prevent circular dependency
         from aja.orchestration.swarm import SwarmEngine
         import os
+        import json
         
-        worker_model = os.getenv("AJA_WORKER_MODEL", "copilot:claude-3.5-sonnet")
+        worker_model = os.getenv("AJA_WORKER_MODEL", "")
+        if not worker_model:
+            try:
+                cfg_file = Path(workspace_dir) / "aja.json"
+                if cfg_file.exists():
+                    cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    worker_model = cfg.get("swarm_settings", {}).get("models", {}).get("worker", "")
+            except Exception:
+                pass
+        if not worker_model:
+            worker_model = "copilot:gpt-4o-mini"
+
         engine = SwarmEngine(model=worker_model, dry_run=False)
         
         # Enforce autonomous, non-interactive system prompt for background worker execution
