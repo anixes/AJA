@@ -232,10 +232,14 @@ def _classify_single(command: str) -> Dict[str, Any]:
         ctx = get_current_workspace()
         active_root = str(ctx.path.resolve() if ctx else PROJECT_ROOT.resolve())
 
-        if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
-            allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
+        if ctx:
+            if "allow_out_of_bounds_paths" in ctx.config_overrides:
+                allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
+            else:
+                allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
         else:
-            allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+            allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", True)
+
         if not allow_oob:
             if re.search(r"\.\.[/\\]", command):
                 deny_reasons.append("Path traversal (../) is blocked when out-of-bounds paths are disabled.")

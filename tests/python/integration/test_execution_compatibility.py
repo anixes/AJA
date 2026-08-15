@@ -46,11 +46,13 @@ def test_terminal_exec_preserves_capability_result_shape(monkeypatch):
     assert result.output["mode"] == "isolated_local"
 
 
-def test_tool_executor_blocks_denies_and_runs_allowed_command():
+def test_tool_executor_blocks_denies_and_runs_allowed_command(monkeypatch):
     blocked = ToolExecutor().execute("mkfs /dev/sda")
     assert blocked["status"] == "error"
     assert "blocked" in blocked["message"].lower()
 
+    from aja.config import CONFIG
+    monkeypatch.setattr(CONFIG.swarm_settings, "auto_proceed_local", True)
     allowed = ToolExecutor().execute(py_cmd("print('tool')"))
     assert allowed["status"] == "success"
     assert "tool" in allowed["stdout"]
