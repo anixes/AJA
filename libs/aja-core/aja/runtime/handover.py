@@ -6,7 +6,13 @@ import string
 import time
 import threading
 import contextlib
-from aja import aja_native
+try:
+    from aja import aja_native
+except ImportError:
+    try:
+        import aja_native
+    except ImportError:
+        aja_native = None
 from pathlib import Path
 from typing import Dict, Any, Optional
 from aja.config import PROJECT_ROOT, DATA_DIR
@@ -60,7 +66,16 @@ def write_baton_ipc(path: Path, baton_data: Dict[str, Any]) -> None:
     preserving the legacy JSON-payload Arrow schema used by worker batons.
     """
     try:
-        aja_native.write_baton_ipc(str(path), WorkerBatonPayload(baton_data).to_json())
+        if aja_native and hasattr(aja_native, "write_baton_ipc"):
+            aja_native.write_baton_ipc(str(path), WorkerBatonPayload(baton_data).to_json())
+        else:
+            import pyarrow as pa
+            payload_json = WorkerBatonPayload(baton_data).to_json()
+            schema = pa.schema([("payload", pa.string())])
+            batch = pa.RecordBatch.from_arrays([pa.array([payload_json], type=pa.string())], schema=schema)
+            with pa.OSFile(str(path), "wb") as sink:
+                with pa.ipc.new_file(sink, schema) as writer:
+                    writer.write_batch(batch)
     except Exception as e:
         logger.exception("Failed to write worker baton IPC state to %s", path)
         raise RuntimeError(f"Failed to write worker baton IPC state: {path}") from e
@@ -71,7 +86,14 @@ def read_baton_ipc(path: Path) -> Dict[str, Any]:
     Read a worker baton through the runtime-owned native IPC boundary.
     """
     try:
-        return WorkerBatonPayload.from_json(aja_native.read_baton_ipc(str(path))).data
+        if aja_native and hasattr(aja_native, "read_baton_ipc"):
+            return WorkerBatonPayload.from_json(aja_native.read_baton_ipc(str(path))).data
+        import pyarrow as pa
+        with pa.memory_map(str(path), mode="r") as source:
+            reader = pa.ipc.open_file(source)
+            batch = reader.read_all().to_batches()[0]
+            raw_json = batch.column(0)[0].as_py()
+            return WorkerBatonPayload.from_json(raw_json).data
     except Exception as e:
         logger.exception("Failed to read worker baton IPC state from %s", path)
         raise RuntimeError(f"Failed to read worker baton IPC state: {path}") from e
@@ -134,9 +156,27 @@ class BatonManager(HandoverManager):
             },
         )
 
-        # Call the high-performance Rust function
+        # Call the high-performance Rust function (with PyArrow fallback)
         try:
-            aja_native.write_baton(str(arrow_path), *payload.to_native_args())
+            if aja_native and hasattr(aja_native, "write_baton"):
+                aja_native.write_baton(str(arrow_path), *payload.to_native_args())
+            else:
+                import pyarrow as pa
+                schema = pa.schema([
+                    ("objective", pa.string()),
+                    ("run_id", pa.string()),
+                    ("history_json", pa.string()),
+                    ("metadata_json", pa.string()),
+                ])
+                batch = pa.RecordBatch.from_arrays([
+                    pa.array([objective], type=pa.string()),
+                    pa.array([payload.run_id], type=pa.string()),
+                    pa.array([json.dumps(payload.history)], type=pa.string()),
+                    pa.array([json.dumps(payload.metadata)], type=pa.string()),
+                ], schema=schema)
+                with pa.OSFile(str(arrow_path), "wb") as sink:
+                    with pa.ipc.new_file(sink, schema) as writer:
+                        writer.write_batch(batch)
         except Exception as e:
             logger.exception("Failed to write baton Arrow state to %s", arrow_path)
             raise RuntimeError(f"Failed to write baton Arrow state: {arrow_path}") from e
@@ -235,8 +275,9 @@ class BatonManager(HandoverManager):
                 except Exception as mmap_err:
                     logger.warning("Failed zero-copy memory-mapped read, falling back to standard read: %s", mmap_err)
                     try:
-                        rust_state = aja_native.read_baton(str(arrow_path))
-                        state = MissionBatonPayload.from_native_dict(rust_state).to_state()
+                        if aja_native and hasattr(aja_native, "read_baton"):
+                            rust_state = aja_native.read_baton(str(arrow_path))
+                            state = MissionBatonPayload.from_native_dict(rust_state).to_state()
                     except Exception as e:
                         logger.exception("Failed to read baton Arrow state from %s", arrow_path)
                         raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e

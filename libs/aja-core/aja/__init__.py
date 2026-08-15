@@ -10,6 +10,14 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
+try:
+    from . import aja_native
+except ImportError:
+    try:
+        import aja_native
+    except ImportError:
+        aja_native = None
+
 
 def main():
     """

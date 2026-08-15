@@ -7,7 +7,13 @@ import logging
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional, Set
-from aja import aja_native
+try:
+    from aja import aja_native
+except ImportError:
+    try:
+        import aja_native
+    except ImportError:
+        aja_native = None
 from aja.config import PROJECT_ROOT, DATA_DIR, TELEGRAM_ALLOWED_USER_ID, AJA_PLANNER_MODEL
 from aja.runtime.memory import MemoryTree
 from aja.runtime.handover import BatonManager
@@ -46,7 +52,10 @@ class UnifiedGateway:
         self.active_sub_agents: Dict[str, ACPClient] = {}
 
         # AJA Native Trajectory Engine
-        self.trajectory_manager = aja_native.PyTrajectoryManager(self.model_id)
+        if aja_native and hasattr(aja_native, "PyTrajectoryManager"):
+            self.trajectory_manager = aja_native.PyTrajectoryManager(self.model_id)
+        else:
+            self.trajectory_manager = None
         self.context_threshold = 4000  # Tokens
 
         # AJA Gateway Components
@@ -58,8 +67,9 @@ class UnifiedGateway:
     async def initialize(self, semantic_db_path: str = str(DATA_DIR / "memory.lancedb")):
         """Initializes the AJA native Rust semantic store."""
         try:
-            aja_native.init_semantic(semantic_db_path)
-            print(f"AJA: Native Semantic Memory initialized at {semantic_db_path}")
+            if aja_native and hasattr(aja_native, "init_semantic"):
+                aja_native.init_semantic(semantic_db_path)
+                print(f"AJA: Native Semantic Memory initialized at {semantic_db_path}")
         except Exception as e:
             print(
                 f"AJA Warning: Native memory init skipped ({e}). Using LanceDB/Arrow fallback."
@@ -129,18 +139,22 @@ class UnifiedGateway:
         # Performance Audit: Profile token count of all messages inside a single PyO3 batch crossing
         try:
             texts_to_count = [msg["content"] for msg in messages if isinstance(msg.get("content"), str)]
-            batch_counts = aja_native.count_tokens_batch(texts_to_count)
-            logger.info(f"AJA [Batch Native]: Counted tokens for {len(texts_to_count)} turns in 1 crossing. Total: {sum(batch_counts)}")
+            if aja_native and hasattr(aja_native, "count_tokens_batch"):
+                batch_counts = aja_native.count_tokens_batch(texts_to_count)
+                logger.info(f"AJA [Batch Native]: Counted tokens for {len(texts_to_count)} turns in 1 crossing. Total: {sum(batch_counts)}")
         except Exception as e:
             logger.warning(f"Batch token counting skipped: {e}")
 
         # Analyze trajectory with Rust core
-        analysis_json = self.trajectory_manager.analyze(
-            json.dumps(messages), self.context_threshold, 2, 2
-        )
-        analysis = json.loads(analysis_json)
+        if self.trajectory_manager and hasattr(self.trajectory_manager, "analyze"):
+            analysis_json = self.trajectory_manager.analyze(
+                json.dumps(messages), self.context_threshold, 2, 2
+            )
+            analysis = json.loads(analysis_json)
+        else:
+            analysis = {"should_compress": False}
 
-        if analysis["should_compress"]:
+        if analysis.get("should_compress"):
             print(
                 f"AJA [Native]: Trajectory pressure detected. Optimizing via Dynamic Compression..."
             )
