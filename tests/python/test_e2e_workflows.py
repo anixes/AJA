@@ -9,10 +9,24 @@ from aja.interface.modern import console
 from aja.orchestration.goal_session import GoalSession, _parse_signal
 from aja.orchestration.swarm import SwarmEngine
 
+has_llm_key = bool(
+    os.getenv("AJA_RUN_LIVE_E2E")
+    or os.getenv("GEMINI_API_KEY")
+    or os.getenv("OPENAI_API_KEY")
+    or os.getenv("OPENROUTER_API_KEY")
+    or (os.getenv("COPILOT_API_KEY") and not os.getenv("COPILOT_API_KEY", "").startswith("dummy"))
+)
+
 # Only run if explicit env var is set, or if we pass the marker
-# This prevents CI from burning tokens unexpectedly.
+# This prevents CI from burning tokens unexpectedly or failing without keys.
 # To run this specific test: pytest tests/python/test_e2e_workflows.py -v -m e2e
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        not has_llm_key,
+        reason="Live LLM API credentials required for real-world E2E workflow test",
+    ),
+]
 
 
 @pytest.fixture
