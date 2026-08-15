@@ -1,0 +1,13 @@
+/opt/aja/.data/daemon.log /var/log/aja/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 aja aja
+    sharedscripts
+    postrotate
+        /bin/systemctl kill -s HUP aja.service >/dev/null 2>&1 || true
+    endscript
+}

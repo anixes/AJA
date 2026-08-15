@@ -107,12 +107,15 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
     else:
         secrets.append("Gemini API Key missing")
 
-    if os.getenv("TELEGRAM_TOKEN"):
-        secrets.append("Telegram Token set")
+    tg_token = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    tg_user = os.getenv("TELEGRAM_ALLOWED_USER_ID") or os.getenv("TELEGRAM_USER_ID")
+    if tg_token and tg_user:
+        secrets.append(f"Telegram Bot active (Authorized User ID: {tg_user})")
+    elif tg_token:
+        secrets.append("Telegram Token set (Warning: TELEGRAM_ALLOWED_USER_ID not set)")
     else:
-        secrets.append("Telegram Token missing (remote assistant client disabled)")
+        secrets.append("Telegram Token missing (remote assistant disabled)")
 
-    # These are informational warnings now rather than fatal errors
     checks.append(("API & Credentials", True, " | ".join(secrets)))
 
     # 5. System Resources (CPUs, RAM, Disk)
@@ -124,7 +127,6 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
             disk = psutil.disk_usage(str(DATA_DIR))
             free_disk_gb = disk.free / (1024 ** 3)
             sys_details = f"CPUs: {cpu_count} | RAM: {total_ram_gb:.1f} GB | Free Disk: {free_disk_gb:.1f} GB"
-            # Resource levels are informational - not a CI gate
             has_min_resources = True
         else:
             cpu_count = os.cpu_count() or 1
@@ -137,5 +139,21 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
         checks.append(("System Resources", has_min_resources, sys_details))
     except Exception as e:
         checks.append(("System Resources", False, f"Failed to query system resources: {e}"))
+
+    # 6. Daemon & VPS Deployment Status
+    try:
+        from aja.gateway.daemon_manager import DaemonManager
+        mgr = DaemonManager()
+        status = mgr.get_status()
+        if status["status"] == "running":
+            checks.append(("VPS Daemon", True, f"AJA background supervisor active (PID: {status['pid']})"))
+        else:
+            systemd_file = Path("/etc/systemd/system/aja.service")
+            if systemd_file.exists():
+                checks.append(("VPS Daemon", True, "systemd unit installed (/etc/systemd/system/aja.service)"))
+            else:
+                checks.append(("VPS Daemon", True, "Standalone mode (run 'aja daemon start' or use systemd for 24/7 VPS)"))
+    except Exception as e:
+        checks.append(("VPS Daemon", True, f"Daemon check skipped: {e}"))
 
     return checks

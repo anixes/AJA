@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  aja:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: aja-cloud-agent
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      - AJA_DATA_DIR=/data/aja
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Persistent LanceDB, event store, and baton data
+      - aja-prod-data:/data/aja
+      # Mount project configuration
+      - ../aja.json:/app/aja.json:ro
+      # (Optional) Mount target project repositories to be managed by AJA
+      # - /var/www/my-project:/workspace/my-project
+    healthcheck:
+      test: ["CMD", "aja", "doctor"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  aja-prod-data:
+    name: aja-prod-data

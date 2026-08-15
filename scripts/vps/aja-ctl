@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# aja-ctl: AJA VPS Service Controller & Operations Manager
+# ==============================================================================
+
+set -euo pipefail
+
+INSTALL_DIR="/opt/aja"
+AJA_USER="aja"
+SERVICE_NAME="aja.service"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+usage() {
+    echo "Usage: aja-ctl <command>"
+    echo ""
+    echo "Commands:"
+    echo "  status     Show systemd service status and AJA diagnostics"
+    echo "  start      Start the AJA background service"
+    echo "  stop       Stop the AJA background service"
+    echo "  restart    Restart the AJA background service"
+    echo "  logs       Stream live journald and daemon logs"
+    echo "  doctor     Run AJA environment health checks"
+    echo "  update     Pull latest git changes, recompile, and restart service"
+    echo "  shell      Launch an interactive bash shell as the 'aja' user"
+    echo ""
+    exit 1
+}
+
+CMD="${1:-}"
+
+case "$CMD" in
+    start)
+        echo -e "${BLUE}Starting ${SERVICE_NAME}...${NC}"
+        sudo systemctl start "$SERVICE_NAME"
+        echo -e "${GREEN}Service started.${NC}"
+        ;;
+    stop)
+        echo -e "${YELLOW}Stopping ${SERVICE_NAME}...${NC}"
+        sudo systemctl stop "$SERVICE_NAME"
+        echo -e "${GREEN}Service stopped.${NC}"
+        ;;
+    restart)
+        echo -e "${BLUE}Restarting ${SERVICE_NAME}...${NC}"
+        sudo systemctl restart "$SERVICE_NAME"
+        echo -e "${GREEN}Service restarted.${NC}"
+        ;;
+    status)
+        sudo systemctl status "$SERVICE_NAME" --no-pager || true
+        echo ""
+        echo -e "${BLUE}Running AJA Health Checks:${NC}"
+        if [[ -x "$INSTALL_DIR/venv/bin/aja" ]]; then
+            sudo -u "$AJA_USER" "$INSTALL_DIR/venv/bin/aja" doctor || true
+        fi
+        ;;
+    logs)
+        echo -e "${BLUE}Streaming logs for ${SERVICE_NAME} (Ctrl+C to stop)...${NC}"
+        sudo journalctl -u "$SERVICE_NAME" -f -n 50
+        ;;
+    doctor)
+        sudo -u "$AJA_USER" "$INSTALL_DIR/venv/bin/aja" doctor
+        ;;
+    update)
+        echo -e "${BLUE}Updating AJA repository and dependencies...${NC}"
+        cd "$INSTALL_DIR"
+        sudo -u "$AJA_USER" git fetch origin
+        sudo -u "$AJA_USER" git pull || true
+        sudo -u "$AJA_USER" "$INSTALL_DIR/venv/bin/pip" install -e ".[all]"
+        echo -e "${BLUE}Restarting service...${NC}"
+        sudo systemctl restart "$SERVICE_NAME"
+        echo -e "${GREEN}AJA updated and restarted successfully.${NC}"
+        ;;
+    shell)
+        echo -e "${BLUE}Switching to 'aja' service user environment...${NC}"
+        sudo -u "$AJA_USER" -i bash -c "cd $INSTALL_DIR && source venv/bin/activate && exec bash"
+        ;;
+    *)
+        usage
+        ;;
+esac

@@ -1,0 +1,35 @@
+[Unit]
+Description=AJA Autonomous Agent & Gateway Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aja
+Group=aja
+WorkingDirectory=/opt/aja
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=-/opt/aja/.env
+ExecStart=/opt/aja/venv/bin/python -m aja.gateway.server
+Restart=always
+RestartSec=5s
+
+# Security and Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/aja /var/log/aja
+
+# Resource limits (prevent rogue runaway executions)
+LimitNOFILE=65535
+MemoryMax=3G
+CPUQuota=200%
+
+# Standard Logging to systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aja
+
+[Install]
+WantedBy=multi-user.target
