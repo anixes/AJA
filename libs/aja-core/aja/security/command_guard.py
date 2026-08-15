@@ -224,9 +224,18 @@ def _classify_single(command: str) -> Dict[str, Any]:
             if re.search(r"\.\.[/\\]", command):
                 deny_reasons.append("Path traversal (../) is blocked when out-of-bounds paths are disabled.")
             
-            if re.search(r"(?:^|\s|\"|\')[a-zA-Z]:[\\/]", command) or re.search(r"(?:^|\s|\"|\')/", command):
-                if str(PROJECT_ROOT) not in command:
-                    ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
+            safe_system_prefixes = [
+                str(PROJECT_ROOT),
+                sys.executable,
+                sys.prefix,
+                getattr(sys, "base_prefix", sys.prefix),
+                getattr(sys, "exec_prefix", sys.prefix),
+            ]
+            for token in args:
+                if re.match(r"^[a-zA-Z]:[\\/]", token) or (token.startswith("/") and not token.startswith("/dev/")):
+                    if not any(token.startswith(prefix) for prefix in safe_system_prefixes if prefix):
+                        ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
+                        break
     except Exception as e:
         logger.debug("Path check failed: %s", e)
 
