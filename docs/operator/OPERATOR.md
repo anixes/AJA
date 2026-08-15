@@ -1,59 +1,92 @@
 # AJA Operator Manual
 
-AJA is an enterprise-grade agentic orchestration engine designed to manage autonomous multi-agent missions. This manual outlines how to operate, monitor, and maintain an AJA deployment.
+AJA is an ambient **Autonomous Cognitive Agent OS** and local-first durable execution runtime designed to manage autonomous multi-agent missions. This manual outlines how to operate, monitor, and maintain an AJA deployment.
 
-## Architecture & State
+---
 
-AJA acts as a local-first event-sourced durable execution runtime. State transitions (Batons) are serialized via an Apache Arrow IPC engine and cached in RAM for zero-copy handovers, falling back to disk durability in the `AJA_DATA_DIR/batons` directory.
+## 1. Operating Modes & Workspaces
 
-### Key Components:
-1. **Core Runtime (`libs/aja-core`)**: Python-based orchestrator, CLI, diagnostics.
-2. **Native Extension (`packages/aja-native`)**: PyO3 Rust extension for high-performance operations and Arrow IPC.
-3. **Memory Stack**: LanceDB vector database.
+AJA supports both **Ambient Host Mode** (managing the overall VPS, Docker daemons, system triage) and **Multi-Workspace Mode** (isolated projects).
 
-## Operating Commands
+### Workspace CLI Commands (`aja ws`)
 
-### Initialization and Diagnostics
-Before starting the system, verify operational readiness:
+```bash
+# 1. Register projects in the central registry (~/.aja/workspaces.json)
+aja ws add ~/projects/frontend-app --name frontend
+aja ws add /var/www/api-backend --name backend
 
+# 2. List all registered workspaces and their active state
+aja ws list
+
+# 3. Switch the default active workspace context
+aja ws use frontend
+
+# 4. Dispatch a mission directly to a specific workspace
+aja ws run backend "Add database healthcheck endpoint"
+
+# 5. Check Kernel Priority Scheduler status
+aja ws status
+```
+
+---
+
+## 2. Cognitive Memory & Procedural Skills
+
+AJA’s cognitive engine relies on the **CoALA Tripartite Memory Stack**:
+
+### Adding Custom Procedural Skills (`~/.aja/skills/`)
+To give AJA specialized workflows, create a directory under `~/.aja/skills/<skill-name>/` following the **agentskills.io** specification:
+
+```
+~/.aja/skills/vps-backup/
+├── SKILL.md           # Instructions with YAML frontmatter
+└── backup.py          # Executable Python script
+```
+
+Example `SKILL.md`:
+```markdown
+---
+name: vps-backup
+description: Performs an automated tarball backup of database and state files.
+---
+# VPS Backup Skill
+Run `python backup.py` to create a timestamped snapshot of active databases.
+```
+AJA’s `CognitiveMemoryManager` dynamically indexes skills and injects them into the agent's contextual prompt when relevant.
+
+---
+
+## 3. Specialist Personas & Autonomous Missions
+
+AJA automatically routes user missions to **Magentic-One Specialists**:
+
+* **`SysAdminSpecialist`**: Dispatched for host health, Docker inspections, CPU/RAM triage, and port status.
+  ```bash
+  aja run "Inspect docker containers and alert on any unhealthy restart loops"
+  ```
+* **`WebResearchSpecialist`**: Dispatched for documentation retrieval and technical synthesis.
+  ```bash
+  aja run "Search recent FastAPI v0.115 breaking changes and summarize migration steps"
+  ```
+* **`CodeEngineerSpecialist`**: Dispatched for codebase refactoring, testing, and implementation.
+  ```bash
+  aja run "Refactor database connection pool and run pytest suite"
+  ```
+
+---
+
+## 4. Diagnostics & Maintenance
+
+### System Diagnostics
 ```bash
 aja doctor
 ```
-This command checks the environment, configuration schema, native PyO3 engine, LanceDB tables, memory/disk space, and API tokens.
+Verifies environment readiness: Python 3.12, PyO3 native extensions, LanceDB vector tables, disk usage, active workspaces, and API token connectivity.
 
-To scaffold a new workspace or regenerate standard layouts:
-```bash
-aja setup
-```
+### Telegram Remote Operations
+When running as a daemon on a VPS (`scripts/vps/aja-ctl start`), operators can interact remotely via Telegram:
+* `/workspaces` - List registered projects.
+* `/switch <name>` - Switch active workspace.
+* `@backend <mission>` - Run an urgent mission on the backend workspace.
+* `/status` - View scheduler queue and resource utilization.
 
-### Running Executions
-Run a swarm mission or plan:
-
-```bash
-aja run "Perform project analysis"
-```
-
-To simulate a plan safely without executing side-effects or mutating local files:
-```bash
-aja run "Perform project analysis" --dry-run
-```
-
-### Telemetry & Observability
-AJA includes a trace-aware telemetry context manager. Operations are tracked via an active `trace_id`.
-
-- **Logs**: Logs are written to `AJA_DATA_DIR/logs/`. You can tail them locally or ingest them into an observability platform (Datadog, Splunk).
-- **TUI Dashboard**: AJA includes a curses-based live HTN dashboard.
-  ```bash
-  aja tui
-  ```
-
-## Maintenance
-
-### Cron Scheduler
-AJA features a persisted LanceDB Cron Scheduler for background tasks.
-- Ensure the `aja` background loop process is supervised (e.g., systemd, Docker).
-- Timeouts enforce a strict 3-minute limit on swarm execution turns to prevent runaway resource exhaustion.
-
-### Data Management
-- **LanceDB**: Vector databases are located at `AJA_DATA_DIR/lancedb`. You may back up this directory periodically.
-- **Batons**: Stale handovers are stored in `AJA_DATA_DIR/batons`. The runtime auto-clears short-lived batons, but occasional monitoring of this folder is recommended if executions unexpectedly crash.

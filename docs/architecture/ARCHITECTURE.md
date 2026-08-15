@@ -1,60 +1,68 @@
 # Architecture Overview
 
-AJA Runtime is a local-first orchestration runtime and execution substrate. This document describes the high-level system topology and the fundamental design decisions underlying the architecture.
-
-> **V1 Certified** — replay-authoritative event-sourced architecture. 223 tests green.
+AJA is an ambient, local-first **Autonomous Cognitive Agent OS** and replay-authoritative durable execution substrate. This document describes the high-level system topology and the fundamental design decisions underlying the architecture.
 
 ---
 
 ## System Topology
 
-AJA enforces a strict separation between the **Runtime Engine** (which owns state, execution, and persistence), the **Event Journal** (which is the single source of truth), and **Clients** (which handle presentation and user interfaces).
+AJA enforces a clean separation between **Clients & Gateways**, the **Cognitive Agent OS & Specialists**, the **Kernel Scheduler & Multi-Workspace Manager**, and the **Hybrid Memory Substrates**.
 
 ```mermaid
 graph TD
-    subgraph Clients / Interfaces
-        CLI[Terminal CLI]
+    subgraph Clients & Gateways
+        CLI[Terminal CLI / aja ws]
         TUI[Curses Dashboard]
+        TG[Telegram Remote Gateway]
         HTTP[HTTP / API]
     end
 
-    subgraph AJA Core Runtime [Python]
-        Scheduler(CronScheduler / LanceDB)
-        Orchestrator(DAG Planner & Execution Loop)
+    subgraph Cognitive Layer [CoALA / Magentic-One / CodeAct]
+        CogOrch(Cognitive Orchestrator)
+        SysAdmin(SysAdmin Specialist)
+        WebResearch(Web Research Specialist)
+        CodeEngineer(Code Engineer Specialist)
+        CodeAct(CodeAct Execution Engine)
+    end
+
+    subgraph Kernel & Workspaces [AIOS Substrate]
+        KernelSched(Priority Kernel Scheduler)
+        WSMgr(Multi-Workspace Manager)
         ActivityCtx(ActivityContext / Replay Interception)
-        Sandbox(ExecutionManager / PTY + Pipe)
+        CommandGuard(Ambient / Workspace CommandGuard)
     end
 
-    subgraph Event Sourcing Layer
-        Journal[(Append-Only .jsonl Journal)]
-        Reducer(MissionReducer — Pure Function)
-        Rehydrator(VersionedEventRehydrator)
+    subgraph Hybrid Storage & Memory Substrates
+        WM[(Working Memory: Coroutine RAM)]
+        SM[(Semantic Memory: ~/.aja/state/semantic.json)]
+        PM[(Procedural Memory: ~/.aja/skills/)]
+        EM[(Episodic Memory: LanceDB Vector Tables)]
+        Journal[(Append-Only .jsonl Event Journal)]
+        SQLiteDB[(SQLite State & Task Lineage: WAL)]
     end
 
-    subgraph Projections [LanceDB — Read-Only Views]
-        TaskStore(aja_tasks)
-        MissionStore(aja_missions)
-        EventSink(Trace & Telemetry)
-    end
+    CLI --> |ws add / run / use| WSMgr
+    CLI --> |missions / chat| CogOrch
+    TG --> |remote commands| KernelSched
+    
+    KernelSched --> CogOrch
+    CogOrch --> |routes to| SysAdmin
+    CogOrch --> |routes to| WebResearch
+    CogOrch --> |routes to| CodeEngineer
 
-    subgraph Native IPC [Rust / PyO3]
-        Arrow(Apache Arrow Serialization)
-        BatonStore(Zero-Copy Memory Cache)
-    end
+    SysAdmin --> CodeAct
+    WebResearch --> CodeAct
+    CodeEngineer --> CodeAct
 
-    CLI --> |API calls| Scheduler
-    TUI --> |Tail streams| EventSink
-    Scheduler --> Orchestrator
-    Orchestrator --> ActivityCtx
+    CogOrch <--> WM
+    CogOrch <--> SM
+    CogOrch <--> PM
+    CogOrch <--> EM
+
+    CodeAct --> |validates & runs| CommandGuard
+    CodeAct --> ActivityCtx
     ActivityCtx --> |records step result| Journal
-    ActivityCtx --> |on replay: reads result| Journal
-    Journal --> Reducer
-    Reducer --> TaskStore
-    Reducer --> MissionStore
-    Orchestrator <--> |Yields/Resumes| Arrow
-    Arrow <--> BatonStore
-    Orchestrator --> |Dispatches| Sandbox
-    Sandbox --> EventSink
+    Journal --> SQLiteDB
 ```
 
 ---

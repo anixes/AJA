@@ -1,6 +1,6 @@
 # AJA
 
-**A local-first durable execution runtime and replay-authoritative orchestration substrate for autonomous systems.**
+**The Ambient Autonomous Cognitive Agent OS & Replay-Authoritative Execution Kernel.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust: PyO3](https://img.shields.io/badge/Rust-PyO3-orange.svg)](https://pyo3.rs/)
@@ -8,34 +8,31 @@
 [![Engine: Apache Arrow](https://img.shields.io/badge/Engine-Apache%20Arrow-red.svg)](https://arrow.apache.org/)
 [![Database: LanceDB](https://img.shields.io/badge/Database-LanceDB-black.svg)](https://lancedb.github.io/lancedb/)
 
-AJA provides the execution infrastructure required to run autonomous workflows safely and deterministically on local hardware. It replaces fragile agentic scripts with a robust, event-sourced runtime that guarantees state persistence, deterministic replay, and crash-consistent recovery.
+AJA is an ambient autonomous cognitive operating system and execution substrate. Built on peer-reviewed research (**CoALA**, **AIOS**, **CodeAct**, **Magentic-One**), AJA operates as a persistent system companion capable of managing multiple projects, executing prioritized background task queues, and running self-directed sysadmin, coding, and research missions safely across local machines and cloud VPS nodes.
 
 ---
 
 ## What AJA Is
 
-AJA is a systems-level orchestration substrate designed for autonomous operations. It treats agentic workflows as long-running, durable compute processes rather than ephemeral chat loops.
+AJA treats agentic workflows as long-running, durable compute processes rather than ephemeral chat loops.
 
-* **Local-First Durable Execution Runtime**: Ensures workflows can survive process restarts, system crashes, and network partitions without losing state.
-* **Replay-Authoritative Orchestration**: The system state is strictly derived from an append-only execution journal. If it isn't in the journal, it didn't happen.
-* **Event-Sourced Infrastructure**: Every decision, command, and side effect is durably journaled before execution, enabling deterministic reconstruction of any workflow.
-
-With AJA, operators can build research daemons, local infrastructure automation, and scheduled workflows that run continuously for days, surviving machine reboots and gracefully recovering from failures.
+* **Ambient Autonomous Agent OS**: Operates host-wide with zero setup ceremony—diagnosing servers, managing containers, fetching technical research, and refactoring repositories.
+* **CoALA Tripartite Memory Core**: Combines volatile working scratchpads, exact semantic host facts, episodic vector reflections (LanceDB), and executable procedural skills (`agentskills.io`).
+* **CodeAct Action Engine (ICML 2024)**: Replaces brittle multi-turn JSON tool-calling loops with executable Python and Bash actions with sandbox traps.
+* **Multi-Workspace Kernel (`aja ws`)**: Dynamically manages isolated project contexts, LRU memory pools, and priority task queues (`URGENT`, `NORMAL`, `BACKGROUND`).
+* **Replay-Authoritative Durable Execution**: State is strictly derived from an append-only `.jsonl` event journal, guaranteeing deterministic recovery from crashes or reboots.
 
 ---
 
 ## Why AJA Exists
 
-Most autonomous agent frameworks prioritize prompt engineering and LLM chain logic, leaving execution infrastructure as an afterthought. This results in:
-* **Fragile Scripts**: Workflows that restart from zero when an API call times out or a process crashes.
-* **Nondeterministic Execution**: Unpredictable loops where state mutations are lost in memory.
-* **Log-Only Observability**: Systems where debugging relies on grep-ing unstructured logs rather than inspecting deterministic execution graphs.
+Most autonomous agent frameworks are repository-bound IDE plugins or fragile prompt chains. This results in:
+* **Repo-Locked Isolation**: Inability to manage the host system, inspect Docker daemons, or execute cross-project workflows.
+* **Brittle Tool Schemas**: Multi-step JSON tool-calling loops that fail on complex calculations or data transformations.
+* **Single-Store Memory Drift**: Storing exact system facts (ports, IPs) in vector databases where fuzzy matching causes hallucinations.
+* **Crash Amnesia**: Workflows that restart from zero when an API call times out or a process crashes.
 
-AJA exists to invert this model. It provides:
-* **Deterministic Replay**: The ability to reconstruct exact execution states by replaying the event journal.
-* **Crash Recovery**: Workflows resume exactly where they left off after a system interruption.
-* **Durable Side Effects**: External mutations are wrapped in durable activities, ensuring they are executed exactly once.
-* **Execution Lineage**: Strict isolation and auditable trails for every action taken by the system.
+AJA inverts this paradigm with a robust, research-backed cognitive operating system.
 
 ---
 
@@ -43,17 +40,16 @@ AJA exists to invert this model. It provides:
 
 | Feature | Description |
 |---------|-------------|
-| **Replay-Authoritative Orchestration** | The append-only `.jsonl` journal is the single source of truth. All runtime state is a derived projection. |
-| **Durable Activities** | Execution steps are wrapped in context managers that intercept live execution and safely replay historical results during recovery. |
-| **Event-Sourced Rehydration** | Deterministically reconstruct state from zero. Any divergence between live execution and historical replay is treated as a fatal error. |
-| **Rust Acceleration (PyO3/Arrow)** | High-performance, zero-copy inter-process communication for state transfer via Apache Arrow baton caches. |
-| **PTY Execution Runtime** | Unified async I/O transport providing cooperative PTY orchestration (ConPTY on Windows, POSIX PTYs on Linux/macOS). |
-| **Schema Versioning** | Forward-compatible event definitions ensuring historical journals can always be replayed safely as the platform evolves. |
-| **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), setup (`aja setup`), and rebuilding projections (`aja rebuild-projections`). |
-| **Conversational Assistant** | Interactive conversational loop (`aja chat`) with slash commands, Kanban task management, and system diagnostics. |
-| **Native Agentic Engine** | SwarmEngine acts as Manager, using strict JSON-schema tool calling via `NativeToolRegistry` to delegate to the Worker Loop safely without brittle shell parsing. |
-| **Cognitive Memory Stack** | Layered memory (Short-term, Episodic, Semantic vector, and Procedural) built on LanceDB/Arrow with Stability Guards and temporal decay. |
-| **Agent Evaluation Harness** | Level 3 automated statistical profiling, contract verification, and adversarial prompt-injection audit harness. |
+| **CoALA Tripartite Memory** | Working (ContextVar RAM), Semantic (`semantic.json` / SQLite), Episodic (LanceDB vectors), and Procedural (`~/.aja/skills/`). |
+| **CodeAct Action Engine** | Direct Python & Bash execution with timeout traps, markdown extraction, and stdout/stderr capture (ICML 2024). |
+| **Magentic-One Specialists** | Lead Cognitive Orchestrator directing specialized sub-agents: `SysAdmin`, `WebResearcher`, and `CodeEngineer`. |
+| **Multi-Workspace Kernel** | Coroutine-isolated `WorkspaceContext`, dynamic registry (`~/.aja/workspaces.json`), and priority async mission queue. |
+| **Replay-Authoritative Orchestration** | Append-only `.jsonl` journal is the single source of truth. All runtime state is a derived projection. |
+| **Durable Activities** | Temporal-style activity context managers intercepting live execution and replaying historical results during recovery. |
+| **Ambient & Sandboxed Security** | Ambient Host Mode for system-wide triage vs. Sandboxed Workspace Mode with hard non-bypassable catastrophic blocks. |
+| **Telegram Remote Gateway** | Full multi-workspace remote operations via Telegram (`/workspaces`, `/switch`, `@project <mission>`). |
+| **Rust Acceleration (PyO3/Arrow)** | Zero-copy inter-process communication for state transfer via Apache Arrow baton caches. |
+| **Operator Tooling** | Built-in CLI for diagnostics (`aja doctor`), workspaces (`aja ws`), setup (`aja setup`), and projection rebuilding. |
 
 ---
 
