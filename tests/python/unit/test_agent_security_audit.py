@@ -97,6 +97,7 @@ class TestAjaSecurityAudit(unittest.TestCase):
         target = project_root / "scratch" / "test_replace.txt"
         # Pre-create test file
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("initial content", encoding="utf-8")
             result = self.registry.execute("multi_replace", {"path": str(target), "replacements": [{"target": "initial content", "replacement": "pwned"}]})
             assert "Security Error" in result
