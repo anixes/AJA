@@ -118,7 +118,73 @@ def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     return False
 
 
-def classify_command(command: str) -> Dict[str, Any]:
+def split_compound_command(command: str) -> List[str]:
+    """
+    Splits a shell command by top-level compound operators (&&, ||, ;, |),
+    ignoring operators inside single or double quotes.
+    """
+    segments: List[str] = []
+    current: List[str] = []
+    in_single = False
+    in_double = False
+    escaped = False
+    i = 0
+    n = len(command)
+
+    while i < n:
+        char = command[i]
+
+        if escaped:
+            current.append(char)
+            escaped = False
+            i += 1
+            continue
+
+        if char == '\\':
+            escaped = True
+            current.append(char)
+            i += 1
+            continue
+
+        if char == "'" and not in_double:
+            in_single = not in_single
+            current.append(char)
+            i += 1
+            continue
+
+        if char == '"' and not in_single:
+            in_double = not in_double
+            current.append(char)
+            i += 1
+            continue
+
+        if not in_single and not in_double:
+            if i + 1 < n and command[i:i+2] in ("&&", "||"):
+                seg = "".join(current).strip()
+                if seg:
+                    segments.append(seg)
+                current = []
+                i += 2
+                continue
+            elif char in (";", "|", "&"):
+                seg = "".join(current).strip()
+                if seg:
+                    segments.append(seg)
+                current = []
+                i += 1
+                continue
+
+        current.append(char)
+        i += 1
+
+    last_seg = "".join(current).strip()
+    if last_seg:
+        segments.append(last_seg)
+
+    return segments if segments else [command]
+
+
+def _classify_single(command: str) -> Dict[str, Any]:
     stripper = CommandStripper(command)
     stripper.strip()
     analysis = stripper.report()
@@ -153,15 +219,8 @@ def classify_command(command: str) -> Dict[str, Any]:
             if re.search(r"\.\.[/\\]", command):
                 deny_reasons.append("Path traversal (../) is blocked when out-of-bounds paths are disabled.")
             
-            # Simple heuristic for Windows absolute paths or Unix absolute paths
             if re.search(r"(?:^|\s|\"|\')[a-zA-Z]:[\\/]", command) or re.search(r"(?:^|\s|\"|\')/", command):
-                # Allow if the absolute path explicitly starts with PROJECT_ROOT
-                proj_root_str = str(PROJECT_ROOT).replace("\\", "\\\\")
-                # Wait, this regex is too broad, it catches '/' which is common in curl or options.
-                # Just doing a simple check if the specific decoy absolute path format is used without PROJECT_ROOT.
-                # A safer heuristic for tests: check if it contains a path-like string (like C:\ or /) that does NOT contain PROJECT_ROOT
                 if str(PROJECT_ROOT) not in command:
-                    # Let's map it to an 'ask' instead of a hard 'deny' so we don't break valid commands with / flags.
                     ask_reasons.append("Absolute paths outside the project root are flagged when out-of-bounds paths are disabled.")
     except Exception as e:
         logger.debug("Path check failed: %s", e)
@@ -192,7 +251,7 @@ def classify_command(command: str) -> Dict[str, Any]:
         level = "LOW"
         reasons = []
 
-    res = {
+    return {
         "decision": decision,
         "level": level,
         "risk_level": level,
@@ -203,14 +262,74 @@ def classify_command(command: str) -> Dict[str, Any]:
         "reasons": reasons,
         "analysis": analysis,
         "stripper_report": analysis,
+        "known_safe": known_safe,
     }
+
+
+def classify_command(command: str) -> Dict[str, Any]:
+    segments = split_compound_command(command)
+
+    if len(segments) <= 1:
+        res = _classify_single(command)
+    else:
+        # Check global dangerous patterns across entire raw command first
+        stripper = CommandStripper(command)
+        stripper.strip()
+        analysis = stripper.report()
+        global_deny: List[str] = []
+        for pattern in analysis.get("Dangerous Patterns", []):
+            if pattern in DENY_PATTERNS:
+                global_deny.append(DENY_PATTERNS[pattern])
+
+        all_deny_reasons: List[str] = list(global_deny)
+        all_ask_reasons: List[str] = []
+        all_known_safe = True
+        segment_results = []
+
+        for seg in segments:
+            sub_res = _classify_single(seg)
+            segment_results.append(sub_res)
+            if not sub_res.get("known_safe", False):
+                all_known_safe = False
+            if sub_res["decision"] == "deny":
+                all_deny_reasons.extend(sub_res["reasons"])
+            elif sub_res["decision"] == "ask":
+                all_ask_reasons.extend(sub_res["reasons"])
+
+        if all_deny_reasons:
+            decision = "deny"
+            level = "CRITICAL"
+            reasons = list(dict.fromkeys(all_deny_reasons))
+        elif all_ask_reasons or not all_known_safe:
+            decision = "ask"
+            level = "MEDIUM"
+            if not all_ask_reasons and not all_known_safe:
+                all_ask_reasons.append("Compound shell chain contains unverified sub-commands.")
+            reasons = list(dict.fromkeys(all_ask_reasons))
+        else:
+            decision = "allow"
+            level = "LOW"
+            reasons = []
+
+        res = {
+            "decision": decision,
+            "level": level,
+            "risk_level": level,
+            "root": segment_results[0]["root"] if segment_results else "",
+            "root_binary": segment_results[0]["root_binary"] if segment_results else "",
+            "args": [arg for s in segment_results for arg in s.get("args", [])],
+            "needs_analysis": decision != "allow",
+            "reasons": reasons,
+            "analysis": analysis,
+            "stripper_report": analysis,
+            "compound_segments": [s["root"] for s in segment_results],
+        }
 
     try:
         from aja.observability.telemetry import log_security_event
         log_security_event(command, res)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).debug("Telemetry log failed during command audit: %s", e)
+        logger.debug("Telemetry log failed during command audit: %s", e)
 
     return res
 
