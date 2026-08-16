@@ -2,7 +2,7 @@
 =============================================================================
 AJA Cognitive Architecture: Bi-Temporal Entity-Relationship Knowledge Graph
 =============================================================================
-Implements 2026-era Bi-Temporal Graph Memory (Zep/Graphiti standard) on SQLite:
+Implements Bi-Temporal Graph Memory (Zep/Graphiti standard) on SQLite:
 - Dual timelines: Real-World Validity (valid_from/valid_to) vs System Ingestion (recorded_at)
 - Non-destructive contradiction resolution: facts are superseded by cascade invalidation
 - Point-in-time historical queries + full-text search (FTS5) + episode provenance

@@ -1,4 +1,4 @@
-# Cognitive Architecture: August 2026 Frontier Autonomous Agent OS
+# Cognitive Architecture: Frontier Autonomous Agent OS
 
 AJA incorporates a state-of-the-art cognitive runtime synthesizing peer-reviewed research and enterprise standards in cognitive architectures, operating systems for language agents, executable action spaces, test-time compute, and temporal knowledge graphs.
 
@@ -12,10 +12,10 @@ AJA's cognitive layer is built on five core pillars:
    - Implements a bi-temporal relational graph separating **Valid Time** (when a fact was true in the environment) from **Transaction Time** (when the system recorded it). Contradictions are resolved non-destructively via cascade invalidation (`valid_to = now`), preserving full historical provenance.
 2. **System-2 Test-Time Compute (TTC) & State Tree Backtracking**:
    - For high-stakes, ambiguous, or multi-step missions, AJA generates $N$ candidate execution branches, scores rollouts based on predicted utility, and maintains an in-memory state tree with checkpoints that automatically rewinds to the parent node upon step failures.
-3. **Autonomous Procedural Self-Evolution** (*agentskills.io 2026 standard*):
+3. **Autonomous Procedural Self-Evolution** (*agentskills.io standard*):
    - Automatically distills winning multi-turn trajectories into verified, parameterized skills under `~/.aja/skills/<name>/` (`SKILL.md` + `run.py`) with AST dry-run validation gates.
-4. **Universal Stateless MCP 2026 Dynamic Mesh**:
-   - Native client conforming to the July 2026 stateless Model Context Protocol (MCP) standard with runtime `tools/list` dynamic discovery and `maxTokenBudget` context protection.
+4. **Universal Stateless MCP Dynamic Mesh**:
+   - Native client conforming to the stateless Model Context Protocol (MCP) standard with runtime `tools/list` dynamic discovery and `maxTokenBudget` context protection.
 5. **AIOS & Replay-Authoritative Execution Kernel**:
    - Host operating system kernel abstraction providing priority scheduling (`URGENT`, `NORMAL`, `BACKGROUND`), coroutine-isolated `WorkspaceContext`, and zero-copy Apache Arrow memory batons (`aja_native`).
 
@@ -96,7 +96,7 @@ graph TD
 
 ---
 
-## 4. Universal Stateless MCP 2026 Tool Mesh
+## 4. Universal Stateless MCP Dynamic Mesh
 
 AJA provides first-class support for the Model Context Protocol (MCP):
 - **Stateless by Default**: Ephemeral execution without session-locking overhead.

@@ -1,6 +1,6 @@
 """
 =============================================================================
-AJA Model Context Protocol (MCP 2026) Universal Dynamic Mesh Unit Tests
+AJA Model Context Protocol (MCP) Universal Dynamic Mesh Unit Tests
 =============================================================================
 """
 

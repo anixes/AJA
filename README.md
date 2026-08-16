@@ -8,7 +8,7 @@
 [![Engine: Apache Arrow](https://img.shields.io/badge/Engine-Apache%20Arrow-red.svg)](https://arrow.apache.org/)
 [![Database: LanceDB](https://img.shields.io/badge/Database-LanceDB-black.svg)](https://lancedb.github.io/lancedb/)
 
-AJA is an ambient autonomous cognitive operating system and execution substrate. Built on August 2026 frontier agent research (**Bi-Temporal Knowledge Graphs**, **System-2 Test-Time Compute**, **CoALA 2.0**, **AIOS**, **CodeAct**, and **Stateless MCP 2026**), AJA operates as a persistent system companion capable of managing multiple projects, executing prioritized background task queues, and running self-directed sysadmin, coding, and research missions safely across local machines and cloud VPS nodes.
+AJA is an ambient autonomous cognitive operating system and execution substrate. Built on frontier agent research (**Bi-Temporal Knowledge Graphs**, **System-2 Test-Time Compute**, **CoALA 2.0**, **AIOS**, **CodeAct**, and **Stateless Model Context Protocol**), AJA operates as a persistent system companion capable of managing multiple projects, executing prioritized background task queues, and running self-directed sysadmin, coding, and research missions safely across local machines and cloud VPS nodes.
 
 ---
 
@@ -20,7 +20,7 @@ AJA treats agentic workflows as long-running, durable compute processes rather t
 * **Bi-Temporal Knowledge Graph Memory**: Tracks dual timelines (`valid_time` vs `transaction_time`) in SQLite FTS5 + LanceDB vector tables with non-destructive cascade invalidation.
 * **System-2 Test-Time Compute (TTC)**: Performs pre-mutation candidate branch exploration, rollout simulations, and automatic state-tree rewinds upon step failures.
 * **Autonomous Skill Self-Evolution (`agentskills.io`)**: Automatically compiles winning multi-step trajectories into reusable, verified skills under `~/.aja/skills/`.
-* **Universal Stateless MCP 2026 Mesh**: Dynamically connects to local and remote MCP servers via STDIO / Streamable HTTP with `maxTokenBudget` context protection.
+* **Universal Stateless MCP Mesh**: Dynamically connects to local and remote MCP servers via STDIO / Streamable HTTP with `maxTokenBudget` context protection.
 * **CodeAct Action Engine**: Direct Python and Bash execution with sandbox timeout traps and empirical output verification.
 * **Multi-Workspace Kernel (`aja ws`)**: Dynamically manages isolated project contexts, LRU memory pools, and priority task queues (`URGENT`, `NORMAL`, `BACKGROUND`).
 * **Replay-Authoritative Durable Execution**: State is strictly derived from an append-only `.jsonl` event journal, guaranteeing deterministic recovery from crashes or reboots.
@@ -46,7 +46,7 @@ AJA inverts this paradigm with a robust, research-backed cognitive operating sys
 | **Bi-Temporal Graph Memory** | Dual-timeline SQLite FTS5 knowledge graph (`valid_time` vs `transaction_time`) eliminating vector memory collisions. |
 | **System-2 TTC Planner** | Test-Time Compute candidate branch exploration with state-tree snapshots and automatic failure backtracking. |
 | **Autonomous Skill Compiler** | Self-evolution engine compiling successful mission trajectories into executable `agentskills.io` skills in `~/.aja/skills/`. |
-| **Universal Stateless MCP 2026** | July 2026 stateless MCP client supporting dynamic `tools/list` discovery and `maxTokenBudget` context safety. |
+| **Universal Stateless MCP Mesh** | Stateless MCP client supporting dynamic `tools/list` discovery and `maxTokenBudget` context safety. |
 | **CodeAct Action Engine** | Direct Python & Bash execution with timeout traps, markdown extraction, and stdout/stderr capture. |
 | **Tiered SOUL.md Architecture** | Custom global (`~/.aja/SOUL.md`) and project (`.aja/SOUL.md`) personas layered over `AGENTS.md` guidelines. |
 | **Magentic-One Specialists** | Lead Cognitive Orchestrator directing specialized sub-agents: `SysAdmin`, `WebResearcher`, and `CodeEngineer`. |

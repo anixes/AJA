@@ -1,8 +1,8 @@
 """
 =============================================================================
-AJA Model Context Protocol (MCP 2026) Universal Dynamic Mesh Client
+AJA Model Context Protocol (MCP) Universal Dynamic Mesh Client
 =============================================================================
-Implements 2026-era MCP standard:
+Implements Stateless MCP standard:
 - Stateless-by-default execution
 - Dynamic tool discovery via `tools/list`
 - Token budgeting (`maxTokenBudget`) protection against context exhaustion
@@ -34,7 +34,7 @@ class MCPToolDefinition:
 
 class MCPClientManager:
     """
-    Manages connections and tool dispatch for local and remote MCP 2026 servers.
+    Manages connections and tool dispatch for local and remote MCP servers.
     """
 
     def __init__(self, default_token_budget: int = 4096):

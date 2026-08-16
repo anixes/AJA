@@ -2,7 +2,7 @@
 =============================================================================
 AJA Cognitive Architecture: System-2 Test-Time Compute (TTC) Planner
 =============================================================================
-Implements 2026-era Test-Time Compute scaling:
+Implements Test-Time Compute scaling:
 - Multi-candidate branch generation (Best-of-N rollout exploration)
 - Pre-mutation risk & feasibility evaluation
 - Dynamic state-tree exploration with automatic backtracking on execution failure

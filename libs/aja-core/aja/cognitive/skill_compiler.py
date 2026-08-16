@@ -2,7 +2,7 @@
 =============================================================================
 AJA Cognitive Architecture: Autonomous Procedural Skill Compiler (agentskills.io)
 =============================================================================
-Implements 2026-era Self-Evolving Procedural Memory:
+Implements Self-Evolving Procedural Memory:
 - Analyzes successful multi-turn execution trajectories
 - Parameterizes concrete arguments into reusable abstractions
 - Compiles standard agentskills.io packages: SKILL.md + run.py

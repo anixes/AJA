@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 
 class CognitiveOrchestrator:
     """
-    Lead Cognitive Orchestrator (August 2026 Frontier Architecture).
+    Lead Cognitive Orchestrator (Frontier Architecture).
     Synthesizes Bi-Temporal Knowledge Graph Memory (CoALA 2.0 / Letta),
     System-2 Test-Time Compute (TTC) Dynamic Tree Search,
     Autonomous Skill Self-Evolution (agentskills.io),
-    and Stateless Universal MCP 2026 Tool Mesh.
+    and Stateless Universal Model Context Protocol (MCP) Mesh.
     """
 
     def __init__(
