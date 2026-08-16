@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aja.cognitive.codeact import CodeActExecutor
+from aja.cognitive.codeact import CodeActExecutor, CodeActResult
 from aja.cognitive.memory_manager import CognitiveMemoryManager
 from aja.cognitive.memory_models import (
     EpisodeReflection,
@@ -21,12 +21,15 @@ from aja.cognitive.memory_models import (
     WorkingMemory,
 )
 from aja.cognitive.prompts import build_system_prompt
+from aja.cognitive.skill_compiler import SkillCompiler
 from aja.cognitive.specialists import (
     BaseSpecialist,
     CodeEngineerSpecialist,
     SysAdminSpecialist,
     WebResearchSpecialist,
 )
+from aja.cognitive.ttc_planner import TTCPlanner
+from aja.mcp.mcp_client_manager import MCPClientManager
 from aja.orchestration.tools.sys_tools import (
     get_active_ports,
     get_disk_usage,
@@ -41,18 +44,26 @@ logger = logging.getLogger(__name__)
 
 class CognitiveOrchestrator:
     """
-    Lead Cognitive Orchestrator.
-    Synthesizes Tripartite Memory (CoALA), Ambient CodeAct Actions,
-    and Dynamic Specialist Routing (Magentic-One).
+    Lead Cognitive Orchestrator (August 2026 Frontier Architecture).
+    Synthesizes Bi-Temporal Knowledge Graph Memory (CoALA 2.0 / Letta),
+    System-2 Test-Time Compute (TTC) Dynamic Tree Search,
+    Autonomous Skill Self-Evolution (agentskills.io),
+    and Stateless Universal MCP 2026 Tool Mesh.
     """
 
     def __init__(
         self,
         memory_manager: Optional[CognitiveMemoryManager] = None,
         codeact_executor: Optional[CodeActExecutor] = None,
+        ttc_planner: Optional[TTCPlanner] = None,
+        skill_compiler: Optional[SkillCompiler] = None,
+        mcp_mesh: Optional[MCPClientManager] = None,
     ):
         self.memory = memory_manager or CognitiveMemoryManager()
         self.codeact = codeact_executor or CodeActExecutor()
+        self.ttc_planner = ttc_planner or TTCPlanner()
+        self.skill_compiler = skill_compiler or SkillCompiler(skills_dir=self.memory.skills_dir)
+        self.mcp_mesh = mcp_mesh or MCPClientManager()
 
         self.specialists: Dict[str, BaseSpecialist] = {
             "sysadmin": SysAdminSpecialist(),
@@ -90,11 +101,34 @@ class CognitiveOrchestrator:
         domain: Optional[str] = None,
         cwd: Optional[Path] = None,
         max_turns: int = 5,
+        use_ttc: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes a full mission across the CoALA loop with live action execution,
-        trajectory tracking, and post-task self-critique.
+        trajectory tracking, System-2 TTC tree search, and post-task self-evolution.
         """
+        if use_ttc:
+            async def _ttc_step_exec(step: Dict[str, Any]) -> Any:
+                payload = step.get("payload", "")
+                res = self.codeact.execute(payload, cwd=cwd or Path.home())
+                if res.exit_code != 0:
+                    raise RuntimeError(f"Step failed with exit code {res.exit_code}: {res.stderr}")
+                return res.output
+
+            ttc_result = await self.ttc_planner.execute_with_tree_search(
+                goal=goal,
+                executor_fn=_ttc_step_exec,
+                context_summary=self.memory.get_semantic_context_summary(),
+            )
+            return {
+                "task_id": str(uuid.uuid4()),
+                "goal": goal,
+                "specialist": "system2_ttc_planner",
+                "success": ttc_result.get("success", False),
+                "output": "\n".join(str(o) for o in ttc_result.get("outputs", [])) or ttc_result.get("error", ""),
+                "ttc_details": ttc_result,
+            }
+
         task_id = str(uuid.uuid4())
         working_memory = self.memory.create_working_memory(task_id=task_id, goal=goal)
 
@@ -113,6 +147,7 @@ class CognitiveOrchestrator:
         success = True
         critique = "Mission executed successfully."
         lessons = []
+        auto_skill_name = None
 
         try:
             # 2. Native Tool Execution Shortcut for Common Ambient Queries
@@ -168,7 +203,6 @@ class CognitiveOrchestrator:
 
             else:
                 # 3. CodeAct Execution Action (Fallback to direct shell / python execution)
-                # Formulate shell/python command
                 codeact_res = self.codeact.execute(goal, cwd=exec_cwd)
                 final_output = codeact_res.output
                 success = (codeact_res.exit_code == 0)
@@ -198,6 +232,17 @@ class CognitiveOrchestrator:
             self.memory.save_episode(trajectory)
             self.memory.clear_working_memory(task_id)
 
+            # 5. Self-Evolution: Autonomous Skill Compilation for multi-step winning missions
+            if success and len(trajectory.steps) >= 2:
+                try:
+                    compiled = self.skill_compiler.distill_trajectory(trajectory)
+                    if compiled and compiled.is_valid and compiled.skill_obj:
+                        self.memory.register_skill(compiled.skill_obj)
+                        auto_skill_name = compiled.skill_name
+                        logger.info("Self-Evolution: Auto-compiled skill '%s'", auto_skill_name)
+                except Exception as ex:
+                    logger.debug("Skill compilation skipped: %s", ex)
+
         total_duration_ms = (time.perf_counter() - start_time) * 1000.0
         return {
             "task_id": task_id,
@@ -206,6 +251,7 @@ class CognitiveOrchestrator:
             "success": success,
             "output": final_output,
             "duration_ms": total_duration_ms,
+            "auto_compiled_skill": auto_skill_name,
             "reflection": {
                 "success": success,
                 "critique": critique,

@@ -20,6 +20,7 @@ from aja.cognitive.memory_models import (
     TrajectoryStep,
     WorkingMemory,
 )
+from aja.cognitive.temporal_graph import BiTemporalEntityGraph, TemporalEntity, TemporalRelation
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ DEFAULT_AJA_ROOT = Path.home() / ".aja"
 class CognitiveMemoryManager:
     """
     Unified CoALA Tripartite Memory Manager.
-    Coordinates short-term working memory, vector/FTS episodic memory,
-    system semantic facts, and dynamic procedural skills.
+    Coordinates short-term working memory, bi-temporal entity knowledge graph,
+    vector/FTS episodic memory, system semantic facts, and dynamic procedural skills.
     """
 
     def __init__(self, root_dir: Optional[Path] = None):
@@ -43,6 +44,7 @@ class CognitiveMemoryManager:
         self._ensure_directories()
         self._working_memories: Dict[str, WorkingMemory] = {}
         self._semantic_cache: Dict[str, SemanticFact] = {}
+        self.temporal_graph = BiTemporalEntityGraph(db_path=self.state_dir / "temporal_graph.db")
         self._load_semantic_facts()
 
     def _ensure_directories(self) -> None:
@@ -103,11 +105,34 @@ class CognitiveMemoryManager:
         fact = SemanticFact(category=category, key=key, value=value, source=source)
         self._semantic_cache[f"{category}:{key}"] = fact
         self._save_semantic_facts()
+        try:
+            self.temporal_graph.upsert_entity(
+                entity_type=category,
+                name=key,
+                properties={"value": value, "source": source},
+            )
+        except Exception as e:
+            logger.debug("Failed upserting fact to temporal graph: %s", e)
         return fact
 
     def get_fact(self, category: str, key: str) -> Optional[Any]:
         fact = self._semantic_cache.get(f"{category}:{key}")
         return fact.value if fact else None
+
+    def upsert_entity(self, entity_type: str, name: str, properties: Dict[str, Any], source_episode_id: Optional[str] = None) -> TemporalEntity:
+        return self.temporal_graph.upsert_entity(entity_type, name, properties, source_episode_id=source_episode_id)
+
+    def get_active_entity(self, entity_type: str, name: str) -> Optional[TemporalEntity]:
+        return self.temporal_graph.get_active_entity(entity_type, name)
+
+    def get_entity_history(self, entity_type: str, name: str) -> List[TemporalEntity]:
+        return self.temporal_graph.get_entity_history(entity_type, name)
+
+    def search_entities(self, query: str, limit: int = 10) -> List[TemporalEntity]:
+        return self.temporal_graph.search_entities(query, limit=limit)
+
+    def add_relation(self, source_id: str, target_id: str, relation_type: str, properties: Optional[Dict[str, Any]] = None) -> TemporalRelation:
+        return self.temporal_graph.add_relation(source_id, target_id, relation_type, properties)
 
     def discover_host_facts(self) -> Dict[str, Any]:
         """Auto-probes and indexes host OS, hardware, and environment specifications."""
@@ -134,6 +159,12 @@ class CognitiveMemoryManager:
         lines = ["### Environment & System Facts:"]
         for key, fact in sorted(self._semantic_cache.items()):
             lines.append(f"- **{fact.key}**: `{fact.value}`")
+
+        graph_summary = self.temporal_graph.get_context_summary(limit=8)
+        if graph_summary:
+            lines.append("")
+            lines.append(graph_summary)
+
         return "\n".join(lines)
 
     # =========================================================================
