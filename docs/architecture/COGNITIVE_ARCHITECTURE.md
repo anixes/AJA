@@ -1,42 +1,44 @@
-# Cognitive Architecture: Autonomous Agent OS
+# Cognitive Architecture: August 2026 Frontier Autonomous Agent OS
 
-AJA incorporates a state-of-the-art cognitive runtime synthesizing peer-reviewed research in cognitive architectures, operating systems for language agents, executable action spaces, and multi-agent coordination.
-
----
-
-## 1. Research Foundations
-
-AJA's cognitive layer is built on four core academic pillars:
-
-1. **CoALA** (*Cognitive Architectures for Language Agents* - Princeton / Stanford / CMU):
-   - Establishes a tripartite memory model separating **Working Memory** (fast scratchpad), **Semantic Memory** (persistent environment facts), **Episodic Memory** (experiential trajectory reflections), and **Procedural Memory** (executable skills).
-2. **AIOS** (*LLM Agent Operating System* - Rutgers):
-   - Implements an operating system kernel abstraction for LLM agents: priority scheduling, context budgeting, and access control over host resources.
-3. **CodeAct** (*Executable Code Actions Elicit Better LLM Agents* - ICML 2024):
-   - Replaces brittle JSON tool-calling schemas with executable Python and Bash action blocks, allowing the agent to dynamically calculate, transform, filter, and orchestrate complex tools in code.
-4. **Magentic-One** (*Microsoft Research*):
-   - Multi-agent orchestration pattern where a lead Cognitive Orchestrator directs specialized sub-agents (`SysAdmin`, `WebResearcher`, `CodeEngineer`) tailored with domain prompts and toolsets.
+AJA incorporates a state-of-the-art cognitive runtime synthesizing peer-reviewed research and enterprise standards in cognitive architectures, operating systems for language agents, executable action spaces, test-time compute, and temporal knowledge graphs.
 
 ---
 
-## 2. Memory Substrates (The CoALA Tripartite Model)
+## 1. Research & Industry Foundations
+
+AJA's cognitive layer is built on five core pillars:
+
+1. **CoALA 2.0 & Bi-Temporal Knowledge Graphs** (*Zep/Graphiti / Letta standard*):
+   - Implements a bi-temporal relational graph separating **Valid Time** (when a fact was true in the environment) from **Transaction Time** (when the system recorded it). Contradictions are resolved non-destructively via cascade invalidation (`valid_to = now`), preserving full historical provenance.
+2. **System-2 Test-Time Compute (TTC) & State Tree Backtracking**:
+   - For high-stakes, ambiguous, or multi-step missions, AJA generates $N$ candidate execution branches, scores rollouts based on predicted utility, and maintains an in-memory state tree with checkpoints that automatically rewinds to the parent node upon step failures.
+3. **Autonomous Procedural Self-Evolution** (*agentskills.io 2026 standard*):
+   - Automatically distills winning multi-turn trajectories into verified, parameterized skills under `~/.aja/skills/<name>/` (`SKILL.md` + `run.py`) with AST dry-run validation gates.
+4. **Universal Stateless MCP 2026 Dynamic Mesh**:
+   - Native client conforming to the July 2026 stateless Model Context Protocol (MCP) standard with runtime `tools/list` dynamic discovery and `maxTokenBudget` context protection.
+5. **AIOS & Replay-Authoritative Execution Kernel**:
+   - Host operating system kernel abstraction providing priority scheduling (`URGENT`, `NORMAL`, `BACKGROUND`), coroutine-isolated `WorkspaceContext`, and zero-copy Apache Arrow memory batons (`aja_native`).
+
+---
+
+## 2. Memory Substrates (The CoALA 2.0 Bi-Temporal Stack)
 
 AJA avoids using a single database as a catch-all memory store. Instead, each memory type is assigned to its optimal storage substrate:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       AJA COGNITIVE MEMORY STACK                            │
+│                    AJA FRONTIER COGNITIVE MEMORY STACK                      │
 ├───────────────────┬─────────────────────────┬───────────────────────────────┤
 │ Memory Substrate  │ Storage Medium          │ Primary Function              │
 ├───────────────────┼─────────────────────────┼───────────────────────────────┤
 │ Working Memory    │ Coroutine RAM / Context │ Sub-goals, hypotheses,        │
-│                   │                         │ observation scratchpad        │
+│                   │ (`WorkingMemory`)       │ observation scratchpad        │
 ├───────────────────┼─────────────────────────┼───────────────────────────────┤
-│ Semantic Memory   │ JSON / SQLite KV        │ Host environment facts, IPs,  │
-│                   │                         │ specs, configurations ($O(1)$)│
+│ Bi-Temporal Graph │ SQLite + FTS5           │ Entity-relationship graph     │
+│ Memory            │ (`temporal_graph.db`)   │ with valid_time/valid_to      │
 ├───────────────────┼─────────────────────────┼───────────────────────────────┤
 │ Episodic Memory   │ LanceDB Vector Tables   │ Trajectory post-mortems,      │
-│                   │                         │ vector similarity recall      │
+│                   │ (`aja_episodic`)        │ vector similarity recall      │
 ├───────────────────┼─────────────────────────┼───────────────────────────────┤
 │ Procedural Memory │ Filesystem Tree         │ Executable Python/Bash skills │
 │                   │ (`~/.aja/skills/`)      │ (agentskills.io standard)     │
@@ -48,91 +50,71 @@ AJA avoids using a single database as a catch-all memory store. Instead, each me
 - Tracks the active mission goal, sub-goal stack, scratchpad thoughts, and immediate tool observations.
 - Uses sliding window compaction to avoid context window degradation during long-running tasks.
 
-### B. Semantic Memory (`SemanticFact`)
-- Stored deterministically in `~/.aja/state/semantic.json` or SQLite.
-- Auto-discovers and maintains exact host facts: OS version, CPU cores, RAM, active user, network interfaces, and container daemons.
-- Avoids semantic drift and fuzzy matching errors common in pure vector search.
+### B. Bi-Temporal Entity Graph (`BiTemporalEntityGraph`)
+- Stored deterministically in `~/.aja/state/temporal_graph.db` with SQLite WAL mode and FTS5 full-text indexing.
+- Tracks dual timelines (`valid_from` / `valid_to` vs `recorded_at`).
+- Supports point-in-time historical queries (`get_entity_history`) and non-destructive fact invalidation, eliminating temporal vector collisions.
 
 ### C. Episodic Memory (`EpisodeReflection`)
 - Stored in LanceDB vector tables (`aja_episodic_reflections`).
 - Encapsulates past task trajectories, key lessons learned, error post-mortems, and successful strategies.
 - Queried via cosine similarity to recall relevant past experiences before generating plans.
 
-### D. Procedural Memory (`ProceduralSkill`)
+### D. Procedural Memory (`ProceduralSkill` & `SkillCompiler`)
 - Stored in standard directory trees (`~/.aja/skills/<skill_name>/`).
+- Synthesized automatically from winning missions by the `SkillCompiler`.
 - Adheres to the open **agentskills.io** format (`SKILL.md` frontmatter + markdown documentation + executable Python/Bash scripts).
-- Directly version-controlled with Git and executable on the host.
 
 ---
 
-## 3. CodeAct Unified Action Space
+## 3. System-2 Test-Time Compute (TTC) & Dynamic Backtracking
 
-Traditional agent architectures force LLMs into multi-turn JSON tool-calling loops. This results in heavy token waste and frequent schema parsing errors.
-
-AJA implements **CodeAct (ICML 2024)**:
-- The agent outputs standard Python or Bash markdown blocks:
-  ```python
-  # CodeAct: direct Python execution
-  import json
-  from aja.orchestration.tools.sys_tools import get_system_specs
-  
-  specs = get_system_specs()
-  print(f"Host CPU: {specs['cpu_count']}, Memory: {specs['total_memory_gb']} GB")
-  ```
-- **Execution Traps**: Python code is executed in isolated subprocesses with configurable timeout traps (`CodeActExecutor`).
-- **Standard Streams**: `stdout` and `stderr` are captured cleanly and returned as structured observations into the agent's working memory.
-
----
-
-## 4. Magentic-One Specialist Roles
-
-The `CognitiveOrchestrator` delegates tasks to specialized personas:
+AJA transitions between **System-1 Fast Reflex** (direct tool execution / telemetry lookups) and **System-2 Test-Time Compute (TTC)**:
 
 ```mermaid
 graph TD
-    UserGoal[User Mission / Goal] --> Orchestrator[Cognitive Orchestrator]
+    Goal[Mission Objective] --> Decision{Risk / Complexity Evaluation}
     
-    subgraph Memory Access
-        Orchestrator <--> WM[Working Memory: Scratchpad]
-        Orchestrator <--> SM[Semantic Memory: Host Facts]
-        Orchestrator <--> EM[Episodic Memory: Past Reflections]
-        Orchestrator <--> PM[Procedural Memory: Skills]
+    Decision -->|Low Risk / Telemetry| Reflex[System-1 Fast Reflex Loop]
+    Decision -->|High Risk / Refactor| TTC[System-2 TTC Planner]
+    
+    subgraph TTC Engine
+        TTC --> Gen[Generate N Candidate Branches]
+        Gen --> Score[Score Utility = P_success * (1 - 0.5 * Risk)]
+        Score --> Tree[StateTree Checkpoint Execution]
+        Tree --> Step{Step Execution}
+        Step -->|Success| NextStep[Next Step / Complete]
+        Step -->|Failure / Crash| Backtrack[Auto-Backtrack to Parent Checkpoint]
+        Backtrack --> NextBranch[Try Next Highest Scoring Branch]
     end
     
-    Orchestrator --> |Route Goal| Router{Specialist Router}
-    
-    Router --> |SysAdmin / DevOps| SysAdmin[SysAdmin Specialist]
-    Router --> |Research / Docs| Web[Web Research Specialist]
-    Router --> |Code / Architecture| Coder[Code Engineer Specialist]
-    
-    SysAdmin --> CodeAct[CodeAct Execution Engine]
-    Web --> CodeAct
-    Coder --> CodeAct
-    
-    CodeAct --> |Trajectory & Outcome| Reflection[Self-Reflection Generator]
-    Reflection --> |Save Lessons Learned| EM
+    Reflex --> Outcome[Mission Outcome]
+    NextStep --> Outcome
+    Outcome --> Compiler[SkillCompiler Auto-Distillation]
+    Compiler --> Skills[~/.aja/skills/]
 ```
-
-1. **`SysAdminSpecialist`**:
-   - Focused on host diagnosis, Docker container triage, disk/RAM inspections, service status, and log audits.
-   - Utilizes `sys_tools.py` (`get_system_specs`, `inspect_docker_containers`, `get_active_ports`).
-2. **`WebResearchSpecialist`**:
-   - Focused on live documentation lookup, technical article synthesis, and API reference retrieval.
-   - Utilizes `web_tools.py` (`search_web`, `fetch_url`).
-3. **`CodeEngineerSpecialist`**:
-   - Focused on code authoring, test execution (`pytest`), architectural refactoring, and bug fixes.
 
 ---
 
-## 5. Ambient Security vs. Workspace Sandboxing
+## 4. Universal Stateless MCP 2026 Tool Mesh
 
-AJA supports dual operating modes governed by `aja.security.command_guard`:
+AJA provides first-class support for the Model Context Protocol (MCP):
+- **Stateless by Default**: Ephemeral execution without session-locking overhead.
+- **Dynamic Discovery**: Auto-probes server capabilities at runtime via `tools/list`.
+- **Context Budget Guard**: Enforces `maxTokenBudget` parameter on tool outputs to protect LLM context windows.
+- **Transports**: STDIO for local subprocesses and Streamable HTTP for remote cloud microservices.
 
-1. **Ambient Host Mode (Default)**:
-   - When no specific isolated project workspace is bound, AJA acts as a general-purpose host companion.
-   - Allows access across user home directories (`~`) for system administration and general coding.
-2. **Workspace Sandboxed Mode**:
-   - When bound to a specific workspace (`aja ws use <name>`), all file access and tool executions are strictly pinned to the project root.
-   - Out-of-bounds path traversals (`../`, `/etc/`, absolute paths) are blocked or gated for operator authorization.
-3. **Non-Bypassable Catastrophic Block**:
-   - In both modes, destructive operations (`rm -rf /`, `mkfs`, `format`, `dd`, fork bombs) are blocked unconditionally at Layer 1 in `<1ms`.
+---
+
+## 5. Tiered System Prompt & SOUL.md Layering
+
+AJA's system prompt is synthesized dynamically across 8 distinct architectural layers:
+
+1. **Stable Tier (Identity & Voice)**: Loaded from `~/.aja/SOUL.md` or `DEFAULT_SOUL` (direct, developer-fluent, non-sycophantic, non-destructive bias).
+2. **Specialist Role**: `SysAdminSpecialist`, `WebResearchSpecialist`, or `CodeEngineerSpecialist`.
+3. **Unified CodeAct Action Space**: Python and Bash executable block guidelines.
+4. **Workspace Context & Sandboxing**: Active workspace ID, root path, and boundary enforcement.
+5. **Project Guidelines**: Auto-ingested from `AGENTS.md`, `CLAUDE.md`, or `.cursorrules`.
+6. **Bi-Temporal Knowledge Graph Context**: Active environment facts and entity relations.
+7. **Procedural Skills Registry**: Available custom skills in `~/.aja/skills/`.
+8. **Episodic Recall**: Lessons learned from similar past missions.
