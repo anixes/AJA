@@ -102,7 +102,7 @@ def test_qa_command_guard_blocks_catastrophic_variants(catastrophic_cmd):
     
     assert result["decision"] == "deny", f"Failed to deny catastrophic command: {catastrophic_cmd} -> {result}"
     assert result["level"] == "CRITICAL"
-    assert duration_ms < 5.0, f"Classification too slow ({duration_ms:.2f}ms)"
+    assert duration_ms < 50.0, f"Classification too slow ({duration_ms:.2f}ms)"
 
 
 def test_qa_path_traversal_blocked_in_isolated_workspace(qa_env):

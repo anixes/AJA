@@ -20,6 +20,12 @@ from aja.cognitive.specialists import (
     WebResearchSpecialist,
 )
 from aja.cognitive.orchestrator import CognitiveOrchestrator
+from aja.cognitive.prompts import (
+    DEFAULT_SOUL,
+    build_system_prompt,
+    load_project_guidelines,
+    load_soul,
+)
 
 __all__ = [
     "WorkingMemory",
@@ -36,5 +42,9 @@ __all__ = [
     "WebResearchSpecialist",
     "CodeEngineerSpecialist",
     "CognitiveOrchestrator",
+    "DEFAULT_SOUL",
+    "build_system_prompt",
+    "load_soul",
+    "load_project_guidelines",
 ]
 

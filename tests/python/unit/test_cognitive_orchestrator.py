@@ -56,7 +56,7 @@ def test_contextual_prompt_assembly(cognitive_env):
     specialist = orchestrator.route_specialist("Inspect disk space")
 
     prompt = orchestrator.build_contextual_prompt("Inspect disk space", specialist)
-    assert "AJA COGNITIVE ORCHESTRATOR" in prompt
+    assert "Soul of AJA" in prompt
     assert "public_ip" in prompt
     assert "Inspect disk space" in prompt
 

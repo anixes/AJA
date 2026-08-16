@@ -20,6 +20,7 @@ from aja.cognitive.memory_models import (
     TrajectoryStep,
     WorkingMemory,
 )
+from aja.cognitive.prompts import build_system_prompt
 from aja.cognitive.specialists import (
     BaseSpecialist,
     CodeEngineerSpecialist,
@@ -60,51 +61,28 @@ class CognitiveOrchestrator:
         }
 
     def route_specialist(self, goal: str) -> BaseSpecialist:
-        """Determines the most appropriate specialist role for the given goal."""
+        """Heuristic Magentic-One specialist router based on goal intent."""
         goal_lower = goal.lower()
-        if re.search(r"\b(docker|system|disk|cpu|ram|memory|port|service|status|vps|server|nginx|logs|systemctl)\b", goal_lower):
-            return self.specialists["sysadmin"]
-        elif re.search(r"\b(code|refactor|test|pytest|git|commit|function|class|bug|patch|pr)\b", goal_lower):
-            return self.specialists["coding"]
-        elif re.search(r"\b(search|web|url|scrape|docs|documentation|article|find out|paper|research)\b", goal_lower):
+        if any(kw in goal_lower for kw in ["search", "web", "find out", "research", "lookup", "docs", "documentation", "fetch", "url", "changelog"]):
             return self.specialists["web_research"]
+        elif any(kw in goal_lower for kw in ["refactor", "pytest", "unit test", "fix bug", "function", "class", "git commit", "code", "compile"]):
+            return self.specialists["coding"]
         return self.specialists["sysadmin"]  # Default ambient specialist
 
     def build_contextual_prompt(self, goal: str, specialist: BaseSpecialist) -> str:
         """Assembles prompt with CoALA Semantic Environment Facts + Past Episodic Lessons."""
         semantic_summary = self.memory.get_semantic_context_summary()
         past_episodes = self.memory.recall_episodes(goal, limit=2)
+        skills = self.memory.list_skills()
 
-        prompt_lines = [
-            f"=== AJA COGNITIVE ORCHESTRATOR [{specialist.name.upper()}] ===",
-            specialist.get_system_instructions(),
-            "",
-            semantic_summary,
-            "",
-        ]
-
-        if past_episodes:
-            prompt_lines.append("### Relevant Past Experiences & Lessons Learned:")
-            for ep in past_episodes:
-                goal_txt = ep.get("goal", "")
-                refl = ep.get("reflection") or {}
-                critique = refl.get("critique", "")
-                lessons = ", ".join(refl.get("lessons_learned") or [])
-                prompt_lines.append(f"- **Past Goal**: {goal_txt}")
-                if critique:
-                    prompt_lines.append(f"  * Critique: {critique}")
-                if lessons:
-                    prompt_lines.append(f"  * Lessons: {lessons}")
-            prompt_lines.append("")
-
-        prompt_lines.extend([
-            "### Goal to Execute:",
-            f"{goal}",
-            "",
-            "Formulate actions as Python or Shell CodeAct blocks (```python ... ``` or ```bash ... ```) or tool calls.",
-        ])
-
-        return "\n".join(prompt_lines)
+        return build_system_prompt(
+            goal=goal,
+            specialist_name=specialist.name,
+            specialist_instructions=specialist.get_system_instructions(),
+            semantic_summary=semantic_summary,
+            past_episodes=past_episodes,
+            available_skills=skills,
+        )
 
     async def execute_mission(
         self,
