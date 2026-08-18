@@ -1,7 +1,7 @@
 """
 AJA CLI Command: chat
 =====================
-Conversational interactive chat loop with Power TUI features.
+Conversational interactive chat loop with Modern Design System & Power TUI.
 """
 
 import asyncio
@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import typer
 
 from prompt_toolkit import PromptSession
@@ -19,13 +20,17 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
-from aja.config import DATA_DIR, PROJECT_ROOT
+from aja.config import DATA_DIR, PROJECT_ROOT, AJA_WORKER_MODEL, AJA_PLANNER_MODEL
 from aja.interface.modern import (
     console,
     print_banner,
     print_error,
+    render_agent_card,
+    render_tool_badge,
+    render_help_grid,
 )
-from aja.tui.kanban import render_kanban_board
+from aja.tui.terminal import run_fullscreen_modal
+from aja.tui.kanban import live_kanban
 from aja.tui.tasks import (
     STATUS_COMPLETED,
     STATUS_FAILED,
@@ -35,34 +40,37 @@ from aja.tui.tasks import (
 
 
 def cmd_chat():
-    """Conversational interactive chat loop with Power TUI features."""
+    """Conversational interactive chat loop with Modern Design System & Power TUI."""
     from aja.cli.commands.doctor import cmd_doctor
     from aja.cli.commands.status import cmd_status, run_gpu_check, run_logs_check
-    from aja.interface.intent_parser import parse_intent
+    from aja.interface.intent_parser import parse_intent, local_router_fallback
     from aja.presence.state import get_system_state
 
     print_banner()
     console.print(
-        "[bold cyan][Agent] AJA:[/] Greetings. I am AJA, your Assistant of Joint Agents. How can I assist you today?"
+        render_agent_card(
+            "Greetings, Operator. I am **AJA**, your Assistant of Joint Agents.\n"
+            "Ready to execute system tasks, run autonomous swarms, or manage workflows.",
+            model=AJA_WORKER_MODEL,
+        )
     )
     console.print(
-        "[dim]Tip: Use Alt+Enter for multiline input. Type '/' for commands.[/]"
+        "[dim]Tip: Use Alt+Enter for multiline input. Type '/' for command palette.[/]\n"
     )
 
     completer = WordCompleter(
         [
+            "/kanban",
+            "/tui",
             "/swarm",
             "/goal",
             "/schedule",
             "/status",
             "/doctor",
-            "/mode",
             "/models",
-            "/metrics",
-            "/exit",
-            "/clear",
             "/help",
-            "/kanban",
+            "/clear",
+            "/exit",
             "/todo",
             "/doing",
             "/done",
@@ -85,7 +93,7 @@ def cmd_chat():
         key_bindings=kb,
         style=Style.from_dict(
             {
-                "bottom-toolbar": "#ffffff bg:#222222",
+                "bottom-toolbar": "#ffffff bg:#161b22",
                 "completion-menu.completion": "bg:#008888 #ffffff",
                 "completion-menu.completion.current": "bg:#00aaaa #000000",
             }
@@ -100,7 +108,7 @@ def cmd_chat():
             pending_count, running_count = task_manager.get_counts()
 
             def get_toolbar(p=pending_count, r=running_count):
-                engine = "Agent"
+                engine = "Agent (Fast)"
                 tasks = f"Tasks: {p} pending, {r} running"
                 health = "Health: [green]OK[/green]"
                 return HTML(
@@ -121,25 +129,45 @@ def cmd_chat():
 
                 if cmd == "/exit":
                     console.print(
-                        "[bold cyan]AJA:[/] Farewell. Standing by for next mission."
+                        "[bold cyan]AJA:[/] Farewell, Operator. Standing by for next mission."
                     )
                     break
                 elif cmd == "/clear":
                     console.clear()
                     print_banner()
                     continue
-                elif cmd == "/kanban":
-                    render_kanban_board(task_manager)
+                elif cmd == "/help":
+                    help_cmds = [
+                        ("/kanban or /live", "Launch interactive full-screen Kanban task board"),
+                        ("/tui", "Open Mission Control 4-tab dashboard"),
+                        ("/swarm <goal>", "Decompose and execute goal with multi-agent swarm"),
+                        ("/goal <goal>", "Dispatch goal to background worker"),
+                        ("/schedule", "Schedule recurring background task"),
+                        ("/doctor", "Run system environment diagnostics"),
+                        ("/status", "Display active batons and task metrics"),
+                        ("/models", "Interactive Copilot / LLM model selector"),
+                        ("/todo <task>", "Add a new mission task"),
+                        ("/doing <id>", "Move task to RUNNING"),
+                        ("/done <id>", "Move task to COMPLETED"),
+                        ("/failed <id>", "Mark task as FAILED"),
+                        ("/rmtask <id>", "Delete task from board"),
+                        ("/clear", "Clear terminal screen"),
+                        ("/exit", "Exit AJA session"),
+                    ]
+                    console.print(render_help_grid(help_cmds))
                     continue
-                elif cmd == "/live":
-                    from aja.tui.kanban import live_kanban
+                elif cmd in ("/kanban", "/live"):
+                    run_fullscreen_modal(live_kanban)
+                    continue
+                elif cmd == "/tui":
+                    from aja.tui.curses_tui import run_curses_tui_main
 
-                    live_kanban()
+                    run_fullscreen_modal(lambda: asyncio.run(run_curses_tui_main()))
                     continue
                 elif cmd == "/todo":
                     if args:
                         tid = task_manager.add_task(args)
-                        console.print(f"[green]Added task {tid}: {args}[/green]")
+                        console.print(f"[green]✔ Added task {tid}: {args}[/green]")
                     else:
                         console.print("[red]Usage: /todo <task title>[/red]")
                     continue
@@ -153,7 +181,7 @@ def cmd_chat():
                 elif cmd == "/done":
                     if args:
                         task_manager.update_status(args, STATUS_COMPLETED)
-                        console.print(f"[green]Task {args} moved to COMPLETED[/green]")
+                        console.print(f"[green]✔ Task {args} moved to COMPLETED[/green]")
                     else:
                         console.print("[red]Usage: /done <task_id>[/red]")
                     continue
@@ -161,7 +189,7 @@ def cmd_chat():
                     if args:
                         task_manager.update_status(args, STATUS_FAILED)
                         console.print(
-                            f"[bold red]Task {args} marked as FAILED[/bold red]"
+                            f"[bold red]✘ Task {args} marked as FAILED[/bold red]"
                         )
                     else:
                         console.print("[red]Usage: /failed <task_id>[/red]")
@@ -169,20 +197,12 @@ def cmd_chat():
                 elif cmd == "/rmtask":
                     if args:
                         task_manager.delete_task(args)
-                        console.print(f"[grey50]Task {args} deleted[/grey50]")
+                        console.print(f"[dim]Task {args} deleted[/dim]")
                     else:
                         console.print("[red]Usage: /rmtask <task_id>[/red]")
                     continue
                 elif cmd == "/status":
                     cmd_status()
-                    continue
-                elif cmd == "/metrics":
-                    console.print("[yellow]Metrics TUI coming soon in Phase 12.[/]")
-                    continue
-                elif cmd == "/mode":
-                    console.print(
-                        f"[bold cyan]AJA:[/] Current mode is set via aja.json. Use '/mode <type>' (offline/online/hybrid). [dim](Manual switch coming soon)[/]"
-                    )
                     continue
                 elif cmd == "/models":
                     if args:
@@ -190,16 +210,11 @@ def cmd_chat():
                         p_model = parts[0]
                         w_model = parts[1] if len(parts) > 1 else parts[0]
                     else:
-                        from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL
-
                         console.print(
                             f"\n[bold cyan]Engine: Swarm Agents (Planner):[/] {AJA_PLANNER_MODEL}"
                         )
                         console.print(
                             f"[bold cyan]Engine: Single Agent (Worker):[/] {AJA_WORKER_MODEL}"
-                        )
-                        console.print(
-                            "[dim]Tip: Swarm Planner manages complex project breakdowns (use smart models). Single Agent Worker executes hands-on tools (use fast models).[/dim]\n"
                         )
                         choices_map = {
                             "1": "copilot:gpt-4o",
@@ -280,7 +295,7 @@ def cmd_chat():
                     aja.config.AJA_PLANNER_MODEL = p_model
                     aja.config.AJA_WORKER_MODEL = w_model
 
-                    console.print(f"[green]Successfully updated models![/green]")
+                    console.print(f"[green]✔ Successfully updated models![/green]")
                     console.print(
                         f"[bold cyan]Engine: Swarm Agents (Planner):[/] {p_model}"
                     )
@@ -340,7 +355,7 @@ def cmd_chat():
 
                         scheduler = CronScheduler()
                         scheduler.add_job(objective, expr)
-                        console.print(f"[green]Successfully scheduled task![/green]")
+                        console.print(f"[green]✔ Successfully scheduled task![/green]")
                         console.print(f"  [bold]Objective:[/] {objective}")
                         console.print(f"  [bold]Schedule:[/] {expr}")
                         console.print(
@@ -356,17 +371,16 @@ def cmd_chat():
                     console.print(f"[red]Unknown command: {cmd}[/red]")
                     continue
 
-            # 0. Sub-millisecond Fast Path check (bypasses spinner & cloud roundtrip)
-            from aja.interface.intent_parser import local_router_fallback, parse_intent
+            # Sub-millisecond Fast Path check (bypasses spinner & cloud roundtrip)
             fast_intent = local_router_fallback(user_input)
             if fast_intent is not None:
                 intent = fast_intent
-                console.print(f"[bold cyan][Agent] AJA:[/] {intent['response']}")
+                console.print(render_agent_card(intent["response"], model="reflex"))
             else:
                 with console.status("[bold cyan]AJA is thinking...[/]"):
                     state = get_system_state()
                     intent = parse_intent(user_input, history, system_state=state)
-                    console.print(f"[bold cyan][Agent] AJA:[/] {intent['response']}")
+                    console.print(render_agent_card(intent["response"], model=AJA_WORKER_MODEL))
 
             history.append({"role": "user", "content": user_input})
             history.append(
@@ -376,32 +390,33 @@ def cmd_chat():
 
             if intent["type"] == "tool_calls" and intent.get("tool_calls"):
                 console.print(
-                    f"[*] Executing {len(intent['tool_calls'])} tool call(s)..."
+                    f"[dim][*] Executing {len(intent['tool_calls'])} tool call(s)...[/dim]"
                 )
                 try:
                     from aja.observability.telemetry import get_trace_id
                     from aja.orchestration.tools.executor import ToolExecutor
 
                     executor = ToolExecutor()
+                    t0 = time.time()
                     results = asyncio.run(
                         executor.dispatch_tool_calls(
                             tool_calls=intent["tool_calls"],
                             trace_id=get_trace_id(),
                         )
                     )
+                    elapsed_ms = (time.time() - t0) * 1000
 
                     for r in results:
-                        if r.success:
-                            console.print(f"[green]✔ Tool {r.tool} succeeded:[/]")
-                            if r.data:
-                                console.print(str(r.data))
-                        else:
-                            err_msg = (
-                                r.error or getattr(r, "stderr", None) or r.data
+                        err_msg = r.error or getattr(r, "stderr", None)
+                        console.print(
+                            render_tool_badge(
+                                tool_name=r.tool,
+                                success=r.success,
+                                execution_ms=elapsed_ms,
+                                data=str(r.data) if r.data else None,
+                                error=err_msg,
                             )
-                            console.print(
-                                f"[red]✘ Tool {r.tool} failed: {err_msg}[/]"
-                            )
+                        )
 
                         obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error or getattr(r, 'stderr', '')}"
                         history.append({"role": "system", "content": obs})
@@ -470,7 +485,7 @@ def run_chat_with_gateway():
                 subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
             )
             console.print(
-                "[dim][*] Booting AJA Telegram Gateway & Autonomous Worker in the background...[/]"
+                "[dim][*] Booting AJA Telegram Gateway & Autonomous Worker in the background...[/dim]"
             )
             gateway_proc = subprocess.Popen(
                 [sys.executable, "-m", "aja.gateway.server"],
