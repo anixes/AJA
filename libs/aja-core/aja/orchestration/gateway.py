@@ -561,6 +561,20 @@ class LLMGateway:
                 print(f"[Gateway] Error on attempt {attempt}: {e}")
                 if attempt == retries:
                     return None
+                if self.provider == "copilot":
+                    try:
+                        from aja.copilot_auth import (
+                            get_copilot_api_token,
+                            invalidate_copilot_cache,
+                            resolve_copilot_token,
+                        )
+                        invalidate_copilot_cache()
+                        raw_token, _ = resolve_copilot_token()
+                        if raw_token:
+                            self.api_key = get_copilot_api_token(raw_token) or raw_token
+                        self._openai_client = None  # Re-instantiate fresh client on next attempt
+                    except Exception:
+                        pass
                 await asyncio.sleep(2**attempt)
 
     async def chat_stream(
