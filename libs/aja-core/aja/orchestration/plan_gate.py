@@ -46,8 +46,8 @@ Respond ONLY with a JSON object: {{"needs_plan": true/false}}
         else:
             needs_plan = True # Default safe
     except Exception as e:
-        console.print(f"[dim]Warning: Complexity check failed ({e}). Defaulting to planning.[/dim]")
-        needs_plan = True
+        console.print(f"[dim]Complexity check skipped ({e}). Proceeding directly.[/dim]")
+        return goal_request
         
     if not needs_plan:
         return goal_request

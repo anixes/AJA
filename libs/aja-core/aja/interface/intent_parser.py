@@ -6,7 +6,14 @@ from aja.llm import get_gateway_for_model
 
 
 def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
-    cleaned = message.strip().lower()
+    raw = message.strip()
+    cleaned = raw.lower()
+
+    # Strip optional leading 'aja ' or '/' prefix for unified handling in chat
+    if cleaned.startswith("aja "):
+        cleaned = cleaned[4:].strip()
+    if cleaned.startswith("/"):
+        cleaned = cleaned[1:].strip()
 
     # 0. Standalone Greetings & Pleasantries Fast Path (Sub-millisecond reflex)
     if (
@@ -43,43 +50,92 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
         }
 
     # Standalone Help & Commands Fast Path
-    if re.match(r"^(?:help|commands|\?)[\s!.]*$", cleaned):
+    if re.match(r"^(?:help|commands|\?|what\s+can\s+you\s+do|menu)[\s!.]*$", cleaned):
         return {
-            "type": "question",
+            "type": "control",
             "goal": None,
-            "command": None,
+            "command": "help",
             "tool_calls": None,
-            "response": "Available commands: /status, /doctor, /models, /kanban, /schedule, /clear, /exit. Or give me any coding, research, or execution goal directly.",
+            "response": "Here is the AJA command and modal suite:",
             "confidence": 1.0,
         }
 
     # 1. Control Commands
-    # doctor
+    # tui / dashboard / ui
+    if re.match(
+        r"^(?:open\s+|launch\s+|start\s+|view\s+|show\s+|run\s+)?(?:tui|dashboard|mission\s+control)$|^ui$",
+        cleaned,
+    ):
+        return {
+            "type": "control",
+            "goal": None,
+            "command": "tui",
+            "tool_calls": None,
+            "response": "Launching Mission Control TUI dashboard...",
+            "confidence": 1.0,
+        }
 
-    if re.match(r"^(?:run\s+)?(?:system\s+)?doctor$|^\s*/doctor$", cleaned):
+    # kanban / live / task board
+    if re.match(
+        r"^(?:open\s+|launch\s+|start\s+|view\s+|show\s+|run\s+)?(?:kanban|live|task\s*board|tasks\s*board|board)$",
+        cleaned,
+    ):
+        return {
+            "type": "control",
+            "goal": None,
+            "command": "kanban",
+            "tool_calls": None,
+            "response": "Opening interactive Mission Kanban board...",
+            "confidence": 1.0,
+        }
+
+    # models
+    if re.match(r"^(?:models|model|select\s+model|change\s+model|choose\s+model)$", cleaned):
+        return {
+            "type": "control",
+            "goal": None,
+            "command": "models",
+            "tool_calls": None,
+            "response": "Opening interactive model selection...",
+            "confidence": 1.0,
+        }
+
+    # clear / cls
+    if re.match(r"^(?:clear|cls)$", cleaned):
+        return {
+            "type": "control",
+            "goal": None,
+            "command": "clear",
+            "tool_calls": None,
+            "response": "Clearing screen...",
+            "confidence": 1.0,
+        }
+
+    # doctor
+    if re.match(r"^(?:run\s+)?(?:system\s+)?(?:doctor|diagnostics|health\s*check)$", cleaned):
         return {
             "type": "control",
             "goal": None,
             "command": "doctor",
             "tool_calls": None,
-            "response": "Indeed, Sir. Let me run a system diagnostics check to ensure everything is operational.",
+            "response": "Running system diagnostics check...",
             "confidence": 1.0,
         }
 
     # status
-    if re.match(r"^(?:system\s+|swarm\s+|agent\s+)?status$", cleaned):
+    if re.match(r"^(?:system\s+|swarm\s+|agent\s+)?(?:status|health)$", cleaned):
         return {
             "type": "control",
             "goal": None,
             "command": "status",
             "tool_calls": None,
-            "response": "Right away. Let me check the current system status and state overview.",
+            "response": "Retrieving system status and active swarm health...",
             "confidence": 1.0,
         }
 
     # gpu
     if re.match(
-        r"^(?:gpu\s+status|check\s+gpu|gpu|hardware\s+status|system\s+diagnostics)$",
+        r"^(?:gpu\s+status|check\s+gpu|gpu|hardware\s+status)$",
         cleaned,
     ):
         return {
@@ -87,7 +143,7 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
             "goal": None,
             "command": "gpu",
             "tool_calls": None,
-            "response": "Understood. I will retrieve the GPU and hardware resource status.",
+            "response": "Retrieving GPU and hardware resource status...",
             "confidence": 1.0,
         }
 
@@ -98,18 +154,18 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
             "goal": None,
             "command": "logs",
             "tool_calls": None,
-            "response": "I will retrieve and display the recent system logs for you, my friend.",
+            "response": "Retrieving recent system logs...",
             "confidence": 1.0,
         }
 
     # exit
-    if re.match(r"^(?:exit|quit)$", cleaned):
+    if re.match(r"^(?:exit|quit|bye|q)$", cleaned):
         return {
             "type": "control",
             "goal": None,
             "command": "exit",
             "tool_calls": None,
-            "response": "Understood, Sir. Exiting the session now. Goodbye!",
+            "response": "Farewell, Operator. Exiting session now.",
             "confidence": 1.0,
         }
 
@@ -120,7 +176,7 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
             "goal": None,
             "command": "pause",
             "tool_calls": None,
-            "response": "Understood. Pausing the execution context.",
+            "response": "Pausing execution context...",
             "confidence": 1.0,
         }
 
@@ -131,7 +187,7 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
             "goal": None,
             "command": "resume",
             "tool_calls": None,
-            "response": "Understood. Resuming the execution context.",
+            "response": "Resuming execution context...",
             "confidence": 1.0,
         }
 

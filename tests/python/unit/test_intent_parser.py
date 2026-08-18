@@ -3,6 +3,35 @@ from unittest.mock import patch
 from aja.interface.intent_parser import parse_intent, local_router_fallback
 
 def test_local_router_control_commands():
+    # tui and aliases
+    res = local_router_fallback("aja tui")
+    assert res is not None
+    assert res["type"] == "control"
+    assert res["command"] == "tui"
+
+    res = local_router_fallback("open tui")
+    assert res is not None
+    assert res["command"] == "tui"
+
+    res = local_router_fallback("dashboard")
+    assert res is not None
+    assert res["command"] == "tui"
+
+    # kanban and aliases
+    res = local_router_fallback("aja kanban")
+    assert res is not None
+    assert res["type"] == "control"
+    assert res["command"] == "kanban"
+
+    res = local_router_fallback("/live")
+    assert res is not None
+    assert res["command"] == "kanban"
+
+    # help and models
+    assert local_router_fallback("help")["command"] == "help"
+    assert local_router_fallback("models")["command"] == "models"
+    assert local_router_fallback("clear")["command"] == "clear"
+
     # doctor
     res = local_router_fallback("doctor")
     assert res is not None
@@ -112,7 +141,8 @@ def test_local_router_greetings_and_pleasantries():
 
     res = local_router_fallback("help")
     assert res is not None
-    assert res["type"] == "question"
+    assert res["type"] == "control"
+    assert res["command"] == "help"
 
 
 def test_local_router_fallback_no_match():

@@ -103,6 +103,24 @@ def cmd_chat():
     task_manager = TaskManager()
     history = []
 
+    help_cmds = [
+        ("/kanban or /live", "Launch interactive full-screen Kanban task board"),
+        ("/tui", "Open Mission Control 4-tab dashboard"),
+        ("/swarm <goal>", "Decompose and execute goal with multi-agent swarm"),
+        ("/goal <goal>", "Dispatch goal to background worker"),
+        ("/schedule", "Schedule recurring background task"),
+        ("/doctor", "Run system environment diagnostics"),
+        ("/status", "Display active batons and task metrics"),
+        ("/models", "Interactive Copilot / LLM model selector"),
+        ("/todo <task>", "Add a new mission task"),
+        ("/doing <id>", "Move task to RUNNING"),
+        ("/done <id>", "Move task to COMPLETED"),
+        ("/failed <id>", "Mark task as FAILED"),
+        ("/rmtask <id>", "Delete task from board"),
+        ("/clear", "Clear terminal screen"),
+        ("/exit", "Exit AJA session"),
+    ]
+
     while True:
         try:
             pending_count, running_count = task_manager.get_counts()
@@ -137,23 +155,6 @@ def cmd_chat():
                     print_banner()
                     continue
                 elif cmd == "/help":
-                    help_cmds = [
-                        ("/kanban or /live", "Launch interactive full-screen Kanban task board"),
-                        ("/tui", "Open Mission Control 4-tab dashboard"),
-                        ("/swarm <goal>", "Decompose and execute goal with multi-agent swarm"),
-                        ("/goal <goal>", "Dispatch goal to background worker"),
-                        ("/schedule", "Schedule recurring background task"),
-                        ("/doctor", "Run system environment diagnostics"),
-                        ("/status", "Display active batons and task metrics"),
-                        ("/models", "Interactive Copilot / LLM model selector"),
-                        ("/todo <task>", "Add a new mission task"),
-                        ("/doing <id>", "Move task to RUNNING"),
-                        ("/done <id>", "Move task to COMPLETED"),
-                        ("/failed <id>", "Mark task as FAILED"),
-                        ("/rmtask <id>", "Delete task from board"),
-                        ("/clear", "Clear terminal screen"),
-                        ("/exit", "Exit AJA session"),
-                    ]
                     console.print(render_help_grid(help_cmds))
                     continue
                 elif cmd in ("/kanban", "/live"):
@@ -450,17 +451,31 @@ def cmd_chat():
                     console.print(f"[red]Direct Execution failed: {e}[/red]")
 
             elif intent["type"] == "control" and intent["command"]:
-                console.print(
-                    f"[*] Executing control command: [bold]{intent['command']}[/]"
-                )
-                if intent["command"] == "status":
+                cmd_name = str(intent["command"]).lower()
+                if cmd_name in ("tui", "dashboard"):
+                    from aja.tui.curses_tui import run_curses_tui_main
+
+                    run_fullscreen_modal(lambda: asyncio.run(run_curses_tui_main()))
+                elif cmd_name in ("kanban", "live"):
+                    run_fullscreen_modal(live_kanban)
+                elif cmd_name == "help":
+                    console.print(render_help_grid(help_cmds))
+                elif cmd_name == "status":
                     cmd_status()
-                elif intent["command"] == "doctor":
+                elif cmd_name == "doctor":
                     cmd_doctor()
-                elif intent["command"] == "gpu":
+                elif cmd_name == "gpu":
                     run_gpu_check()
-                elif intent["command"] == "logs":
+                elif cmd_name == "logs":
                     run_logs_check()
+                elif cmd_name == "clear":
+                    console.clear()
+                    print_banner()
+                elif cmd_name == "exit":
+                    console.print(
+                        "[bold cyan]AJA:[/] Farewell, Operator. Standing by for next mission."
+                    )
+                    break
 
         except KeyboardInterrupt:
             continue
