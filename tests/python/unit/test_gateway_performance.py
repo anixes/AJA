@@ -57,3 +57,26 @@ def test_completion_stream_generator():
             assert "".join(chunks) == "Hello Operator! Ready."
 
     asyncio.run(_test())
+
+
+def test_gateway_multi_loop_consecutive_calls():
+    """Verify that calling the gateway across multiple distinct asyncio.run loops does not crash with closed loop errors."""
+    gw = LLMGateway(provider="openrouter", api_key="test-key", base_url="https://openrouter.ai/api/v1")
+
+    # Turn 1 in Loop 1
+    async def _turn1():
+        c1 = gw._get_openai_client()
+        s1 = gw._get_session()
+        assert c1 is not None
+        assert s1 is not None
+
+    asyncio.run(_turn1())
+
+    # Turn 2 in Loop 2 (fresh event loop)
+    async def _turn2():
+        c2 = gw._get_openai_client()
+        s2 = gw._get_session()
+        assert c2 is not None
+        assert s2 is not None
+
+    asyncio.run(_turn2())

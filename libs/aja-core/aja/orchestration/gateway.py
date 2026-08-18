@@ -201,6 +201,7 @@ class LLMGateway:
         self._session: Optional[aiohttp.ClientSession] = None
         self._session_loop = None
         self._openai_client: Optional[AsyncOpenAI] = None
+        self._openai_client_loop = None
 
         if not self.base_url:
             raise ValueError(
@@ -223,8 +224,14 @@ class LLMGateway:
         return self._session
 
     def _get_openai_client(self) -> AsyncOpenAI:
-        """Return a reusable AsyncOpenAI client."""
-        if self._openai_client is None:
+        """Return a loop-aware reusable AsyncOpenAI client."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if self._openai_client is None or self._openai_client_loop != loop:
             headers = {
                 "HTTP-Referer": "https://github.com/aja",
                 "X-Title": "AJA Swarm Toolkit",
@@ -235,6 +242,7 @@ class LLMGateway:
                 base_url=self.base_url,
                 default_headers=headers,
             )
+            self._openai_client_loop = loop
         return self._openai_client
 
     async def close(self) -> None:
