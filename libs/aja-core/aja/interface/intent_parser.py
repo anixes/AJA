@@ -8,6 +8,51 @@ from aja.llm import get_gateway_for_model
 def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
     cleaned = message.strip().lower()
 
+    # 0. Standalone Greetings & Pleasantries Fast Path (Sub-millisecond reflex)
+    if (
+        re.match(
+            r"^(?:hi|hello|hey|greetings|good\s+(?:morning|afternoon|evening|day)|sup|howdy)[\s!.]*$",
+            cleaned,
+        )
+        and len(cleaned.split()) <= 3
+    ):
+        return {
+            "type": "question",
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": "Hello, Operator. How can I assist your mission today?",
+            "confidence": 1.0,
+        }
+
+    # Standalone Thanks & Acknowledgements Fast Path
+    if (
+        re.match(
+            r"^(?:thanks|thank\s+you|thx|cheers|appreciated|ty)[\s!.]*$",
+            cleaned,
+        )
+        and len(cleaned.split()) <= 4
+    ):
+        return {
+            "type": "question",
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": "You are very welcome, Operator. Standing by for your next instruction.",
+            "confidence": 1.0,
+        }
+
+    # Standalone Help & Commands Fast Path
+    if re.match(r"^(?:help|commands|\?)[\s!.]*$", cleaned):
+        return {
+            "type": "question",
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": "Available commands: /status, /doctor, /models, /kanban, /schedule, /clear, /exit. Or give me any coding, research, or execution goal directly.",
+            "confidence": 1.0,
+        }
+
     # 1. Control Commands
     # doctor
 
@@ -300,6 +345,83 @@ EXAMPLES:
         return data
     except Exception as e:
         print(f"[IntentParser] Error parsing intent: {e}")
+        return {
+            "type": "question",
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": "I'm having trouble understanding right now. Could you rephrase that?",
+            "confidence": 0.0,
+        }
+
+
+async def parse_intent_async(
+    message: str, history: List[Dict[str, Any]], system_state: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Async version of parse_intent without thread switching overhead.
+    """
+    local_res = local_router_fallback(message)
+    if local_res is not None:
+        return local_res
+
+    model_name = aja.config.AJA_PLANNER_MODEL
+    import platform
+
+    os_name = platform.system()
+    shell_info = "CMD/PowerShell (cmd.exe)" if os_name == "Windows" else "Bash/Sh"
+
+    system_prompt = f"""You are AJA (Assistant of Joint Agents), an AI assistant, secretary, and operator for AJA Core.
+[OS: {os_name}, Shell: {shell_info}]
+Construct commands compatible with {os_name} (wrap paths with spaces in double quotes).
+
+Analyze message & history to choose 'type':
+1. "tool_calls": Atomic actions.
+2. "goal": Complex tasks requiring multiple steps, coding, or reasoning.
+3. "question": General questions, ambiguity clarification, or chat.
+4. "control": Commands: "status", "doctor", "gpu", "logs", "pause", "resume", "exit".
+
+Output ONLY valid JSON:
+{{
+  "type": "tool_calls" | "goal" | "question" | "control",
+  "goal": "Extracted goal if type is 'goal', else null",
+  "command": "status/doctor/gpu/logs/pause/resume/exit if type is 'control', else null",
+  "tool_calls": [{{"tool": "name", "args": {{...}}}}] or null,
+  "response": "Polite, witty, developer-fluent, concise response using 'Sir' or 'my friend'.",
+  "confidence": 0.0 to 1.0
+}}
+"""
+
+    state_context = ""
+    if system_state:
+        state_context = (
+            "Current System State:\n" + json.dumps(system_state, indent=2) + "\n"
+        )
+
+    chat_context = ""
+    if history:
+        chat_context = "Conversation History:\n" + "\n".join(
+            [f"{msg['role']}: {msg['content']}" for msg in history[-5:]]
+        )
+
+    prompt = f"{state_context}\n{chat_context}\n\nUser Message: {message}\n\nExtract the intent in JSON format:"
+
+    try:
+        from aja.llm import completion_async
+
+        raw = await completion_async(prompt=prompt, system_prompt=system_prompt, model=model_name)
+        if not raw:
+            raise ValueError("No response from LLM gateway")
+
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+
+        data = json.loads(raw)
+        return data
+    except Exception as e:
+        print(f"[IntentParser] Error parsing intent async: {e}")
         return {
             "type": "question",
             "goal": None,

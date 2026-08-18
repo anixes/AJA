@@ -90,17 +90,45 @@ def test_local_router_grep():
     assert res["tool_calls"][0]["args"]["query"] == "Arrow"
     assert res["tool_calls"][0]["args"]["path"] == "libs/handover.py"
 
+def test_local_router_greetings_and_pleasantries():
+    # Standalone greetings should match fast path instantly
+    res = local_router_fallback("hello")
+    assert res is not None
+    assert res["type"] == "question"
+    assert "Hello" in res["response"]
+
+    res = local_router_fallback("hi!")
+    assert res is not None
+    assert res["type"] == "question"
+
+    res = local_router_fallback("good morning")
+    assert res is not None
+    assert res["type"] == "question"
+
+    res = local_router_fallback("thank you")
+    assert res is not None
+    assert res["type"] == "question"
+    assert "welcome" in res["response"].lower()
+
+    res = local_router_fallback("help")
+    assert res is not None
+    assert res["type"] == "question"
+
+
 def test_local_router_fallback_no_match():
-    # Should not match simple greetings or complex questions
-    assert local_router_fallback("hello") is None
+    # Compound instructions and open-ended questions must bypass regex and fall back to LLM
+    assert local_router_fallback("hello, please refactor this file") is None
+    assert local_router_fallback("hi can you check the git diff for me") is None
     assert local_router_fallback("how do I configure AJA?") is None
+    assert local_router_fallback("explain the system architecture") is None
+
 
 @patch("aja.llm.completion")
 def test_parse_intent_with_llm_fallback(mock_completion):
-    mock_completion.return_value = '{"type": "question", "response": "Hello there!", "confidence": 1.0, "goal": null, "command": null, "tool_calls": null}'
-    
+    mock_completion.return_value = '{"type": "question", "response": "Architecture details...", "confidence": 1.0, "goal": null, "command": null, "tool_calls": null}'
+
     # Non-matched command should fallback to completion
-    res = parse_intent("hello", [])
+    res = parse_intent("explain the system architecture", [])
     assert res["type"] == "question"
-    assert res["response"] == "Hello there!"
+    assert res["response"] == "Architecture details..."
     mock_completion.assert_called_once()

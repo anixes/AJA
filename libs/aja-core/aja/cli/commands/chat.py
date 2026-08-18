@@ -356,99 +356,96 @@ def cmd_chat():
                     console.print(f"[red]Unknown command: {cmd}[/red]")
                     continue
 
-            with console.status("[bold cyan]AJA is thinking...[/]"):
-                state = get_system_state()
-                intent = parse_intent(user_input, history, system_state=state)
-
+            # 0. Sub-millisecond Fast Path check (bypasses spinner & cloud roundtrip)
+            from aja.interface.intent_parser import local_router_fallback, parse_intent
+            fast_intent = local_router_fallback(user_input)
+            if fast_intent is not None:
+                intent = fast_intent
                 console.print(f"[bold cyan][Agent] AJA:[/] {intent['response']}")
+            else:
+                with console.status("[bold cyan]AJA is thinking...[/]"):
+                    state = get_system_state()
+                    intent = parse_intent(user_input, history, system_state=state)
+                    console.print(f"[bold cyan][Agent] AJA:[/] {intent['response']}")
 
-                history.append({"role": "user", "content": user_input})
-                history.append(
-                    {"role": "assistant", "content": intent.get("response", "")}
+            history.append({"role": "user", "content": user_input})
+            history.append(
+                {"role": "assistant", "content": intent.get("response", "")}
+            )
+            history = history[-15:]
+
+            if intent["type"] == "tool_calls" and intent.get("tool_calls"):
+                console.print(
+                    f"[*] Executing {len(intent['tool_calls'])} tool call(s)..."
                 )
-                history = history[-15:]
+                try:
+                    from aja.observability.telemetry import get_trace_id
+                    from aja.orchestration.tools.executor import ToolExecutor
 
-                if intent["type"] == "tool_calls" and intent.get("tool_calls"):
-                    console.print(
-                        f"[*] Executing {len(intent['tool_calls'])} tool call(s)..."
+                    executor = ToolExecutor()
+                    results = asyncio.run(
+                        executor.dispatch_tool_calls(
+                            tool_calls=intent["tool_calls"],
+                            trace_id=get_trace_id(),
+                        )
                     )
-                    try:
-                        import threading
-                        from aja.observability.telemetry import get_trace_id
-                        from aja.orchestration.tools.executor import ToolExecutor
 
-                        executor = ToolExecutor()
-                        box = {}
-
-                        def thread_target():
-                            box["results"] = asyncio.run(
-                                executor.dispatch_tool_calls(
-                                    tool_calls=intent["tool_calls"],
-                                    trace_id=get_trace_id(),
-                                )
+                    for r in results:
+                        if r.success:
+                            console.print(f"[green]✔ Tool {r.tool} succeeded:[/]")
+                            if r.data:
+                                console.print(str(r.data))
+                        else:
+                            err_msg = (
+                                r.error or getattr(r, "stderr", None) or r.data
+                            )
+                            console.print(
+                                f"[red]✘ Tool {r.tool} failed: {err_msg}[/]"
                             )
 
-                        t = threading.Thread(target=thread_target)
-                        t.start()
-                        t.join()
-                        results = box["results"]
+                        obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error or getattr(r, 'stderr', '')}"
+                        history.append({"role": "system", "content": obs})
 
-                        for r in results:
-                            if r.success:
-                                console.print(f"[green]✔ Tool {r.tool} succeeded:[/]")
-                                if r.data:
-                                    console.print(str(r.data))
-                            else:
-                                err_msg = (
-                                    r.error or getattr(r, "stderr", None) or r.data
-                                )
-                                console.print(
-                                    f"[red]✘ Tool {r.tool} failed: {err_msg}[/]"
-                                )
+                    history = history[-15:]
+                except Exception as e:
+                    console.print(f"[red]Failed to execute tool calls:[/] {e}")
 
-                            obs = f"[{r.tool}] exit={r.exit_code if r.exit_code is not None else 0}\n{r.data or r.error or getattr(r, 'stderr', '')}"
-                            history.append({"role": "system", "content": obs})
+            elif intent["type"] == "goal" and intent.get("goal"):
+                from aja.orchestration.plan_gate import plan_gate
 
-                        history = history[-15:]
-                    except Exception as e:
-                        console.print(f"[red]Failed to execute tool calls:[/] {e}")
+                try:
+                    processed_goal = asyncio.run(plan_gate(intent["goal"]))
+                except typer.Exit:
+                    continue
+                except Exception as e:
+                    console.print(f"[dim]Plan gate check skipped: {e}[/dim]")
+                    processed_goal = intent["goal"]
 
-                elif intent["type"] == "goal" and intent.get("goal"):
-                    from aja.orchestration.plan_gate import plan_gate
+                console.print(
+                    f"[bold magenta]🚀 [Direct] Transitioning to Direct Execution for goal...[/bold magenta]"
+                )
+                from aja.orchestration.direct_session import DirectSession
 
-                    try:
-                        processed_goal = asyncio.run(plan_gate(intent["goal"]))
-                    except typer.Exit:
-                        continue
-                    except Exception as e:
-                        console.print(f"[dim]Plan gate check skipped: {e}[/dim]")
-                        processed_goal = intent["goal"]
-
-                    console.print(
-                        f"[bold magenta]🚀 [Direct] Transitioning to Direct Execution for goal...[/bold magenta]"
+                ds = DirectSession()
+                try:
+                    asyncio.run(
+                        ds._turn(processed_goal, console, interactive=False)
                     )
-                    from aja.orchestration.direct_session import DirectSession
+                except Exception as e:
+                    console.print(f"[red]Direct Execution failed: {e}[/red]")
 
-                    ds = DirectSession()
-                    try:
-                        asyncio.run(
-                            ds._turn(processed_goal, console, interactive=False)
-                        )
-                    except Exception as e:
-                        console.print(f"[red]Direct Execution failed: {e}[/red]")
-
-                elif intent["type"] == "control" and intent["command"]:
-                    console.print(
-                        f"[*] Executing control command: [bold]{intent['command']}[/]"
-                    )
-                    if intent["command"] == "status":
-                        cmd_status()
-                    elif intent["command"] == "doctor":
-                        cmd_doctor()
-                    elif intent["command"] == "gpu":
-                        run_gpu_check()
-                    elif intent["command"] == "logs":
-                        run_logs_check()
+            elif intent["type"] == "control" and intent["command"]:
+                console.print(
+                    f"[*] Executing control command: [bold]{intent['command']}[/]"
+                )
+                if intent["command"] == "status":
+                    cmd_status()
+                elif intent["command"] == "doctor":
+                    cmd_doctor()
+                elif intent["command"] == "gpu":
+                    run_gpu_check()
+                elif intent["command"] == "logs":
+                    run_logs_check()
 
         except KeyboardInterrupt:
             continue

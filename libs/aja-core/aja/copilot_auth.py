@@ -37,9 +37,32 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+# In-memory session cache for resolved raw GitHub token: (token, source)
+_CACHED_RAW_TOKEN: Optional[tuple[str, str]] = None
+
+
+def invalidate_copilot_cache() -> None:
+    """Invalidate all cached GitHub and Copilot tokens (e.g. after a 401/403)."""
+    global _CACHED_RAW_TOKEN, _jwt_cache
+    _CACHED_RAW_TOKEN = None
+    _jwt_cache.clear()
+    os.environ.pop("COPILOT_GITHUB_TOKEN", None)
+    logger.info("Copilot token and JWT caches have been invalidated.")
+
+
 def resolve_copilot_token() -> tuple[str, str]:
-    """Resolve a GitHub token suitable for Copilot API use."""
-    # 1. Check env vars
+    """Resolve a GitHub token suitable for Copilot API use with $O(1)$ in-memory caching."""
+    global _CACHED_RAW_TOKEN
+
+    # 1. Fast in-memory cache lookup
+    if _CACHED_RAW_TOKEN is not None:
+        token, source = _CACHED_RAW_TOKEN
+        valid, _ = validate_copilot_token(token)
+        if valid:
+            return token, source
+        _CACHED_RAW_TOKEN = None
+
+    # 2. Check environment variables
     for env_var in COPILOT_ENV_VARS:
         val = os.getenv(env_var, "").strip()
         if val:
@@ -47,15 +70,19 @@ def resolve_copilot_token() -> tuple[str, str]:
             if not valid:
                 logger.warning("Token from %s is not supported: %s", env_var, msg)
                 continue
+            _CACHED_RAW_TOKEN = (val, env_var)
             return val, env_var
 
-    # 2. Fall back to gh auth token CLI fallback (if available and valid)
+    # 3. Fall back to gh auth token CLI fallback (memoized once per session)
     token = _try_gh_cli_token()
     if token:
         valid, msg = validate_copilot_token(token)
         if not valid:
             logger.warning("Token from `gh auth token` is not supported: %s", msg)
         else:
+            _CACHED_RAW_TOKEN = (token, "gh auth token")
+            # Export to os.environ so child tools/processes inherit it
+            os.environ["COPILOT_GITHUB_TOKEN"] = token
             return token, "gh auth token"
 
     return "", ""

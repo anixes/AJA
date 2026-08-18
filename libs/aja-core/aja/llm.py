@@ -9,8 +9,16 @@ import aja.config
 from aja.orchestration.gateway import LLMGateway
 from aja.api.interfaces import BaseModelProvider
 
-# Singleton gateway instance
-_gateway = None
+# Gateway instance cache: cache_key -> LLMGateway
+_gateway_cache: Dict[str, LLMGateway] = {}
+
+
+def clear_gateway_cache():
+    """Clear cached gateway instances (e.g. after config or token changes)."""
+    global _gateway_cache, _gateway
+    _gateway_cache.clear()
+    _gateway = None
+
 
 def get_gateway():
     global _gateway
@@ -109,7 +117,11 @@ def get_gateway_for_model(model_str):
     if not api_key and provider == "google":
         api_key = os.getenv("GEMINI_API_KEY", "")
 
-    return LLMGateway(provider=provider, api_key=api_key), model_name
+    cache_key = f"{provider}:{api_key[:8] if api_key else ''}"
+    if cache_key not in _gateway_cache:
+        _gateway_cache[cache_key] = LLMGateway(provider=provider, api_key=api_key)
+
+    return _gateway_cache[cache_key], model_name
 
 def run_async_synchronously(coro):
     """
@@ -507,5 +519,40 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
 
     # Gateway execution path
     return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)) or ""
+
+
+async def completion_async(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None):
+    """
+    Native async completion interface without OS thread-switching overhead.
+    """
+    if model is None:
+        try:
+            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
+        except Exception:
+            model = "llama_cpp:LFM2.5-VL-1.6B"
+
+    gw, model_name = get_gateway_for_model(model)
+    return await gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools) or ""
+
+
+async def completion_stream(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None):
+    """
+    Stream token chunks directly from the configured LLM gateway.
+    """
+    if model is None:
+        try:
+            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
+        except Exception:
+            model = "llama_cpp:LFM2.5-VL-1.6B"
+
+    gw, model_name = get_gateway_for_model(model)
+    async for chunk in gw.chat_stream(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature):
+        yield chunk
 
 

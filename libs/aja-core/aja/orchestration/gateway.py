@@ -198,12 +198,53 @@ class LLMGateway:
             if self.provider == "copilot"
             else self.PROVIDERS.get(self.provider)
         )
-        self.base_url = base_url or default_url
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._session_loop = None
+        self._openai_client: Optional[AsyncOpenAI] = None
 
         if not self.base_url:
             raise ValueError(
                 f"Unknown provider '{self.provider}'. Please provide a base_url for custom endpoints."
             )
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Return a loop-aware persistent aiohttp ClientSession with TCP connection pooling."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if self._session is None or self._session.closed or self._session_loop != loop:
+            timeout = aiohttp.ClientTimeout(total=60)
+            connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
+            self._session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+            self._session_loop = loop
+        return self._session
+
+    def _get_openai_client(self) -> AsyncOpenAI:
+        """Return a reusable AsyncOpenAI client."""
+        if self._openai_client is None:
+            headers = {
+                "HTTP-Referer": "https://github.com/aja",
+                "X-Title": "AJA Swarm Toolkit",
+            }
+            headers.update(self.extra_headers)
+            self._openai_client = AsyncOpenAI(
+                api_key=self.api_key or "dummy-local-key",
+                base_url=self.base_url,
+                default_headers=headers,
+            )
+        return self._openai_client
+
+    async def close(self) -> None:
+        """Cleanly close underlying persistent network sessions."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+        if self._openai_client:
+            await self._openai_client.close()
+            self._openai_client = None
 
     async def complete(
         self,
@@ -411,17 +452,29 @@ class LLMGateway:
                     }
                     req_headers.update(self.extra_headers)
 
-                    timeout = aiohttp.ClientTimeout(total=60)
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.post(
-                            url, json=payload, headers=req_headers
-                        ) as resp:
-                            if resp.status != 200:
-                                detail = await resp.text()
-                                raise ValueError(
-                                    f"Copilot Responses API Error {resp.status}: {detail}"
-                                )
-                            data = await resp.json()
+                    session = self._get_session()
+                    async with session.post(
+                        url, json=payload, headers=req_headers
+                    ) as resp:
+                        if resp.status in (401, 403) and self.provider == "copilot" and attempt < retries:
+                            from aja.copilot_auth import (
+                                get_copilot_api_token,
+                                invalidate_copilot_cache,
+                                resolve_copilot_token,
+                            )
+
+                            invalidate_copilot_cache()
+                            raw_token, _ = resolve_copilot_token()
+                            if raw_token:
+                                self.api_key = get_copilot_api_token(raw_token) or raw_token
+                            continue
+
+                        if resp.status != 200:
+                            detail = await resp.text()
+                            raise ValueError(
+                                f"Copilot Responses API Error {resp.status}: {detail}"
+                            )
+                        data = await resp.json()
 
                     output_items = data.get("output", [])
                     resp_content = ""
@@ -479,19 +532,8 @@ class LLMGateway:
                 if extra_body is not None:
                     kwargs["extra_body"] = extra_body
 
-                headers = {
-                    "HTTP-Referer": "https://github.com/aja",
-                    "X-Title": "AJA Swarm Toolkit",
-                }
-                headers.update(self.extra_headers)
-
-                async with AsyncOpenAI(
-                    api_key=self.api_key or "dummy-local-key",
-                    base_url=self.base_url,
-                    default_headers=headers,
-                ) as client:
-
-                    response = await client.chat.completions.create(**kwargs)
+                client = self._get_openai_client()
+                response = await client.chat.completions.create(**kwargs)
 
                 msg = response.choices[0].message
                 if tools is not None:
@@ -512,6 +554,62 @@ class LLMGateway:
                 if attempt == retries:
                     return None
                 await asyncio.sleep(2**attempt)
+
+    async def chat_stream(
+        self,
+        model: str,
+        prompt: Any,
+        system: str = "You are a helpful assistant.",
+        temperature: Optional[float] = None,
+    ):
+        """Stream token chunks directly from LLM gateway."""
+        if self.provider == "copilot" and model in (
+            "copilot",
+            "github-copilot",
+            "default",
+        ):
+            model = "gpt-4o-mini"
+        elif self.provider == "copilot" and model.startswith("copilot:"):
+            model = model[8:]
+
+        # If model is OpenAI compatible
+        if self.provider in ("openai", "openrouter", "copilot", "llama_cpp", "ollama", "together", "groq", "nvidia"):
+            try:
+                if isinstance(prompt, list):
+                    prompt_messages = []
+                    for m in prompt:
+                        prompt_messages.append({
+                            "role": m.get("role", "user"),
+                            "content": m.get("content", m.get("text", "")),
+                        })
+                    messages = [_build_system_message(self.provider, model, system)] + prompt_messages
+                else:
+                    messages = [
+                        _build_system_message(self.provider, model, system),
+                        {"role": "user", "content": str(prompt)},
+                    ]
+
+                client = self._get_openai_client()
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "stream": True,
+                }
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+
+                response_stream = await client.chat.completions.create(**kwargs)
+                async for chunk in response_stream:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+                return
+            except Exception as e:
+                logger.debug(f"[Gateway] chat_stream streaming error: {e}, falling back to non-streamed chat.")
+
+        # Fallback for Google or non-streamed paths
+        full_res = await self.chat(model=model, prompt=prompt, system=system, temperature=temperature)
+        if full_res:
+            yield full_res
 
     async def _google_generate_content(
         self,
@@ -575,48 +673,48 @@ class LLMGateway:
                 )
             payload["tools"] = [{"functionDeclarations": google_tools}]
 
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    url, json=payload, headers={"Content-Type": "application/json"}
-                ) as response:
-                    if response.status != 200:
-                        detail = await response.text()
-                        print(f"[Gateway] Google Error {response.status}: {detail}")
-                        return None
+        session = self._get_session()
+        try:
+            async with session.post(
+                url, json=payload, headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status != 200:
+                    detail = await response.text()
+                    print(f"[Gateway] Google Error {response.status}: {detail}")
+                    return None
 
-                    data = await response.json()
-                    parts = (
-                        data.get("candidates", [{}])[0]
-                        .get("content", {})
-                        .get("parts", [])
-                    )
-                    if tools is not None:
-                        content = ""
-                        tool_calls = []
-                        import json
+                data = await response.json()
+                parts = (
+                    data.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [])
+                )
+                if tools is not None:
+                    content = ""
+                    tool_calls = []
+                    import json
 
-                        for p in parts:
-                            if "text" in p:
-                                content += p["text"]
-                            if "functionCall" in p:
-                                fc = p["functionCall"]
-                                tool_calls.append(
-                                    {
-                                        "id": fc.get("name"),
-                                        "name": fc.get("name"),
-                                        "arguments": json.dumps(fc.get("args", {})),
-                                    }
-                                )
-                        return {"content": content.strip(), "tool_calls": tool_calls}
-                    else:
-                        text_parts = [
-                            part.get("text", "") for part in parts if part.get("text")
-                        ]
-                        return "\n".join(text_parts).strip() or None
-            except Exception as e:
-                print(f"[Gateway] Google Error: {e}")
-                return None
+                    for p in parts:
+                        if "text" in p:
+                            content += p["text"]
+                        if "functionCall" in p:
+                            fc = p["functionCall"]
+                            tool_calls.append(
+                                {
+                                    "id": fc.get("name"),
+                                    "name": fc.get("name"),
+                                    "arguments": json.dumps(fc.get("args", {})),
+                                }
+                            )
+                    return {"content": content.strip(), "tool_calls": tool_calls}
+                else:
+                    text_parts = [
+                        part.get("text", "") for part in parts if part.get("text")
+                    ]
+                    return "\n".join(text_parts).strip() or None
+        except Exception as e:
+            print(f"[Gateway] Google Error: {e}")
+            return None
 
     @durable_activity("llm.embed")
     async def embed(self, model: str, text: str) -> list[float]:
