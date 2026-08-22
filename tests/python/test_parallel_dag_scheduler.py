@@ -15,10 +15,19 @@ async def test_parallel_dag_node_execution(monkeypatch):
 
     executed_nodes = []
 
-    async def mock_execute_direct(self, task_str, *args, **kwargs):
+    # Patch the whole SwarmEngine class: constructing the real engine per node
+    # pulls heavy dependencies and makes this test flaky under full-suite load.
+    from unittest.mock import MagicMock, AsyncMock
+
+    async def fake_execute(task_str, *args, **kwargs):
         executed_nodes.append(task_str)
 
-    monkeypatch.setattr("aja.orchestration.swarm.SwarmEngine.execute_direct", mock_execute_direct)
+    mock_engine_instance = MagicMock()
+    mock_engine_instance.execute_direct = AsyncMock(side_effect=fake_execute)
+    monkeypatch.setattr(
+        "aja.orchestration.swarm.SwarmEngine",
+        MagicMock(return_value=mock_engine_instance),
+    )
 
     # Nodes 1 and 2 have no dependencies (independent). Node 3 depends on 1 and 2.
     n1 = PlanNode(id="n1", task="Task 1")

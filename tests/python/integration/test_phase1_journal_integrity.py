@@ -435,3 +435,10 @@ class TestCrashOrphanDetection:
 
         # Empty file must remain empty (size == 0)
         assert (session_dir / "timeline.jsonl").stat().st_size == 0
+
+# Serialize process-spawning tests onto one xdist worker: concurrent ConPTY
+# handle pools / subprocess storms on Windows wedge workers (native crash ->
+# 'node down'). All subprocess-spawning modules share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

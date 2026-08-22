@@ -139,3 +139,10 @@ def _inside_asyncio_to_thread(node, async_owner, parents):
             return True
         current = parents.get(current)
     return False
+
+# Serialize process-spawning tests onto one xdist worker: concurrent ConPTY
+# handle pools / subprocess storms on Windows wedge workers (native crash ->
+# 'node down'). All subprocess-spawning modules share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

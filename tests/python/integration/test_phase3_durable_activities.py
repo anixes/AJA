@@ -73,12 +73,13 @@ def test_llm_gateway_durable_replay(tmp_path):
             mock_response.choices = [MagicMock()]
             mock_response.choices[0].message.content = "mocked llm output"
             
-            # Async mock client context manager
+            # Async mock client — LLMGateway uses a reusable client directly
+            # (no async context manager) since the loop-aware client refactor.
             mock_client = MagicMock()
             from unittest.mock import AsyncMock
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             
-            mock_openai.return_value.__aenter__.return_value = mock_client
+            mock_openai.return_value = mock_client
             
             response = await gateway.chat(model="gpt-4", prompt="What is AJA?")
             assert response == "mocked llm output"
@@ -152,3 +153,10 @@ def test_baton_handover_durable_replay(tmp_path):
         replay_state = baton_manager.pickup(code)
         mock_cache.assert_not_called()
         assert replay_state["objective"] == "Perform scan"
+
+# Serialize process-spawning tests onto one xdist worker: concurrent ConPTY
+# handle pools / subprocess storms on Windows wedge workers (native crash ->
+# 'node down'). All subprocess-spawning modules share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

@@ -76,13 +76,15 @@ def test_manager_integration():
     asyncio.run(scenario())
 
 
+@pytest.mark.timeout(60)
 def test_transport_cancellation_stress():
     """Verify that transport cancellation terminates process trees without thread or descriptor leaks."""
     async def scenario():
         mgr = ExecutionManager()
-        # Spawns a long sleeping process
+        # Spawns a sleeping process; body only needs to outlive the 1s timeout
+        # (previously 100s — the excess lifetime just slowed parallel runs).
         req = ExecutionRequest(
-            command=f"\"{sys.executable}\" -c \"import time; time.sleep(100)\"",
+            command=f"\"{sys.executable}\" -c \"import time; time.sleep(15)\"",
             shell=True,
             timeout=1.0,  # Short timeout to force cancellation
         )
@@ -95,6 +97,7 @@ def test_transport_cancellation_stress():
     asyncio.run(scenario())
 
 
+@pytest.mark.timeout(60)
 def test_pty_execution_cross_platform():
     """Assert PTY execution runs cleanly on supported OS targets using new transport interfaces."""
     async def scenario():
@@ -108,4 +111,11 @@ def test_pty_execution_cross_platform():
         assert res.success is True
         assert "pty_verify" in res.stdout
     asyncio.run(scenario())
+
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
 

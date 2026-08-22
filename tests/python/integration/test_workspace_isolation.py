@@ -50,3 +50,10 @@ def test_workspace_cleanup_removes_execution_root(tmp_path: Path):
         assert not execution_root.exists()
 
     asyncio.run(scenario())
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

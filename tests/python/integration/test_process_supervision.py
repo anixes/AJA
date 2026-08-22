@@ -16,7 +16,7 @@ def test_cancel_running_execution(tmp_path: Path):
     async def scenario():
         root = make_git_project(tmp_path)
         manager = ExecutionManager(project_root=root)
-        session = await manager.start(ExecutionRequest(command=py_cmd("import time; time.sleep(10)"), timeout=30))
+        session = await manager.start(ExecutionRequest(command=py_cmd("import time; time.sleep(4)"), timeout=30))
         await asyncio.sleep(0.2)
 
         await asyncio.gather(manager.cancel(session.session_id), manager.cancel(session.session_id), manager.cancel(session.session_id))
@@ -32,7 +32,7 @@ def test_timeout_race_settles_once(tmp_path: Path):
     async def scenario():
         root = make_git_project(tmp_path)
         manager = ExecutionManager(project_root=root)
-        session = await manager.start(ExecutionRequest(command=py_cmd("import time; time.sleep(10)"), timeout=0.2))
+        session = await manager.start(ExecutionRequest(command=py_cmd("import time; time.sleep(4)"), timeout=0.2))
         await asyncio.sleep(0.1)
         await manager.cancel(session.session_id)
         result = await manager.wait(session.session_id)
@@ -57,3 +57,10 @@ def test_cleanup_sweep_is_scoped_to_execution_workspaces(tmp_path: Path):
 
     assert "exec-stale" in removed
     assert not stale.exists()
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

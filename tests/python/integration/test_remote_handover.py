@@ -95,6 +95,6 @@ def test_remote_baton_transmission(mock_urlopen):
     
     code = mgr.capture(objective, state)
     
-    success = mgr.transmit_baton(code, "http://remote-swarm-worker:8000/baton/receive")
+    success = mgr.transmit_baton(code, "https://remote-swarm-worker:8000/baton/receive")
     assert success is True
     assert mock_urlopen.called

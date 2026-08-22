@@ -48,8 +48,8 @@ def test_telegram_telemetry_lancedb_events_bypass_dedup():
         adapter.send_message = AsyncMock()
         adapter.send_notification = AsyncMock()
         
-        # Queue MISSION_RESULT event
-        await adapter.telemetry_queue.put({
+        # Queue MISSION_RESULT event (via bounded producer, as the bus would)
+        adapter._put_telemetry({
             "event_id": "e1",
             "kind": "MISSION_RESULT",
             "target": "m1",
@@ -58,9 +58,9 @@ def test_telegram_telemetry_lancedb_events_bypass_dedup():
             "command": "dir",
             "timestamp": "2026-05-21T12:00:00Z"
         })
-        
+
         # Queue PLAN_CREATED event
-        await adapter.telemetry_queue.put({
+        adapter._put_telemetry({
             "event_id": "e2",
             "kind": "PLAN_CREATED",
             "target": "m1",
@@ -69,14 +69,14 @@ def test_telegram_telemetry_lancedb_events_bypass_dedup():
             "command": "",
             "timestamp": "2026-05-21T12:00:01Z"
         })
-        
-        # Run a short tail_events cycle
-        tail_task = asyncio.create_task(adapter.tail_events("123"))
+
+        # Run a short tail_events cycle via the tracked lifecycle API
+        adapter.start_tail("123")
         await asyncio.sleep(0.1)
-        
+
         # Stop and await tail
         adapter.is_running = False
-        await adapter.telemetry_queue.put({
+        adapter._put_telemetry({
             "event_id": "stop",
             "kind": "STOP",
             "target": "stop",
@@ -86,9 +86,11 @@ def test_telegram_telemetry_lancedb_events_bypass_dedup():
             "timestamp": ""
         })
         try:
-            await asyncio.wait_for(tail_task, timeout=1.0)
+            await asyncio.wait_for(adapter._tail_tasks["123"], timeout=1.0)
         except Exception:
             pass
+        if getattr(adapter, "_dispatcher_task", None):
+            adapter._dispatcher_task.cancel()
             
         # Check that send_notification was called with "normal" importance for the non-deduped kinds
         assert adapter.send_notification.call_count >= 2
@@ -135,11 +137,8 @@ def test_llm_gateway_conversation_memory():
             choices=[MagicMock(message=MagicMock(content="mock-response"))]
         )
         
-        mock_async_context_manager = MagicMock()
-        mock_async_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_async_context_manager.__aexit__ = AsyncMock()
-        
-        with patch("aja.orchestration.gateway.AsyncOpenAI", return_value=mock_async_context_manager):
+        # LLMGateway uses a reusable client directly (no async context manager)
+        with patch("aja.orchestration.gateway.AsyncOpenAI", return_value=mock_client):
             gw = LLMGateway(provider="openrouter", api_key="test-key")
             response = await gw.chat(model="gpt-4", prompt=messages, system="You are helpful")
             

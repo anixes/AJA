@@ -82,6 +82,9 @@ markers = [
     "slow: Tests with extensive duration or multiple timeouts",
 ]
 addopts = "-ra --durations=10"
+# Hard per-test ceiling so a hung test cannot stall the whole CI run.
+timeout = 300
+timeout_method = "thread"
 
 # ---------------------------------------------------------------------------
 # Ruff — linter + formatter

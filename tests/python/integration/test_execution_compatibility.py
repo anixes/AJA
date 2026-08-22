@@ -58,3 +58,10 @@ def test_tool_executor_blocks_denies_and_runs_allowed_command(monkeypatch):
     allowed = ToolExecutor().execute(py_cmd("print('tool')"))
     assert allowed["status"] == "success"
     assert "tool" in allowed["stdout"]
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

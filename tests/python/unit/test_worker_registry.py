@@ -1,22 +1,19 @@
 import unittest
 import os
 import json
+import tempfile
 from pathlib import Path
 from aja.orchestration.registry import WorkerRegistry
 
 class TestWorkerRegistry(unittest.TestCase):
     def setUp(self):
-        # Use a temporary DB for testing
-        self.db_path = Path("test_lancedb")
-        if self.db_path.exists():
-            import shutil
-            shutil.rmtree(self.db_path)
+        # Per-test temp DB (absolute) so parallel workers never collide on CWD-relative paths.
+        self._tmp = tempfile.TemporaryDirectory(prefix="aja_registry_test_")
+        self.db_path = Path(self._tmp.name) / "test_lancedb"
         self.registry = WorkerRegistry(db_path=self.db_path)
 
     def tearDown(self):
-        if self.db_path.exists():
-            import shutil
-            shutil.rmtree(self.db_path)
+        self._tmp.cleanup()
 
     def test_registration_and_ranking(self):
         # Register two workers

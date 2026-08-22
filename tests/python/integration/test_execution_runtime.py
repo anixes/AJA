@@ -74,7 +74,7 @@ def test_execution_timeout_attribution(tmp_path):
         set_activity_context(None)
         root = make_git_project(tmp_path)
         manager = ExecutionManager(project_root=root)
-        result = await manager.run(ExecutionRequest(command=py_cmd("import time; time.sleep(10)"), timeout=0.2))
+        result = await manager.run(ExecutionRequest(command=py_cmd("import time; time.sleep(6)"), timeout=0.2))
 
         assert result.success is False
         assert result.state == "timeout"
@@ -94,3 +94,10 @@ def test_telemetry_sink_failure_does_not_fail_execution(tmp_path):
         assert "ok" in result.stdout
 
     asyncio.run(scenario())
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

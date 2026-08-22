@@ -42,9 +42,12 @@ def test_conpty_resource_exhaustion(tmp_path):
         root = make_git_project(tmp_path)
         manager = ExecutionManager(project_root=root)
         
-        for i in range(10):
+        # Sleep well beyond any plausible kill-sequence latency so the process
+        # can never exit naturally before the 0.2s timeout fires, even under
+        # heavy full-suite load (prevents flaky completed-vs-timeout races).
+        for i in range(6):
             req = ExecutionRequest(
-                command=py_cmd("import time; time.sleep(5.0)"),
+                command=py_cmd("import time; time.sleep(12.0)"),
                 timeout=0.2,
                 use_pty=True
             )
@@ -53,3 +56,10 @@ def test_conpty_resource_exhaustion(tmp_path):
             assert result.state == "timeout"
 
     asyncio.run(scenario())
+
+# Serialize process-spawning/PTY tests onto one xdist worker: concurrent ConPTY
+# handle pools exhaust on Windows and wedge workers (thread-method timeouts
+# cannot abort them). All heavy subprocess tests share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

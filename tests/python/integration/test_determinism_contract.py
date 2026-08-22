@@ -121,3 +121,10 @@ def test_logical_tick_scheduler():
 
 
 
+
+# Serialize process-spawning tests onto one xdist worker: concurrent ConPTY
+# handle pools / subprocess storms on Windows wedge workers (native crash ->
+# 'node down'). All subprocess-spawning modules share the 'process_heavy' group.
+import pytest as _pytest
+pytestmark = _pytest.mark.xdist_group("process_heavy")
+

@@ -72,7 +72,7 @@ def test_callback_reports_already_handled_status(monkeypatch):
 
     import aja.memory.secretary as secretary_mod
 
-    monkeypatch.setattr(secretary_mod, "AJAMemory", lambda: _FakeMemory())
+    monkeypatch.setattr(secretary_mod, "get_aja_memory", lambda: _FakeMemory())
 
     import asyncio
     asyncio.run(adapter._handle_callback(_FakeUpdate(query), None))
@@ -95,7 +95,7 @@ def test_callback_reports_expired_approval(monkeypatch):
 
     import aja.memory.secretary as secretary_mod
 
-    monkeypatch.setattr(secretary_mod, "AJAMemory", lambda: _FakeMemory())
+    monkeypatch.setattr(secretary_mod, "get_aja_memory", lambda: _FakeMemory())
 
     import asyncio
     asyncio.run(adapter._handle_callback(_FakeUpdate(query), None))
