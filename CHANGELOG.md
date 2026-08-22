@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 6 — Real Web Capabilities & Fleet
+- **`search_web` / `fetch_url` tools** (`aja/tools/web.py`): pluggable providers (Serper/Brave/Bing API keys; zero-config DuckDuckGo POST fallback), clean markdown extraction with content-type guards and truncation caps; registered in `NativeToolRegistry` so the WebResearcher persona's tools exist.
+- **Browser automation depth**: `browser.extract_markdown`, `browser.wait_for_selector`, `browser.wait_for_network_idle`; structured `BrowserActionError` normalization (timeout/selector/navigation); parameterized timeouts.
+- **Fleet deployment story**: full baton loop integration test (capture → signed transmit → HMAC-verified receive → pickup incl. unsigned/tampered rejection) + operator guide (`docs/operator/FLEET.md`).
+- **Research flow E2E**: WebResearcher operating pattern (search → select → fetch → synthesize-with-citations) tested through the real registry path.
+
 #### Phase 5 Follow-Ups
 - **Skill-runtime CommandGuard**: Every recorded shell step in `SkillExecutor` is re-classified through `classify_command` before execution — `deny` steps abort the run cleanly; `ask` steps deny by default unless explicitly permitted via `allow_ask_steps`.
 - **Per-platform gateway authorization**: Unified `aja/gateway/auth.py::is_user_authorized(platform, user_id)` with `DISCORD_ALLOWED_USER_IDS` / `SLACK_ALLOWED_USER_IDS` envs; Discord/Slack intake checks wired through it; Gateway Auth Posture reported by `aja doctor`; schema formalized as `GatewayAuthConfig`.
@@ -55,7 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `providers.json` consolidated to a single canonical root file; `copilot` provider added; Google base URL updated to the OpenAI-compatible `/v1beta/openai` endpoint.
 
 ### Fixed
-- **pytest-xdist isolation activated**: conftest checked the legacy `_PYTEST_XDIST_WORKER` env name, but modern xdist sets `PYTEST_XDIST_WORKER`. Per-worker `AJA_DATA_DIR`/`AJA_TRACE_DIR` isolation never engaged, so all parallel workers shared one LanceDB directory → native crashes ("node down") → xdist controller INTERNALERROR stall. Fixed by honoring both names; the full suite now passes `-n 8 --dist loadgroup` with **587 passed in ~1m45s** (previously ~29 min serial and unstable under xdist).
+- **Real ConPTY support on pywinpty 3.x**: import fallback (module `winpty`), adapted `spawn()` signature, non-blocking native reads (blocking reads parked forever post-child-exit), and PTY-failure fallback no longer uses half-constructed transports.
+- **pytest-xdist isolation activated**: conftest checked the legacy `_PYTEST_XDIST_WORKER` env name, but modern xdist sets `PYTEST_XDIST_WORKER`. Per-worker `AJA_DATA_DIR`/`AJA_TRACE_DIR` isolation never engaged, so all parallel workers shared one LanceDB directory → native crashes ("node down") → xdist controller INTERNALERROR stall. Fixed by honoring both names; the full suite now passes `-n 8 --dist loadgroup` with **601 passed in <2 min** (previously ~29 min serial and unstable under xdist).
 - **PTY/xdist wedge**: Bounded reader reaping in `ExecutionManager._run_session` (`asyncio.wait` timeout=5s); force-close-before-cancel ConPTY cleanup with `io`/`close` locks in `WindowsPTYTransport`; fast-fail timeout marks on PTY-stress tests so a wedged reader can no longer hang the whole xdist run.
 - **Copilot token storage hardening**: `.env` ACLs restricted after write (`icacls` on Windows, `chmod 600` on POSIX); the Copilot token is no longer exported into child-process environments by default — opt back in via `AJA_EXPORT_COPILOT_TOKEN=1`.
 - **Phase 5 audit fixes**: gateway `datetime` NameError; streaming-fallback `logger` NameError; Google API key moved to header with exception scrubbing; torn-JSONL journal poisoning; non-atomic gateway session persistence (merge_insert + sanitized predicates); cross-process heartbeat race (merge_insert upsert); phantom shard mission projections; O(n²) journal emit; blocking LanceDB calls on the event loop; open platform authorization when bot token set without allowlist; `list_communications` signature mismatch breaking `/communications`; deterministic 4xx provider errors retried 3×; `reflection.py` crashes on None gateway returns; CLI exit-code swallowing in `aja run`; duplicate `_auto_boot_local_worker`; TUI empty-catalog IndexError; llm.py gateway cache-key collision/staleness.
