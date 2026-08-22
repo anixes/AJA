@@ -9,8 +9,10 @@ Implements Bi-Temporal Graph Memory (Zep/Graphiti standard) on SQLite:
 =============================================================================
 """
 
+import contextlib
 import json
 import logging
+import re
 import sqlite3
 import time
 import uuid
@@ -53,11 +55,23 @@ class TemporalRelation:
 class BiTemporalEntityGraph:
     """
     Bi-temporal graph database for persistent, contradiction-free agent memory.
+
+    Accepts an injectable ``clock`` callable (returning epoch seconds) for
+    deterministic testing; defaults to ``time.time``.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(
+        self,
+        db_path: Optional[Path] = None,
+        clock: Optional[Any] = None,
+    ):
         if db_path is None:
-            db_dir = Path.home() / ".aja" / "state"
+            try:
+                from aja.config import DATA_DIR
+                db_dir = Path(DATA_DIR)
+            except Exception as e:  # best-effort fallback when config is unavailable
+                logger.debug("DATA_DIR unavailable (%s); falling back to home dir", e)
+                db_dir = Path.home() / ".aja" / "state"
             db_dir.mkdir(parents=True, exist_ok=True)
             db_path = db_dir / "temporal_graph.db"
         else:
@@ -65,7 +79,11 @@ class BiTemporalEntityGraph:
             db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db_path = db_path
+        self.clock = clock or time.time
         self._init_db()
+
+    def _now(self) -> float:
+        return float(self.clock())
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
@@ -74,8 +92,18 @@ class BiTemporalEntityGraph:
         conn.execute("PRAGMA foreign_keys=ON;")
         return conn
 
+    @contextlib.contextmanager
+    def _transaction(self):
+        """Yields a connection that commits on success and always closes."""
+        conn = self._get_connection()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _init_db(self) -> None:
-        with self._get_connection() as conn:
+        with self._transaction() as conn:
             conn.executescript("""
             CREATE TABLE IF NOT EXISTS entities (
                 entity_id TEXT PRIMARY KEY,
@@ -90,6 +118,29 @@ class BiTemporalEntityGraph:
 
             CREATE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
             CREATE INDEX IF NOT EXISTS idx_entities_valid ON entities(valid_from, valid_to);
+
+            -- Enforce at most one ACTIVE entity per (entity_type, name):
+            -- prevents concurrent upserts from producing duplicate active rows.
+            -- Migration: demote stale duplicates (keep the newest active row)
+            -- so the unique index can be created on pre-existing databases.
+            UPDATE entities SET valid_to = (
+                SELECT MAX(newer.valid_from) FROM entities newer
+                WHERE newer.entity_type = entities.entity_type
+                  AND newer.name = entities.name
+                  AND newer.entity_id != entities.entity_id
+            )
+            WHERE valid_to IS NULL
+              AND EXISTS (
+                SELECT 1 FROM entities newer2
+                WHERE newer2.entity_type = entities.entity_type
+                  AND newer2.name = entities.name
+                  AND newer2.valid_to IS NULL
+                  AND newer2.valid_from > entities.valid_from
+              );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_entities_active_identity
+                ON entities(entity_type, name)
+                WHERE valid_to IS NULL;
 
             CREATE TABLE IF NOT EXISTS relations (
                 relation_id TEXT PRIMARY KEY,
@@ -127,14 +178,15 @@ class BiTemporalEntityGraph:
         If an active entity with the same (entity_type, name) exists with changed properties,
         the old entity is invalidated (valid_to = now), preserving history, and a new record is created.
         """
-        now = time.time()
+        now = self._now()
         vf = valid_from if valid_from is not None else now
 
-        with self._get_connection() as conn:
+        with self._transaction() as conn:
             # Check for existing active entity
             cursor = conn.execute(
                 """
-                SELECT entity_id, properties_json FROM entities
+                SELECT entity_id, properties_json, valid_from, valid_to, recorded_at, source_episode_id
+                FROM entities
                 WHERE entity_type = ? AND name = ? AND (valid_to IS NULL OR valid_to > ?)
                 ORDER BY valid_from DESC LIMIT 1
                 """,
@@ -146,16 +198,18 @@ class BiTemporalEntityGraph:
                 existing_id = row["entity_id"]
                 existing_props = json.loads(row["properties_json"])
 
-                # If properties are unchanged, return existing active entity
+                # If properties are unchanged, return the stored active entity
+                # with its REAL timeline (not caller-supplied defaults).
                 if existing_props == properties:
                     return TemporalEntity(
                         entity_id=existing_id,
                         entity_type=entity_type,
                         name=name,
                         properties=properties,
-                        valid_from=vf,
-                        valid_to=None,
-                        source_episode_id=source_episode_id,
+                        valid_from=row["valid_from"],
+                        valid_to=row["valid_to"],
+                        recorded_at=row["recorded_at"],
+                        source_episode_id=row["source_episode_id"],
                     )
 
                 # Invalidate existing entity as superseded
@@ -198,8 +252,8 @@ class BiTemporalEntityGraph:
 
     def invalidate_entity(self, entity_type: str, name: str, invalid_at: Optional[float] = None) -> bool:
         """Explicitly marks an active entity as invalid/inactive."""
-        now = invalid_at or time.time()
-        with self._get_connection() as conn:
+        now = self._now() if invalid_at is None else float(invalid_at)
+        with self._transaction() as conn:
             cursor = conn.execute(
                 """
                 UPDATE entities SET valid_to = ?
@@ -211,8 +265,8 @@ class BiTemporalEntityGraph:
 
     def get_active_entity(self, entity_type: str, name: str) -> Optional[TemporalEntity]:
         """Fetches the currently valid entity by type and name."""
-        now = time.time()
-        with self._get_connection() as conn:
+        now = self._now()
+        with self._transaction() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM entities
@@ -228,7 +282,7 @@ class BiTemporalEntityGraph:
 
     def get_entity_history(self, entity_type: str, name: str) -> List[TemporalEntity]:
         """Returns the full chronological history of an entity across all revisions."""
-        with self._get_connection() as conn:
+        with self._transaction() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM entities
@@ -239,14 +293,28 @@ class BiTemporalEntityGraph:
             )
             return [self._row_to_entity(row) for row in cursor.fetchall()]
 
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """
+        Reduces a raw user query to safe FTS5 terms: strips operator syntax
+        (AND/OR/NOT/^/:/NEAR), keeps alphanumeric tokens, AND-joins them as
+        quoted phrases so adversarial input degrades to plain keyword search.
+        """
+        tokens = re.findall(r"[A-Za-z0-9_]{1,64}", query)
+        if not tokens:
+            return ""
+        return " ".join(f'"{t}"' for t in tokens[:8])
+
     def search_entities(self, query: str, limit: int = 10, only_active: bool = True) -> List[TemporalEntity]:
         """Full-text keyword search across active or historical entities."""
-        now = time.time()
-        clean_q = query.replace('"', '""').replace("'", "''").strip()
-        if not clean_q:
+        now = self._now()
+        fts_q = self._sanitize_fts_query(query)
+        # LIKE fallback pattern: escape wildcards so user input cannot scan everything
+        like_q = f"%{re.escape(query.strip())}%"
+        if not fts_q:
             return []
 
-        with self._get_connection() as conn:
+        with self._transaction() as conn:
             try:
                 cursor = conn.execute(
                     """
@@ -255,7 +323,7 @@ class BiTemporalEntityGraph:
                     WHERE entities_fts MATCH ?
                     ORDER BY rank LIMIT ?
                     """,
-                    (clean_q, limit * 2),
+                    (fts_q, limit * 2),
                 )
                 entities = [self._row_to_entity(row) for row in cursor.fetchall()]
                 if only_active:
@@ -269,7 +337,7 @@ class BiTemporalEntityGraph:
                     WHERE name LIKE ? OR properties_json LIKE ?
                     LIMIT ?
                     """,
-                    (f"%{clean_q}%", f"%{clean_q}%", limit),
+                    (like_q, like_q, limit),
                 )
                 entities = [self._row_to_entity(row) for row in cursor.fetchall()]
                 if only_active:
@@ -285,12 +353,12 @@ class BiTemporalEntityGraph:
         valid_from: Optional[float] = None,
     ) -> TemporalRelation:
         """Links two entities with a directed bi-temporal relationship."""
-        now = time.time()
-        vf = valid_from or now
+        now = self._now()
+        vf = valid_from if valid_from is not None else now
         props = properties or {}
         rel_id = f"rel-{uuid.uuid4().hex[:12]}"
 
-        with self._get_connection() as conn:
+        with self._transaction() as conn:
             conn.execute(
                 """
                 INSERT INTO relations (relation_id, source_id, target_id, relation_type, properties_json, valid_from, valid_to, recorded_at)
@@ -312,8 +380,8 @@ class BiTemporalEntityGraph:
 
     def get_relations(self, entity_id: str, only_active: bool = True) -> List[TemporalRelation]:
         """Returns all outbound and inbound relationships for an entity."""
-        now = time.time()
-        with self._get_connection() as conn:
+        now = self._now()
+        with self._transaction() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM relations
@@ -342,8 +410,8 @@ class BiTemporalEntityGraph:
 
     def get_context_summary(self, limit: int = 15) -> str:
         """Generates structured markdown summary of active environment entities."""
-        now = time.time()
-        with self._get_connection() as conn:
+        now = self._now()
+        with self._transaction() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM entities

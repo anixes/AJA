@@ -6,6 +6,7 @@ import uuid
 import logging
 import subprocess
 import sys
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 try:
     from aja import aja_native
@@ -15,6 +16,7 @@ except ImportError:
     except ImportError:
         aja_native = None
 from aja.config import PROJECT_ROOT, DATA_DIR, TELEGRAM_ALLOWED_USER_ID, AJA_PLANNER_MODEL
+from aja.utils.redact import redact_secrets
 from aja.runtime.memory import MemoryTree
 from aja.runtime.handover import BatonManager
 from aja.memory.vector import VectorMemory
@@ -39,6 +41,7 @@ class UnifiedGateway:
     def __init__(self, model_id: Optional[str] = None):
         self.model_id = model_id or AJA_PLANNER_MODEL
         self.memory = MemoryTree()
+        self._open_gateway_warned = False
 
         # DUAL BRAIN: MemoryTree (Structured) + VectorMemory (LanceDB/Semantic)
         self.vector_memory = VectorMemory(table_name="mission_semantic")
@@ -69,10 +72,13 @@ class UnifiedGateway:
         try:
             if aja_native and hasattr(aja_native, "init_semantic"):
                 aja_native.init_semantic(semantic_db_path)
-                print(f"AJA: Native Semantic Memory initialized at {semantic_db_path}")
+            logger.info(
+                "AJA: Native Semantic Memory initialized at %s", semantic_db_path
+            )
         except Exception as e:
-            print(
-                f"AJA Warning: Native memory init skipped ({e}). Using LanceDB/Arrow fallback."
+            logger.warning(
+                "AJA: Native memory init skipped (%s). Using LanceDB/Arrow fallback.",
+                e,
             )
 
     def capture_state(self) -> Dict[str, Any]:
@@ -155,8 +161,8 @@ class UnifiedGateway:
             analysis = {"should_compress": False}
 
         if analysis.get("should_compress"):
-            print(
-                f"AJA [Native]: Trajectory pressure detected. Optimizing via Dynamic Compression..."
+            logger.info(
+                "AJA [Native]: Trajectory pressure detected. Optimizing via Dynamic Compression..."
             )
             messages = self.compress_trajectory(
                 messages, analysis["compress_start"], analysis["compress_end"]
@@ -205,7 +211,10 @@ class UnifiedGateway:
             content = response_payload.get("content", "")
             tool_calls = response_payload.get("tool_calls", [])
             if tool_calls:
-                print(f"[AJA Chat] Model emitted {len(tool_calls)} native tool call(s). Executing in-process...")
+                logger.info(
+                    "[AJA Chat] Model emitted %d native tool call(s). Executing in-process...",
+                    len(tool_calls),
+                )
                 for tc in tool_calls:
                     fn_name = tc.get("name")
                     fn_args = tc.get("arguments", {})
@@ -214,7 +223,11 @@ class UnifiedGateway:
                             fn_args = json.loads(fn_args)
                         except Exception:
                             fn_args = {}
-                    print(f"[AJA Chat] Executing tool '{fn_name}' with args {fn_args}...")
+                    logger.info(
+                        "[AJA Chat] Executing tool '%s' with args %s",
+                        fn_name,
+                        redact_secrets(str(fn_args)),
+                    )
                     try:
                         if fn_name in tool_registry.tools:
                             res = tool_registry.execute(fn_name, fn_args)
@@ -228,7 +241,7 @@ class UnifiedGateway:
         user_last_text = messages[-1].get("content", "").lower() if messages else ""
         if not tool_results and any(kw in user_last_text for kw in ("time", "date", "clock", "today", "day is it")):
             local_now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M:%S %p %Z (UTC %z)")
-            print(f"[AJA Chat] Real-time time query detected. Injecting system clock observation: {local_now}")
+            logger.info("[AJA Chat] Real-time time query detected. Injecting system clock observation: %s", local_now)
             tool_results.append(f"[system_clock output]: Current System Time is {local_now}")
 
         if tool_results:
@@ -296,7 +309,7 @@ class UnifiedGateway:
         state = self.capture_state()
         code = self.handover.capture(task, state)
 
-        print(f"AJA: Spawning sub-agent '{agent_id}' with mission baton '{code}'")
+        logger.info("AJA: Spawning sub-agent '%s' with mission baton '%s'", agent_id, code)
 
         # Detached background process
         await asyncio.to_thread(
@@ -314,7 +327,7 @@ class UnifiedGateway:
         """Starts the gateway services (Telegram, etc)."""
         token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
         if not token:
-            print("[!] AJA Gateway Warning: TELEGRAM_BOT_TOKEN not found in environment. Gateway will run without Telegram support.")
+            logger.warning("TELEGRAM_BOT_TOKEN not found in environment. Gateway will run without Telegram support.")
             return
 
         # Start the telegram gateway as a background task
@@ -338,12 +351,11 @@ class UnifiedGateway:
             return
 
         self.telegram_adapter = TelegramAdapter(token)
-        print("AJA Gateway: Initializing Telegram connection...")
+        logger.info("AJA Gateway: Initializing Telegram connection...")
         try:
             await self.telegram_adapter.start(self)
         except Exception as e:
             logger.exception("Failed to start Telegram adapter: %s", e)
-            print(f"[-] AJA Gateway Error: Failed to start Telegram adapter: {e}")
             return
 
         try:
@@ -352,28 +364,8 @@ class UnifiedGateway:
                     await self.handle_gateway_event(event)
                 except Exception as e:
                     logger.exception("Error processing Telegram event: %s", e)
-                    print(f"[-] AJA Gateway Error: Exception handling event: {e}")
         except Exception as e:
             logger.exception("Telegram polling loop crashed: %s", e)
-            print(f"[-] AJA Gateway Error: Telegram polling crashed: {e}")
-
-    def _auto_boot_local_worker(self):
-        """Auto-heal by spawning a background terminal worker daemon if none is active."""
-        if getattr(self, "_worker_boot_attempted", False):
-            return
-        self._worker_boot_attempted = True
-        try:
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            logger.info("Auto-booting local terminal worker daemon in background...")
-            subprocess.Popen(
-                [sys.executable, "-u", "-m", "aja.runtime.autonomous_loop"],
-                cwd=str(PROJECT_ROOT),
-                creationflags=creationflags,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception as e:
-            logger.error(f"Failed to auto-boot local worker: {e}")
 
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
@@ -412,11 +404,15 @@ class UnifiedGateway:
                 f"`TELEGRAM_ALLOWED_USER_ID={event.user_id}`\n\n"
                 "Then, restart the AJA Gateway process."
             )
-            print(f"[AJA Security] Unauthorized access attempt by user_id {event.user_id}: '{event.text}'")
+            logger.warning(
+                "[AJA Security] Unauthorized access attempt by user_id %s: '%s'",
+                event.user_id,
+                redact_secrets(event.text),
+            )
             await self.telegram_adapter.send_message(chat_id, msg)
             return
 
-        session = self.gateway_state.get_session(chat_id)
+        session = await asyncio.to_thread(self.gateway_state.get_session, chat_id)
 
         # 1. Media Enrichment (AJA Vision)
         content = event.text or "What can you see in this image?"
@@ -428,7 +424,7 @@ class UnifiedGateway:
             if event.media_urls:
                 image_url = event.media_urls[0]
                 session["last_image_url"] = image_url
-                print(f"AJA Vision Bridge: Processing incoming photo payload for chat {chat_id}...")
+                logger.info("AJA Vision Bridge: Processing incoming photo payload for chat %s...", chat_id)
         elif session.get("last_image_url"):
             VISION_FOLLOWUP_TRIGGERS = (
                 "image", "photo", "picture", "screen", "see", "describe",
@@ -437,7 +433,7 @@ class UnifiedGateway:
             content_lower = content.lower()
             if any(term in content_lower for term in VISION_FOLLOWUP_TRIGGERS):
                 image_url = session.get("last_image_url")
-                print(f"AJA Vision Bridge: Attaching active image context for chat {chat_id}...")
+                logger.info("AJA Vision Bridge: Attaching active image context for chat %s...", chat_id)
             else:
                 # Clear image context when conversation shifts to standard text
                 session.pop("last_image_url", None)
@@ -454,7 +450,7 @@ class UnifiedGateway:
         )
         if len(session["history"]) > 50:
             session["history"] = session["history"][-50:]
-        self.gateway_state.update_session(chat_id, session)
+        await asyncio.to_thread(self.gateway_state.update_session, chat_id, session)
 
 
         from aja.gateway.remote_control import (
@@ -581,9 +577,12 @@ class UnifiedGateway:
             else:
                 response = f"Mission Accepted ({mission['mission_id']}). I'm deploying a worker to the terminal to handle this: '{actual_goal}'. I'll live-report any progress here."
 
-            # Start telemetry bridge for this chat
+            # Start telemetry bridge for this chat (lifecycle-tracked by the adapter)
             if chat_id not in self.active_telemetry_bridges:
-                asyncio.create_task(self.telegram_adapter.tail_events(chat_id))
+                if hasattr(self.telegram_adapter, "start_tail"):
+                    self.telegram_adapter.start_tail(chat_id)
+                else:  # adapters without per-chat tail management (e.g. stubs)
+                    asyncio.create_task(self.telegram_adapter.tail_events(chat_id))
                 self.active_telemetry_bridges.add(chat_id)
 
         elif intent == "STATUS":
@@ -635,11 +634,18 @@ class UnifiedGateway:
             )
         if len(session.get("history", [])) > 50:
             session["history"] = session["history"][-50:]
-        self.gateway_state.update_session(chat_id, session)
+        await asyncio.to_thread(self.gateway_state.update_session, chat_id, session)
 
 
     def _auto_boot_local_worker(self):
-        """Launches supervised daemon & background autonomous worker loop."""
+        """Launches supervised daemon & background autonomous worker loop.
+
+        Boot-once guard: DaemonManager.start_daemon is idempotent, but the
+        status probe has a cost and repeated triggers would spam logs.
+        """
+        if getattr(self, "_worker_boot_attempted", False):
+            return
+        self._worker_boot_attempted = True
         try:
             from aja.gateway.daemon_manager import DaemonManager
             dm = DaemonManager()
@@ -649,12 +655,24 @@ class UnifiedGateway:
             logger.warning(f"Failed to auto-boot local worker: {e}")
 
     def _is_telegram_user_authorized(self, event: MessageEvent) -> bool:
+        """Returns True when the platform user_id passes the whitelist policy.
 
-        """Returns True when Telegram user_id passes whitelist policy."""
-        allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID") or TELEGRAM_ALLOWED_USER_ID
-        if not allowed_user_id or str(allowed_user_id).strip() in ("*", ""):
-            return True
-        return str(event.user_id) == str(allowed_user_id).strip()
+        Delegates to the unified per-platform policy in aja.gateway.auth
+        (fail-safe: token configured + no allowlist => DENY; no token =>
+        allow for local-only setups). The warn-once log is preserved here.
+        """
+        from aja.gateway.auth import has_bot_token, is_user_authorized
+
+        authorized = is_user_authorized("telegram", event.user_id)
+        if not authorized and not self._open_gateway_warned:
+            if has_bot_token("telegram"):
+                logger.warning(
+                    "Gateway authorization is OPEN: a bot token is configured but "
+                    "TELEGRAM_ALLOWED_USER_ID is not set. Remote users will be DENIED "
+                    "until you set TELEGRAM_ALLOWED_USER_ID to your numeric user id."
+                )
+            self._open_gateway_warned = True
+        return authorized
 
     async def route_intent(
         self,

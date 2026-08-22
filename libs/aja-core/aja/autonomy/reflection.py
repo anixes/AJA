@@ -75,9 +75,12 @@ class ReflectionEngine:
         """
 
         response_str = await self.gateway.chat(
-            prompt, 
+            prompt,
             system="You are the Agent Reflection Engine. Your goal is to build a high-quality skill library."
         )
+        if not response_str:
+            logger.warning("Reflection gateway returned no output; skipping skill synthesis.")
+            return
 
         try:
             # Robust JSON extraction from markdown or raw text
@@ -134,6 +137,9 @@ class ReflectionEngine:
             prompt,
             system="You are the Agent Consolidation Engine. Keep the library efficient and clean."
         )
+        if not response_str:
+            logger.warning("Consolidation gateway returned no output; skipping.")
+            return
 
         try:
             # Simple cleaning for now

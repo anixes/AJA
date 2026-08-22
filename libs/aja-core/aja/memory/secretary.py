@@ -1,13 +1,17 @@
+import os
 import uuid
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import lancedb
 import pyarrow as pa
 from aja.config import PROJECT_ROOT, DATA_DIR
 
 logger = logging.getLogger("aja.memory.secretary")
+
+CHAT_TTL_DAYS = int(os.getenv("AJA_CHAT_TTL_DAYS", "30"))
+CHAT_PRUNE_EVERY_N_WRITES = 25
 
 
 def utc_now() -> str:
@@ -98,6 +102,41 @@ WORKERS_SCHEMA = pa.schema(
         ("last_heartbeat", pa.string()),
         ("status", pa.string()), # ONLINE, OFFLINE
         ("name", pa.string()), # Friendly name or type (e.g. 'autonomous-loop')
+        # --- Registry fields (worker capability profiles) ---
+        ("availability_status", pa.string()),   # active, paused, retired
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+        ("worker_name", pa.string()),
+        ("worker_type", pa.string()),
+        ("description", pa.string()),
+        ("model", pa.string()),
+        ("preferred_task_types_json", pa.string()),
+        ("blocked_task_types_json", pa.string()),
+        ("supports_tests", pa.bool_()),
+        ("supports_git_operations", pa.bool_()),
+        ("supports_deployment", pa.bool_()),
+        ("reliability_score", pa.float64()),
+        ("execution_speed", pa.string()),       # fast, medium, slow
+        ("cost_profile", pa.string()),          # free, subscription, pay_per_use
+        ("approval_risk_level", pa.string()),
+        ("historical_success_rate", pa.float64()),
+        ("total_tasks_executed", pa.int32()),
+        ("primary_strengths_json", pa.string()),
+        ("recent_failures_json", pa.string()),
+    ]
+)
+
+WORKER_EXECUTIONS_SCHEMA = pa.schema(
+    [
+        ("log_id", pa.string()),
+        ("worker_id", pa.string()),
+        ("task_id", pa.string()),
+        ("objective", pa.string()),
+        ("success", pa.bool_()),
+        ("duration_ms", pa.float64()),
+        ("error", pa.string()),
+        ("metadata_json", pa.string()),
+        ("created_at", pa.string()),
     ]
 )
 
@@ -157,6 +196,7 @@ class AJAMemory:
 
     def __init__(self, db_path: str = str(DATA_DIR / "lancedb")):
         self.db = lancedb.connect(db_path)
+        self._chat_write_counter = 0
         self._init_tables()
 
     def _init_tables(self):
@@ -177,6 +217,21 @@ class AJAMemory:
         # 4. Workers/Swarm State
         if "aja_workers" not in existing:
             self.db.create_table("aja_workers", schema=WORKERS_SCHEMA)
+        else:
+            # Schema evolution: backfill registry columns added after first release.
+            try:
+                table = self.db.open_table("aja_workers")
+                existing_cols = {f.name for f in table.schema}
+                missing = [f for f in WORKERS_SCHEMA if f.name not in existing_cols]
+                if missing:
+                    table.add_columns(pa.schema([pa.field(f.name, f.type) for f in missing]))
+                    logger.info("Migrated aja_workers schema: added %s", [f.name for f in missing])
+            except Exception as e:
+                logger.warning("aja_workers schema migration check failed: %s", e)
+
+        # 9. Worker execution history
+        if "aja_worker_executions" not in existing:
+            self.db.create_table("aja_worker_executions", schema=WORKER_EXECUTIONS_SCHEMA)
 
         # 5. Runtime Events
         if "aja_runtime_events" not in existing:
@@ -208,29 +263,23 @@ class AJAMemory:
         import os
         table = self.db.open_table("aja_workers")
         now = datetime.now(timezone.utc).isoformat()
-        
-        # Upsert heartbeat
+
+        # Cross-process-safe upsert keyed on worker_id. merge_insert performs
+        # the existence check and insert atomically server-side, avoiding the
+        # duplicate-worker race of a read-then-add sequence.
         try:
-            existing = table.search().where(f"worker_id = '{worker_id}'").to_list()
-            if existing:
-                table.update(
-                    where=f"worker_id = '{worker_id}'",
-                    values={
-                        "last_heartbeat": now,
-                        "status": status,
-                        "pid": os.getpid(),
-                        "name": name
-                    }
-                )
-            else:
-                table.add([{
+            table.merge_insert(
+                on="worker_id",
+            ).when_matched_update_all().when_not_matched_insert_all().execute(
+                [{
                     "worker_id": worker_id,
                     "hostname": socket.gethostname(),
                     "pid": os.getpid(),
                     "last_heartbeat": now,
                     "status": status,
-                    "name": name
-                }])
+                    "name": name,
+                }]
+            )
         except Exception as e:
             logger.error(f"Heartbeat publish failed for {worker_id}: {e}")
 
@@ -444,6 +493,40 @@ class AJAMemory:
 
     # --- Worker/Swarm Management ---
 
+    # Fields accepted on a worker profile row; list-typed values are JSON-encoded.
+    _WORKER_LIST_FIELDS = {
+        "preferred_task_types": "preferred_task_types_json",
+        "blocked_task_types": "blocked_task_types_json",
+        "primary_strengths": "primary_strengths_json",
+        "recent_failures": "recent_failures_json",
+    }
+    _WORKER_SCALAR_FIELDS = {
+        "worker_id", "name", "worker_name", "worker_type", "description", "model",
+        "availability_status", "created_at", "updated_at",
+        "supports_tests", "supports_git_operations", "supports_deployment",
+        "reliability_score", "execution_speed", "cost_profile",
+        "approval_risk_level", "historical_success_rate", "total_tasks_executed",
+    }
+
+    @staticmethod
+    def _normalize_worker_row(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Decodes *_json columns back into lists and exposes worker_name."""
+        out = dict(row)
+        for field, col in AJAMemory._WORKER_LIST_FIELDS.items():
+            raw = out.pop(col, None) if col in out else out.pop(field, None)
+            if isinstance(raw, str):
+                try:
+                    out[field] = json.loads(raw)
+                except (TypeError, ValueError):
+                    out[field] = []
+            elif raw is None:
+                out[field] = []
+            else:
+                out[field] = raw
+        if not out.get("worker_name"):
+            out["worker_name"] = out.get("name") or out.get("worker_id")
+        return out
+
     def list_workers(
         self, status: Optional[str] = None, limit: int = 50
     ) -> List[Dict[str, Any]]:
@@ -451,20 +534,163 @@ class AJAMemory:
         query = table.search()
         if status:
             query = query.where(f"availability_status = {sanitize_value(status)}")
-        return query.limit(limit).to_list()
+        return [self._normalize_worker_row(r) for r in query.limit(limit).to_list()]
+
+    def get_worker(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        table = self.db.open_table("aja_workers")
+        results = (
+            table.search()
+            .where(f"worker_id = {sanitize_value(worker_id)}")
+            .limit(1)
+            .to_list()
+        )
+        return self._normalize_worker_row(results[0]) if results else None
 
     def create_worker(self, data: Dict[str, Any]) -> Dict[str, Any]:
         table = self.db.open_table("aja_workers")
         wid = data.get("worker_id") or uuid.uuid4().hex[:8]
-        row = {
+        existing = (
+            table.search()
+            .where(f"worker_id = {sanitize_value(wid)}")
+            .limit(1)
+            .to_list()
+        )
+        if existing:
+            raise ValueError(f"Worker already exists: {wid}")
+        now = utc_now()
+        row: Dict[str, Any] = {
             "worker_id": wid,
-            "name": data.get("name", "Unknown"),
-            "availability_status": "active",
+            "hostname": "",
+            "pid": 0,
+            "last_heartbeat": "",
+            "status": "OFFLINE",
+            "name": data.get("worker_name") or data.get("name") or wid,
+            "availability_status": data.get("availability_status", "active"),
+            "created_at": now,
+            "updated_at": now,
+            "reliability_score": data.get("reliability_score", 0.5),
+            "historical_success_rate": data.get("historical_success_rate", 0.0),
+            "total_tasks_executed": data.get("total_tasks_executed", 0),
+            "execution_speed": data.get("execution_speed", "medium"),
+            "cost_profile": data.get("cost_profile", "subscription"),
+            "approval_risk_level": data.get("approval_risk_level", "medium"),
+            "supports_tests": bool(data.get("supports_tests", False)),
+            "supports_git_operations": bool(data.get("supports_git_operations", False)),
+            "supports_deployment": bool(data.get("supports_deployment", False)),
+        }
+        for field, col in self._WORKER_LIST_FIELDS.items():
+            row[col] = json.dumps(data.get(field) or [])
+        for scalar in ("worker_type", "description", "model"):
+            row[scalar] = data.get(scalar) or ""
+        table.add([row])
+        return self._normalize_worker_row(self.get_worker(wid) or row)
+
+    def update_worker(self, worker_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.get_worker(worker_id):
+            raise KeyError(f"Worker not found: {worker_id}")
+        table = self.db.open_table("aja_workers")
+        values: Dict[str, Any] = {"updated_at": utc_now()}
+        for key, val in updates.items():
+            if key in self._WORKER_LIST_FIELDS:
+                values[self._WORKER_LIST_FIELDS[key]] = json.dumps(val or [])
+            elif key in self._WORKER_SCALAR_FIELDS and key != "worker_id":
+                values[key] = val
+        table.update(where=f"worker_id = {sanitize_value(worker_id)}", values=values)
+        return self.get_worker(worker_id)
+
+    def delete_worker(self, worker_id: str) -> bool:
+        if not self.get_worker(worker_id):
+            return False
+        table = self.db.open_table("aja_workers")
+        table.delete(f"worker_id = {sanitize_value(worker_id)}")
+        return True
+
+    def seed_default_workers(self) -> List[Dict[str, Any]]:
+        """Seeds the registry with default worker profiles (idempotent)."""
+        defaults = [
+            {
+                "worker_id": "local-default",
+                "worker_name": "Local Default Worker",
+                "worker_type": "local",
+                "description": "On-host execution worker for direct tasks.",
+                "model": "",
+                "execution_speed": "medium",
+                "cost_profile": "free",
+                "primary_strengths": ["shell", "filesystem"],
+                "preferred_task_types": ["code", "fix", "test", "maintenance"],
+            },
+            {
+                "worker_id": "cloud-researcher",
+                "worker_name": "Cloud Researcher",
+                "worker_type": "research",
+                "description": "Web research and summarization specialist.",
+                "model": "",
+                "execution_speed": "fast",
+                "cost_profile": "subscription",
+                "primary_strengths": ["web", "summarization"],
+                "preferred_task_types": ["research", "documentation", "analysis"],
+            },
+        ]
+        seeded = []
+        for profile in defaults:
+            try:
+                seeded.append(self.create_worker(profile))
+            except ValueError:
+                pass  # already seeded
+        return seeded
+
+    # --- Worker Execution History ---
+
+    def log_worker_execution(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        table = self.db.open_table("aja_worker_executions")
+        log_id = data.get("log_id") or uuid.uuid4().hex[:12]
+        row = {
+            "log_id": log_id,
+            "worker_id": data.get("worker_id", ""),
+            "task_id": data.get("task_id", ""),
+            "objective": data.get("objective", ""),
+            "success": bool(data.get("success", False)),
+            "duration_ms": float(data.get("duration_ms") or 0.0),
+            "error": data.get("error", ""),
+            "metadata_json": json.dumps(data.get("metadata") or {}),
             "created_at": utc_now(),
-            **data,
         }
         table.add([row])
+        # Fold outcome into the worker's track record
+        worker = self.get_worker(row["worker_id"])
+        if worker:
+            total = int(worker.get("total_tasks_executed") or 0) + 1
+            rate = float(worker.get("historical_success_rate") or 0.0)
+            success_count = round(rate / 100.0 * max(1, total - 1)) + (1 if row["success"] else 0)
+            new_rate = (success_count / total) * 100.0 if total else 0.0
+            updates = {"total_tasks_executed": total, "historical_success_rate": new_rate}
+            if not row["success"]:
+                failures = list(worker.get("recent_failures") or [])
+                failures.insert(0, {"log_id": log_id, "error": row["error"], "at": row["created_at"]})
+                updates.update(
+                    reliability_score=max(0.0, float(worker.get("reliability_score") or 0.5) - 0.05),
+                    recent_failures=failures[:5],
+                )
+            self.update_worker(row["worker_id"], updates)
         return row
+
+    def get_worker_execution_history(self, worker_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        table = self.db.open_table("aja_worker_executions")
+        rows = (
+            table.search()
+            .where(f"worker_id = {sanitize_value(worker_id)}")
+            .limit(limit)
+            .to_list()
+        )
+        for r in rows:
+            raw = r.pop("metadata_json", None)
+            if isinstance(raw, str):
+                try:
+                    r["metadata"] = json.loads(raw)
+                except (TypeError, ValueError):
+                    r["metadata"] = {}
+        rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return rows
 
     # --- Communication Management ---
 
@@ -486,14 +712,28 @@ class AJAMemory:
         return row
 
     def list_communications(
-        self, approval_status: Optional[str] = None, limit: int = 50
+        self,
+        delivery_status: Optional[str] = None,
+        approval_status: Optional[str] = None,
+        pending_follow_up: bool = False,
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        """
+        Lists communications with optional filters, matching the API bridge
+        contract (delivery_status, approval_status, pending_follow_up, limit).
+
+        Note: ``pending_follow_up`` is accepted for contract compatibility but
+        not yet backed by a schema column; it is ignored by the query.
+        """
         table = self.db.open_table("aja_communications")
         query = table.search()
+        clauses = []
+        if delivery_status:
+            clauses.append(f"delivery_status = {sanitize_value(delivery_status)}")
         if approval_status:
-            query = query.where(
-                f"approval_status = {sanitize_value(approval_status)}"
-            )
+            clauses.append(f"approval_status = {sanitize_value(approval_status)}")
+        if clauses:
+            query = query.where(" AND ".join(clauses))
         return query.limit(limit).to_list()
 
     def get_communication(self, message_id: str) -> Optional[Dict[str, Any]]:
@@ -539,15 +779,6 @@ class AJAMemory:
         return self.update_communication(
             message_id, {"delivery_status": "sent", "content": note}
         )
-
-    def list_communications(
-        self, statuses: List[str] = None, limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        table = self.db.open_table("aja_communications")
-        query = table.search()
-        if statuses:
-            query = query.where(f"approval_status IN {sanitize_value(statuses)}")
-        return query.limit(limit).to_list()
 
     # --- Approval Management ---
 
@@ -624,25 +855,68 @@ class AJAMemory:
         }
         table.add([row])
 
+        # Lightweight bounded-growth prune: every N writes, drop turns older
+        # than the configured TTL. Never allowed to break the chat write.
+        self._chat_write_counter += 1
+        if self._chat_write_counter % CHAT_PRUNE_EVERY_N_WRITES == 0:
+            try:
+                self._prune_chat_history()
+            except Exception as e:
+                logger.warning("chat history prune failed: %s", e)
+
+    def _prune_chat_history(self, ttl_days: Optional[int] = None) -> int:
+        """Deletes chat turns older than ttl_days (bounded table growth).
+        Mirrors the cleanup_old_tasks pattern; failures are logged, never
+        raised so the chat write path stays healthy."""
+        days = ttl_days if ttl_days is not None else CHAT_TTL_DAYS
+        table = self.db.open_table("aja_chat_history")
+        cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+        try:
+            rows = table.search().to_list()
+            victims = [
+                r.get("message_id")
+                for r in rows
+                if isinstance(r.get("timestamp"), (int, float))
+                and r["timestamp"] < cutoff_ts
+            ]
+            victims = [v for v in victims if v]
+            if not victims:
+                return 0
+            ids = ", ".join(sanitize_value(m) for m in victims)
+            table.delete(f"message_id IN ({ids})")
+            logger.info(
+                "chat history prune: removed %d stale messages (ttl=%dd)",
+                len(victims), days,
+            )
+            return len(victims)
+        except Exception as e:
+            logger.warning("chat history prune failed: %s", e)
+            return 0
+
     def get_chat_history(self, limit: int = 20) -> List[Dict[str, Any]]:
         """
         Retrieve conversational chat turns from the LanceDB chat_history table.
+
+        Bounded fetch: pulls only a recent window (limit*10, min 100) from the
+        table instead of scanning everything, then selects the newest `limit`
+        rows and returns them oldest-first as callers expect.
         """
         table = self.db.open_table("aja_chat_history")
-        results = table.search().to_pandas()
-        if not results.empty:
-            # Get the most recent entries by sorting descending, taking limit, then sorting ascending
-            results = results.sort_values(by="timestamp", ascending=False).head(limit)
-            results = results.sort_values(by="timestamp", ascending=True)
-        
+        window = max(int(limit) * 10, 100)
+        results = table.search().limit(window).to_list()
+
+        rows = sorted(results, key=lambda r: r.get("timestamp") or 0.0, reverse=True)[:limit]
+        rows.sort(key=lambda r: r.get("timestamp") or 0.0)
+
         history = []
-        for _, row in results.iterrows():
+        for row in rows:
+            metadata_json = row.get("metadata_json")
             history.append({
                 "message_id": row["message_id"],
                 "role": row["role"],
                 "content": row["content"],
                 "timestamp": row["timestamp"],
-                "metadata": json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+                "metadata": json.loads(metadata_json) if metadata_json else {}
             })
         return history
 
@@ -677,17 +951,90 @@ class AJAMemory:
     # --- Maintenance ---
 
     def cleanup_old_tasks(self, ttl_days: int = 30):
+        """Deletes terminal tasks older than ttl_days (bounded table growth).
+        Only rows that are BOTH terminal AND stale are removed; active work is
+        never touched."""
         table = self.db.open_table("aja_tasks")
-        # In LanceDB, we usually overwrite or filter. Deletion is sometimes limited.
-        # For simplicity in this mock-like wrapper, we'll just log it.
-        # Real LanceDB: table.delete("updated_at < ...")
-        pass
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=ttl_days)
+        ).isoformat()
+        try:
+            before = table.search().to_list()
+            victims = [r for r in before if self._is_stale_row(r, "updated_at", cutoff,
+                {"done", "failed", "cancelled", "archived"})]
+            if not victims:
+                return 0
+            ids = ", ".join(sanitize_value(r.get("task_id")) for r in victims)
+            table.delete(f"task_id IN ({ids})")
+            logger.info("cleanup_old_tasks: removed %d stale tasks (ttl=%dd)", len(victims), ttl_days)
+            return len(victims)
+        except Exception as e:
+            logger.warning("cleanup_old_tasks failed: %s", e)
+            return 0
 
     def cleanup_old_approvals(self, ttl_days: int = 30):
-        pass
+        """Deletes resolved/expired/rejected approvals older than ttl_days."""
+        table = self.db.open_table("aja_approvals")
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=ttl_days)
+        ).isoformat()
+        terminal = {"resolved", "expired", "rejected"}
+        try:
+            before = table.search().to_list()
+            seen_ids = set()
+            victims = []
+            for r in before:
+                rid = r.get("approval_id")
+                status = str(r.get("status", "")).lower()
+                ts = r.get("updated_at") or r.get("created_at") or ""
+                stale = status in terminal and ts and ts < cutoff
+                # Expiry timestamp alone is authoritative even without a terminal status.
+                exp = r.get("expires_at") or ""
+                if not stale and exp and str(exp) < cutoff:
+                    stale = True
+                if stale and rid and rid not in seen_ids:
+                    victims.append(r)
+                    seen_ids.add(rid)
+            if not victims:
+                return 0
+            ids = ", ".join(sanitize_value(r.get("approval_id")) for r in victims)
+            table.delete(f"approval_id IN ({ids})")
+            logger.info("cleanup_old_approvals: removed %d stale approvals (ttl=%dd)", len(victims), ttl_days)
+            return len(victims)
+        except Exception as e:
+            logger.warning("cleanup_old_approvals failed: %s", e)
+            return 0
 
-    def prune_events(self, max_rows: int = 1000):
-        pass
+    @staticmethod
+    def _is_stale_row(row: Dict[str, Any], ts_col: str, cutoff_iso: str, terminal_statuses: set) -> bool:
+        status = str(row.get("status", "")).lower()
+        if status not in terminal_statuses:
+            return False
+        ts = row.get(ts_col) or ""
+        return bool(ts) and ts < cutoff_iso
+
+    def prune_events(self, max_rows: int = 10000):
+        """
+        Caps the runtime-events table at max_rows by deleting the oldest rows
+        beyond the cap. Keeps the newest events for observability.
+        """
+        table = self.db.open_table("aja_runtime_events")
+        try:
+            rows = table.search().to_list()
+            total = len(rows)
+            if total <= max_rows:
+                return 0
+            rows.sort(key=lambda r: r.get("timestamp") or "")
+            victims = rows[: total - max_rows]
+            if not victims:
+                return 0
+            ids = ", ".join(sanitize_value(r.get("event_id")) for r in victims)
+            table.delete(f"event_id IN ({ids})")
+            logger.info("prune_events: removed %d old events (cap=%d)", len(victims), max_rows)
+            return len(victims)
+        except Exception as e:
+            logger.warning("prune_events failed: %s", e)
+            return 0
 
     # --- RAG & Territory Knowledge ---
 

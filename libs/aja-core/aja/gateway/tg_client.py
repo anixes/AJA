@@ -42,8 +42,16 @@ class TelegramAdapter(BasePlatformAdapter):
         self._app: Optional[Application] = None
         self._bot: Optional[Bot] = None
         self._poll_task: Optional[asyncio.Task] = None
+        self._dispatcher_task: Optional[asyncio.Task] = None
+        self._tail_tasks: Dict[str, asyncio.Task] = {}
+        self._bus_handlers: list = []
+        # Inbound user commands stay unbounded: silently dropping a command is
+        # worse than backpressure. Telemetry is bounded (see dispatcher).
         self._queue = asyncio.Queue()
-        self.telemetry_queue = asyncio.Queue()
+        _TELEMETRY_QUEUE_MAXSIZE = 1000
+        self.telemetry_queue: asyncio.Queue = asyncio.Queue(maxsize=_TELEMETRY_QUEUE_MAXSIZE)
+        # Per-chat fan-out queues fed by the single telemetry dispatcher.
+        self._chat_queues: Dict[str, asyncio.Queue] = {}
         self._last_telemetry_check = 0
         self.name = "telegram"
         self.metrics: Dict[str, Any] = {
@@ -93,7 +101,9 @@ class TelegramAdapter(BasePlatformAdapter):
 
         # Subscribe to standard event bus to buffer events in telemetry_queue
         for event_name in EVENTS.values():
-            bus.subscribe(event_name, self._make_event_handler(event_name))
+            handler = self._make_event_handler(event_name)
+            bus.subscribe(event_name, handler)
+            self._bus_handlers.append((event_name, handler))
 
         # Resilient Start
         _max_connect = 5
@@ -106,8 +116,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 print("Telegram: Calling start_polling()...")
                 await self._app.updater.start_polling(drop_pending_updates=True)
                 self.is_running = True
-                # Start background polling of LanceDB events
+                # Start background polling of LanceDB events + telemetry dispatcher
                 self._poll_task = asyncio.create_task(self._poll_lancedb_events())
+                self._dispatcher_task = asyncio.create_task(self._dispatch_telemetry())
                 print("AJA Telegram Gateway started successfully.")
                 break
             except Exception as e:
@@ -121,6 +132,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 await asyncio.sleep(wait)
 
     async def stop(self):
+        self.is_running = False
         if self._poll_task:
             self._poll_task.cancel()
             try:
@@ -128,11 +140,28 @@ class TelegramAdapter(BasePlatformAdapter):
             except asyncio.CancelledError:
                 pass
             self._poll_task = None
+        if self._dispatcher_task:
+            self._dispatcher_task.cancel()
+            try:
+                await self._dispatcher_task
+            except asyncio.CancelledError:
+                pass
+            self._dispatcher_task = None
+        for chat_id, task in list(self._tail_tasks.items()):
+            task.cancel()
+        self._tail_tasks.clear()
+        # Unsubscribe bus handlers registered in start() so stopped adapters
+        # stop accumulating events.
+        for event_name, handler in self._bus_handlers:
+            try:
+                bus.unsubscribe(event_name, handler)
+            except Exception as e:
+                logger.debug("Failed to unsubscribe handler for %s: %s", event_name, e)
+        self._bus_handlers.clear()
         if self._app:
             await self._app.updater.stop()
             await self._app.stop()
             await self._app.shutdown()
-        self.is_running = False
         logger.info("AJA Telegram Gateway stopped.")
 
     async def _handle_text_message(
@@ -224,21 +253,89 @@ class TelegramAdapter(BasePlatformAdapter):
                     "command": payload.get("command", ""),
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
-                # Put in queue thread-safely
-                loop.call_soon_threadsafe(self.telemetry_queue.put_nowait, ev)
+                self._put_telemetry(ev)
             except Exception as e:
                 logger.error(f"[TelegramAdapter] Failed to queue event {event_name}: {e}")
         return handler
 
+    def _put_telemetry(self, ev: dict):
+        """Bounded enqueue with drop-oldest so a stalled consumer cannot grow
+        memory without limit. Approval requests are never dropped."""
+        q = self.telemetry_queue
+        if ev.get("kind") == "AWAITING_APPROVAL":
+            # Approval events must not be silently dropped (stranded missions);
+            # make room if necessary by shedding the oldest low-value event.
+            if q.full():
+                try:
+                    dropped = q.get_nowait()
+                    logger.warning("Telemetry queue full; dropped oldest event %s", dropped.get("event_id"))
+                except asyncio.QueueEmpty:
+                    pass
+            q.put_nowait(ev)
+            return
+        try:
+            q.put_nowait(ev)
+        except asyncio.QueueFull:
+            try:
+                dropped = q.get_nowait()
+                q.put_nowait(ev)
+                logger.warning(
+                    "Telemetry queue full; dropped event %s (%s) for %s",
+                    dropped.get("event_id"), dropped.get("kind"), ev.get("kind"),
+                )
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    def start_tail(self, chat_id: str) -> None:
+        """Registers a per-chat telemetry tail task with tracked lifecycle."""
+        chat_key = str(chat_id)
+        if chat_key in self._tail_tasks and not self._tail_tasks[chat_key].done():
+            return
+        # Ensure the shared-queue dispatcher is running so events actually
+        # reach this chat's queue.
+        if self.is_running and (self._dispatcher_task is None or self._dispatcher_task.done()):
+            self._dispatcher_task = asyncio.create_task(self._dispatch_telemetry())
+        self._chat_queues.setdefault(chat_key, asyncio.Queue(maxsize=500))
+        self._tail_tasks[chat_key] = asyncio.create_task(self.tail_events(chat_key))
+
+    async def stop_tails(self):
+        for task in list(self._tail_tasks.values()):
+            task.cancel()
+        self._tail_tasks.clear()
+        self._chat_queues.clear()
+
+    async def _dispatch_telemetry(self):
+        """Single consumer of the shared telemetry queue that fans each event
+        out to every subscribed chat's queue. Without this, N competing
+        consumers delivered each event to exactly ONE arbitrary chat."""
+        while True:
+            try:
+                ev = await self.telemetry_queue.get()
+                for chat_q in list(self._chat_queues.values()):
+                    try:
+                        chat_q.put_nowait(ev)
+                    except asyncio.QueueFull:
+                        logger.warning(
+                            "Chat telemetry queue full; dropping event %s", ev.get("event_id")
+                        )
+                self.telemetry_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Telemetry dispatcher error: {e}")
+                await asyncio.sleep(1)
+
     async def tail_events(self, chat_id: str):
         """
-        Background task to tail in-memory Pub/Sub events and forward to Telegram.
+        Background task to tail this chat's telemetry queue and forward to Telegram.
+        Events are fanned out from the shared queue by _dispatch_telemetry().
         """
         logger.info(f"Starting event-driven telemetry bridge for chat_id: {chat_id}")
+        chat_queue = self._chat_queues.setdefault(str(chat_id), asyncio.Queue(maxsize=500))
         import time
         while self.is_running:
             try:
-                ev = await self.telemetry_queue.get()
+                ev = await chat_queue.get()
                 
                 # Dynamic History Update: Inject significant events into conversational session history
                 if hasattr(self, "gateway") and self.gateway:
@@ -277,7 +374,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         should_emit = self._should_emit_low_priority(chat_id, msg)
                     if should_emit:
                         await self.send_notification(chat_id, msg, importance=importance)
-                self.telemetry_queue.task_done()
+                chat_queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -300,7 +397,7 @@ class TelegramAdapter(BasePlatformAdapter):
             memory = get_aja_memory()
             table = memory.db.open_table("aja_runtime_events")
             # Get recent 200 event IDs to pre-populate seen_event_ids
-            existing_events = table.search().limit(200).to_list()
+            existing_events = await asyncio.to_thread(table.search().limit(200).to_list)
             for ev in existing_events:
                 eid = ev.get("event_id")
                 if eid:
@@ -314,9 +411,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 from aja.memory.secretary import get_aja_memory
                 memory = get_aja_memory()
                 table = memory.db.open_table("aja_runtime_events")
-                
-                # Fetch recent events (limiting to last 100 rows)
-                events = table.search().limit(100).to_list()
+
+                # Fetch recent events off the event loop (blocking disk I/O).
+                events = await asyncio.to_thread(table.search().limit(100).to_list)
                 
                 for ev in events:
                     eid = ev.get("event_id")
@@ -369,20 +466,32 @@ class TelegramAdapter(BasePlatformAdapter):
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-        
-        data = query.data
+
+        data = query.data or ""
+        if not data.startswith(("approve_", "reject_")):
+            logger.warning("Ignoring malformed callback data: %r", data[:50])
+            try:
+                await query.edit_message_text(text="⚠️ Unrecognized action.")
+            except Exception as e:
+                logger.debug("Could not acknowledge malformed callback: %s", e)
+            return
         action, mission_id = data.split("_", 1)
         self.metrics["callback_handled"] += 1
-        allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
+        # Use the same config-fallback resolution as message authorization.
+        allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID") or getattr(
+            __import__("aja.config", fromlist=["TELEGRAM_ALLOWED_USER_ID"]),
+            "TELEGRAM_ALLOWED_USER_ID",
+            "",
+        )
         callback_user_id = str(query.from_user.id) if query.from_user else ""
-        if not allowed_user_id or callback_user_id != str(allowed_user_id):
+        if not allowed_user_id or str(allowed_user_id).strip() in ("", "*") or callback_user_id != str(allowed_user_id).strip():
             logger.critical(f"Security Alert: Unauthorized Telegram callback attempt by user {callback_user_id}")
             await query.edit_message_text(text="🚫 Unauthorized callback action.")
             return
-        
-        from aja.memory.secretary import AJAMemory
-        memory = AJAMemory()
-        mission = memory.get_mission(mission_id)
+
+        from aja.memory.secretary import get_aja_memory
+        memory = get_aja_memory()
+        mission = await asyncio.to_thread(memory.get_mission, mission_id)
         if not mission:
             await query.edit_message_text(
                 text=f"ℹ️ Mission {mission_id} no longer exists or was already handled."
@@ -397,19 +506,23 @@ class TelegramAdapter(BasePlatformAdapter):
             metadata = {}
 
         expires_at = metadata.get("approval_expires_at") or metadata.get("expires_at")
+        approval_expired = False
         if expires_at:
+            # Only the date parse is tolerant; the Telegram edit await below
+            # must not be swallowed by this handler.
             try:
                 parsed_expires_at = datetime.fromisoformat(
                     str(expires_at).replace("Z", "+00:00")
                 )
-                if datetime.now(timezone.utc) > parsed_expires_at:
-                    await query.edit_message_text(
-                        text=f"⏳ Mission {mission_id} approval has expired."
-                    )
-                    return
-            except Exception:
-                pass
-        
+                approval_expired = datetime.now(timezone.utc) > parsed_expires_at
+            except ValueError as e:
+                logger.warning("Could not parse approval expiry %r: %s", expires_at, e)
+        if approval_expired:
+            await query.edit_message_text(
+                text=f"⏳ Mission {mission_id} approval has expired."
+            )
+            return
+
         if action == "approve":
             if status in {"ACTIVE", "DONE", "FAILED", "REJECTED"}:
                 await query.edit_message_text(
@@ -417,11 +530,11 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
                 return
             # Update mission status to ACTIVE to signal GoalEngine to resume
-            memory.update_mission(mission_id, {"status": "ACTIVE"})
-            
+            await asyncio.to_thread(memory.update_mission, mission_id, {"status": "ACTIVE"})
+
             # Log approval event
             table = memory.db.open_table("aja_runtime_events")
-            table.add([{
+            await asyncio.to_thread(table.add, [{
                 "event_id": uuid.uuid4().hex[:8],
                 "kind": "NODE_APPROVED",
                 "target": mission_id,
@@ -439,11 +552,11 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
                 return
             # Update mission status to REJECTED
-            memory.update_mission(mission_id, {"status": "REJECTED"})
-            
+            await asyncio.to_thread(memory.update_mission, mission_id, {"status": "REJECTED"})
+
             # Log rejection event
             table = memory.db.open_table("aja_runtime_events")
-            table.add([{
+            await asyncio.to_thread(table.add, [{
                 "event_id": uuid.uuid4().hex[:8],
                 "kind": "NODE_REJECTED",
                 "target": mission_id,

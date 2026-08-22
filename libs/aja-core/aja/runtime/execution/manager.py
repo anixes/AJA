@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shlex
 import subprocess
@@ -22,7 +23,7 @@ from aja.runtime.execution.contracts import (
     ExecutionStreamEvent,
     utc_now,
 )
-from aja.runtime.execution.governance import GovernancePolicy, create_posix_preexec_fn
+from aja.runtime.execution.governance import GovernancePolicy
 from aja.runtime.execution.supervisor import snapshot_process, terminate_tree
 from aja.runtime.execution.workspace import WorkspaceManager
 
@@ -88,7 +89,10 @@ class ExecutionManager:
         return await self.wait(session.session_id)
 
     async def wait(self, session_id: str) -> ExecutionResult:
-        session = self._sessions[session_id]
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session is None:
+            raise KeyError(f"Unknown execution session: {session_id}")
         if session.task:
             try:
                 await session.task
@@ -96,7 +100,15 @@ class ExecutionManager:
                 await self.cancel(session_id)
         if session.result is None:
             raise RuntimeError(f"Execution session {session_id} did not produce a result")
+        self._prune_session(session_id)
         return session.result
+
+    def _prune_session(self, session_id: str) -> None:
+        """Removes a terminal session from the in-memory registry to bound memory usage."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session and session.state in {"completed", "failed", "cancelled", "timeout"}:
+                self._sessions.pop(session_id, None)
 
     async def cancel(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
@@ -162,20 +174,15 @@ class ExecutionManager:
             try:
                 workspace = self.workspace_manager.create(session.session_id, session.request.workspace_mode)
             except Exception as ws_exc:
-                # Workspace creation failure: fall back to direct mode rather than crashing the session
-                import logging
-                logging.getLogger(__name__).warning(
-                    "WorkspaceManager.create() failed (%s), falling back to direct mode.", ws_exc
+                # Fail closed: a sandboxing failure must never silently downgrade
+                # to executing against the live project root.
+                logging.getLogger(__name__).error(
+                    "WorkspaceManager.create() failed (%s); failing session closed.", ws_exc
                 )
-                from aja.runtime.execution.contracts import WorkspaceSnapshot
-                workspace = WorkspaceSnapshot(
-                    session_id=session.session_id,
-                    source_root=str(self.project_root),
-                    execution_root=str(self.project_root),
-                    artifact_root=str(self.base_dir / session.session_id / "artifacts"),
-                    mode="direct",
-                    cleanup_required=False,
-                )
+                raise RuntimeError(
+                    f"Workspace sandbox creation failed for session {session.session_id}; "
+                    f"refusing to execute without isolation: {ws_exc}"
+                ) from ws_exc
             session.workspace = workspace
             cwd = self._resolve_cwd(session.request.cwd, workspace)
             
@@ -197,9 +204,20 @@ class ExecutionManager:
             creationflags = 0
             if os.name == "nt":
                 creationflags = subprocess.CREATE_NO_WINDOW
-            
-            # Apply POSIX resource limits if executing locally without Docker
-            preexec_fn = create_posix_preexec_fn(limits) if not limits.use_docker else (None if os.name == "nt" else os.setsid)
+
+            # NOTE: preexec_fn is deliberately NOT used here. The stdlib documents
+            # it as deadlock-prone in multi-threaded programs (this manager owns
+            # threading.Locks), and asyncio subprocess support for it is fragile.
+            # POSIX resource limiting is enforced by Docker mode instead; the
+            # local backend relies on GovernancePolicy timeout clamping.
+            if not limits.use_docker and os.name == "posix" and (
+                getattr(limits, "memory_bytes", None) or getattr(limits, "cpu_seconds", None)
+            ):
+                logging.getLogger(__name__).warning(
+                    "Session %s requested resource limits but is running on the local "
+                    "backend; limits require Docker mode. Proceeding with timeout-only control.",
+                    session.session_id,
+                )
             
             env = os.environ.copy()
             env.update(session.request.env)
@@ -228,8 +246,6 @@ class ExecutionManager:
             }
             if creationflags:
                 kwargs["creationflags"] = creationflags
-            if preexec_fn is not None:
-                kwargs["preexec_fn"] = preexec_fn
 
             if proc is None:
                 if shell:
@@ -252,8 +268,17 @@ class ExecutionManager:
                     proc.stdin.write(session.request.stdin.encode())
                     await proc.stdin.drain()
                     proc.stdin.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # A failed stdin write means the command may hang waiting for
+                    # input or read EOF unexpectedly — this must be diagnosable.
+                    logging.getLogger(__name__).warning(
+                        "Failed to deliver stdin to session %s: %s", session.session_id, e
+                    )
+                    await self._emit(
+                        session, "EXECUTION_STDIN_FAILED",
+                        "Stdin delivery to process failed",
+                        {"error": str(e)}, level="warning", status="failed",
+                    )
 
             readers = []
             if proc.stdout:
@@ -281,7 +306,32 @@ class ExecutionManager:
                 final_state = "cancelled"
                 raise
             finally:
-                await asyncio.gather(*readers, return_exceptions=True)
+                if readers:
+                    # Bounded wait: PTY reader tasks can block inside a native
+                    # pty.read(4096, True) call that cancellation cannot
+                    # interrupt. Waiting unboundedly here wedged the whole
+                    # pytest worker when a session ended while such a read was
+                    # still parked. 5s is generous for normal EOF draining.
+                    done, pending = await asyncio.wait(readers, timeout=5.0)
+                    if pending:
+                        names = ", ".join(sorted(t.get_name() for t in pending))
+                        logging.getLogger(__name__).warning(
+                            "Session %s: stream reader task(s) did not complete within 5s "
+                            "(likely blocked in a native PTY read); cancelling defensively: %s",
+                            session.session_id,
+                            names,
+                        )
+                        for task in pending:
+                            task.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                    for task in done:
+                        exc = task.exception()
+                        if exc is not None:
+                            logging.getLogger(__name__).debug(
+                                "Session %s: stream reader task raised: %s",
+                                session.session_id,
+                                exc,
+                            )
 
             session.returncode = exit_code
             manifest.process = snapshot_process(session.pid, exit_code)
@@ -435,12 +485,16 @@ class ExecutionManager:
         await self._record_timeline(session, event_type, payload)
         try:
             self.event_sink.emit(payload)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Event sink dropped %s for session %s: %s", event_type, session.session_id, e
+            )
         try:
             bus.publish(event_type, payload)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(
+                "Event bus publish failed for %s (session %s): %s", event_type, session.session_id, e
+            )
 
     async def _record_timeline(self, session: ExecutionSession, event_type: str, payload: Dict[str, Any]) -> None:
         event = {"timestamp": utc_now(), "event_type": event_type, **payload}

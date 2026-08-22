@@ -416,7 +416,9 @@ class GoalEngine:
                     plan_summary += f"\n  ...and {len(plan.nodes) - 3} more"
 
             bus.publish(EVENTS["PLAN_CREATED"], {"plan_summary": plan_summary})
-            self.memory.record_scheduler_event(
+            import asyncio as _asyncio
+            await _asyncio.to_thread(
+                self.memory.record_scheduler_event,
                 kind="PLAN_CREATED",
                 target=goal.id,
                 metadata={"plan_summary": plan_summary, "message": plan_summary},
@@ -560,7 +562,9 @@ class GoalEngine:
 
         goal.status = "DONE"
         self.save_state()
-        self.memory.record_scheduler_event(
+        import asyncio as _asyncio
+        await _asyncio.to_thread(
+            self.memory.record_scheduler_event,
             kind="MISSION_DONE",
             target=goal.id,
             metadata={"message": f"Goal completed successfully: {goal.objective}"},

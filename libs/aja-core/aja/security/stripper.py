@@ -111,7 +111,8 @@ class CommandStripper:
             "recursive-delete-flag": [r"\s-rf?\b", r"\s/fr\b"],
             "root-deletion": [
                 r"\brm\b\s+-(?:rf?|fr|r\s+-f|f\s+-r)\s+(?:--no-preserve-root\s+)?(?:\/\*?|\/[a-zA-Z0-9_\-*\s/]*|C:\\\*)",
-                r"\bRemove-Item\b.*-(?:recurse|r)\b.*-(?:force|f)\b.*[/\\]",
+                r"\bRemove-Item\b(?=.*-(?:recurse|r)\b)(?=.*-(?:force|f)\b).*?(?:^|[\s\"'=])(?:[A-Za-z]:)?[/\\][\"']?\s*$",
+                r"\bRemove-Item\b(?=.*-(?:recurse|r)\b)(?=.*-(?:force|f)\b).*?[A-Za-z]:[/\\]\*[\"']?",
             ],
             "fork-bomb": [r":\(\)\s*\{\s*:\|:&\s*\};:", r"\b:\(\)\s*\{\s*:\|:&\s*\};:"],
         }

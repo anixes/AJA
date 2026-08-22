@@ -1,8 +1,11 @@
+import hashlib
+import hmac
 import json
+import os
 import asyncio
 import logging
-import random
-import string
+import secrets
+import re
 import time
 import threading
 import contextlib
@@ -25,6 +28,33 @@ _IN_MEMORY_BATON_TTL_SECONDS = 3600
 
 
 logger = logging.getLogger(__name__)
+
+_BATON_CODE_PATTERN = re.compile(r"^[A-Z0-9]{6}$")
+_MAX_RECEIVED_BATON_BYTES = 10 * 1024 * 1024
+
+
+def _baton_secret() -> bytes:
+    """Shared HMAC secret used to authenticate baton transfers between hosts."""
+    return os.getenv("AJA_BATON_SECRET", "").encode("utf-8")
+
+
+def _sign_payload(body: bytes) -> str:
+    return hmac.new(_baton_secret(), body, hashlib.sha256).hexdigest()
+
+
+def _is_local_endpoint(endpoint_url: str) -> bool:
+    lowered = endpoint_url.lower()
+    return any(
+        marker in lowered
+        for marker in ("//localhost", "//127.0.0.1", "//[::1]")
+    )
+
+
+def _validate_code(code: str) -> str:
+    """Validates a baton code to prevent path traversal via interpolated filenames."""
+    if not isinstance(code, str) or not _BATON_CODE_PATTERN.match(code):
+        raise ValueError(f"Invalid baton code: {code!r}")
+    return code
 
 
 def _cache_baton(code: str, buffer: Any) -> None:
@@ -119,7 +149,7 @@ class BatonManager(HandoverManager):
         self.baton_dir.mkdir(parents=True, exist_ok=True)
 
     def _generate_code(self, length: int = 6) -> str:
-        return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+        return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(length))
 
     from aja.runtime.execution.activity import durable_activity
 
@@ -219,6 +249,8 @@ class BatonManager(HandoverManager):
         Picks up a baton and 'thaws' the Arrow Table back into a state via memory-mapping.
         Leverages native memory mapping for extreme zero-copy read speed.
         """
+        _validate_code(code)
+
         # Check in-memory baton cache first for sub-millisecond zero-copy retrieval
         buffer = _get_cached_baton(code)
 
@@ -258,7 +290,12 @@ class BatonManager(HandoverManager):
         state = {}
         # ARROW TABLE DESERIALIZATION (Using memory-mapped PyArrow or falling back to Rust Core)
         if "arrow_ref" in meta:
-            arrow_path = Path(meta["arrow_ref"])
+            arrow_path = Path(meta["arrow_ref"]).resolve()
+            try:
+                arrow_path.relative_to(self.baton_dir.resolve())
+            except ValueError:
+                logger.error("Rejected baton %s: arrow_ref %s escapes baton directory", code, arrow_path)
+                return None
             if arrow_path.exists():
                 try:
                     import pyarrow as pa
@@ -305,9 +342,17 @@ class BatonManager(HandoverManager):
         Transmits a captured baton's metadata and binary Arrow state to a remote worker network endpoint
         using standard HTTP POST. Follows standard safety and retry rules.
         """
+        _validate_code(code)
         baton_path = self.baton_dir / f"baton_{code}.json"
         arrow_path = self.baton_dir / f"baton_{code}.arrow"
-        
+
+        if not endpoint_url.lower().startswith("https://") and not _is_local_endpoint(endpoint_url):
+            logger.error(
+                "Refusing to transmit baton %s over insecure transport to non-local endpoint: %s",
+                code, endpoint_url,
+            )
+            return False
+
         if not baton_path.exists() or not arrow_path.exists():
             logger.error(f"Cannot transmit baton: file for code {code} does not exist.")
             return False
@@ -329,10 +374,13 @@ class BatonManager(HandoverManager):
             import urllib.error
             
             req_data = json.dumps(payload).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+            if _baton_secret():
+                headers["X-AJA-Signature"] = _sign_payload(req_data)
             req = urllib.request.Request(
                 endpoint_url,
                 data=req_data,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 method="POST"
             )
             
@@ -351,17 +399,36 @@ class BatonManager(HandoverManager):
         """Async-safe wrapper for remote baton transmission."""
         return await asyncio.to_thread(self.transmit_baton, code, endpoint_url)
 
-    def receive_baton(self, payload_dict: Dict[str, Any]) -> str:
+    def receive_baton(
+        self,
+        payload_dict: Dict[str, Any],
+        signature: Optional[str] = None,
+        raw_body: Optional[bytes] = None,
+    ) -> str:
         """
         Receives a remote baton payload, deserializes it, and saves it locally.
         Returns the saved baton code.
+
+        When AJA_BATON_SECRET is configured on the receiving host, a valid
+        HMAC-SHA256 signature over the raw request body must be supplied.
         """
-        code = payload_dict["code"]
+        expected_secret = _baton_secret()
+        if expected_secret:
+            body = raw_body if raw_body is not None else json.dumps(payload_dict).encode("utf-8")
+            if not signature or not hmac.compare_digest(signature, _sign_payload(body)):
+                logger.error("Rejected baton: missing or invalid HMAC signature")
+                raise ValueError("Invalid baton signature")
+
+        code = _validate_code(payload_dict["code"])
         meta = payload_dict["meta"]
         arrow_data_b64 = payload_dict["arrow_data_b64"]
-        
+
         import base64
-        arrow_data = base64.b64decode(arrow_data_b64.encode("utf-8"))
+        if len(arrow_data_b64) > (_MAX_RECEIVED_BATON_BYTES // 3) * 4:
+            raise ValueError("Rejected baton: payload exceeds maximum allowed size")
+        arrow_data = base64.b64decode(arrow_data_b64.encode("utf-8"), validate=True)
+        if len(arrow_data) > _MAX_RECEIVED_BATON_BYTES:
+            raise ValueError("Rejected baton: decoded payload exceeds maximum allowed size")
         
         baton_path = self.baton_dir / f"baton_{code}.json"
         arrow_path = self.baton_dir / f"baton_{code}.arrow"

@@ -1,12 +1,26 @@
 import json
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from aja.config import PROJECT_ROOT, DATA_DIR
 
+logger = logging.getLogger(__name__)
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def _sql_quote(value: Any) -> str:
+    """Escapes a value for safe interpolation into a LanceDB SQL predicate
+    (single-quoted literal, embedded single quotes doubled)."""
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return "(" + ", ".join(_sql_quote(v) for v in value) + ")"
+    safe = str(value).replace("'", "''")
+    return f"'{safe}'"
 
 class MissionState:
     def __init__(self, mission_id: str):
@@ -109,8 +123,12 @@ class MissionJournal:
     def _shard_if_needed(self) -> None:
         if not self.journal_path.exists():
             return
-        events = self.read_events()
-        if len(events) >= self.SHARD_EVENT_LIMIT:
+        # Cheap line count of the current file only; sealed shards are not re-read.
+        line_count = 0
+        with self.journal_path.open("r", encoding="utf-8") as f:
+            for _ in f:
+                line_count += 1
+        if line_count >= self.SHARD_EVENT_LIMIT:
             shard_n = len(list(self.journal_dir.glob(f"mission_{self.mission_id}_shard_*.jsonl")))
             self.journal_path.rename(
                 self.journal_dir / f"mission_{self.mission_id}_shard_{shard_n}.jsonl"
@@ -119,10 +137,10 @@ class MissionJournal:
     def emit(self, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         self._shard_if_needed()
 
-        # 1. Read existing events to calculate sequence
-        events = self.read_events()
-        seq = len(events)
-        
+        # 1. Compute the next sequence from the journal tail (O(1) per file)
+        # instead of replaying the full history on every emit.
+        seq = self._next_sequence()
+
         # 2. Build full versioned event
         event = {
             "event_type": event_type,
@@ -132,22 +150,51 @@ class MissionJournal:
             "timestamp": utc_now(),
             **payload
         }
-        
+
         # 3. Append to journal
         with self.journal_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
-            
+
         # 4. Write-through projection to LanceDB
         try:
             rebuild_mission_projections(self.mission_id)
         except Exception as e:
             # Tolerant write-through failure: secondary write failure should not block primary journal emission
-            import logging
-            logging.getLogger("aja.runtime.mission_journal").warning(
+            logger.warning(
                 f"Failed to update write-through projection for mission {self.mission_id}: {e}"
             )
-            
+
         return event
+
+    def _last_sequence_in_file(self, path: Path) -> int:
+        """Reads the last parseable line of a JSONL file and returns its sequence."""
+        if not path.exists():
+            return -1
+        try:
+            with path.open("rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                read_size = min(size, 65536)
+                f.seek(max(0, size - read_size))
+                tail_lines = f.read().decode("utf-8", errors="replace").splitlines()
+            for line in reversed(tail_lines):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return int(json.loads(line).get("sequence", -1))
+                except (ValueError, json.JSONDecodeError):
+                    continue
+        except OSError as e:
+            logger.warning("Failed to read journal tail from %s: %s", path, e)
+        return -1
+
+    def _next_sequence(self) -> int:
+        highest = -1
+        for shard in sorted(self.journal_dir.glob(f"mission_{self.mission_id}_shard_*.jsonl")):
+            highest = max(highest, self._last_sequence_in_file(shard))
+        highest = max(highest, self._last_sequence_in_file(self.journal_path))
+        return highest + 1
 
     def read_events(self) -> List[Dict[str, Any]]:
         # Load from all shards first, then current journal
@@ -159,11 +206,22 @@ class MissionJournal:
         return events
 
     def _load_jsonl(self, path: Path) -> List[Dict[str, Any]]:
+        """
+        Loads events tolerantly: malformed lines (e.g. torn writes from a crash
+        mid-append) are skipped with a warning instead of poisoning the whole
+        journal permanently.
+        """
         events = []
         with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
+            for lineno, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                try:
                     events.append(json.loads(line))
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "Skipping corrupt journal line %s:%d (%s)", path.name, lineno, e
+                    )
         return events
 
 def rebuild_mission_projections(mission_id: str) -> None:
@@ -171,16 +229,16 @@ def rebuild_mission_projections(mission_id: str) -> None:
     events = journal.read_events()
     if not events:
         return
-        
+
     reducer = MissionReducer()
     state = reducer.reduce(events)
-    
+
     from aja.runtime.lance_stores import LanceRuntimeStore
     mem = LanceRuntimeStore().memory
     table = mem.db.open_table("aja_missions")
-    
-    existing = table.search().where(f"mission_id = '{mission_id}'").to_list()
-    
+
+    existing = table.search().where(f"mission_id = {_sql_quote(mission_id)}").limit(2).to_list()
+
     row = {
         "mission_id": state.mission_id,
         "goal": state.goal,
@@ -192,9 +250,9 @@ def rebuild_mission_projections(mission_id: str) -> None:
         "created_at": state.created_at,
         "updated_at": state.updated_at,
     }
-    
+
     if existing:
-        table.update(where=f"mission_id = '{mission_id}'", values=row)
+        table.update(where=f"mission_id = {_sql_quote(mission_id)}", values=row)
     else:
         table.add([row])
 
@@ -202,7 +260,11 @@ def rebuild_all_mission_projections() -> None:
     journal_dir = DATA_DIR / "missions"
     if not journal_dir.exists():
         return
-        
+
+    shard_suffix = re.compile(r"_shard_\d+$")
     for p in journal_dir.glob("mission_*.jsonl"):
         mission_id = p.stem.replace("mission_", "")
+        # Shard files are parts of another mission's journal, not missions of their own.
+        if shard_suffix.search(mission_id):
+            continue
         rebuild_mission_projections(mission_id)

@@ -26,7 +26,7 @@ import json
 import logging
 import re
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from aja.planning.models import PlanGraph, PlanNode, DoD
 from aja.planning.dag_validator import DAGValidator
@@ -467,13 +467,19 @@ class Planner:
                 print("[Planner] PlanGraph instantiated successfully.")
                 return graph
             except Exception as e:
-                print(f"[Planner] PlanGraph.from_dict failed! Error type: {type(e).__name__}, Message: {e}")
-                print(f"[Planner] Data keys: {list(data.keys())}")
-                print(f"[Planner] Data: {json.dumps(data, indent=2)}")
+                from aja.utils.redact import redact_secrets
+                logger.error(
+                    "[Planner] PlanGraph.from_dict failed! Error type: %s, Message: %s",
+                    type(e).__name__, e,
+                )
+                logger.error(
+                    "[Planner] Data: %s", redact_secrets(json.dumps(data, indent=2))
+                )
                 return _fallback_graph(goal)
         except Exception as e:
-            print(f"[Planner] Unexpected Parse Error: {type(e).__name__}: {e}")
-            print(f"[Planner] Raw output: {repr(raw)}")
+            from aja.utils.redact import redact_secrets
+            logger.error("[Planner] Unexpected Parse Error: %s: %s", type(e).__name__, e)
+            logger.error("[Planner] Raw output: %s", redact_secrets(repr(raw)))
             raise e
 
     # -- method-first routing -----------------------------------------------
@@ -812,55 +818,15 @@ class Planner:
         if hasattr(metrics_system, "record_beta_metrics"):
             metrics_system.record_beta_metrics(beta_metrics)
 
-        # Resume standard consensus/selection logic
+        # Resume standard consensus/selection logic (shared with _original_decompose)
         shared_info = compare_reasoning(plans)
         shared = shared_info.get("shared_patterns", {})
-        
+
         has_shared_error = any(count == len(plans) for count in shared.values())
-        update_disagreement_metrics(d_score, veto, True) # True for beta_active
 
-        if d_score > 0.5 or conflicts or veto or has_shared_error:
-            verified_plans = []
-            for p in plans:
-                fb = verify_plan(p, state=current_state)
-                risk = fb.get("risk_score", 0.5)
-                verified_plans.append((p, 1.0 - risk, risk))
-            best_plan = select_plan(verified_plans)
-        elif d_score > 0.3:
-            critiques = []
-            for plan in plans:
-                critique = critique_plan(plan, current_state or {})
-                critiques.append((plan, critique))
-            
-            from aja.planning.scorer import score_plan
-            scored = []
-            for plan, critique in critiques:
-                diversity_bonus = 0.0
-                if len(plans) > 1:
-                    sims = [semantic_similarity(plan, op) for op in plans if op is not plan]
-                    diversity_bonus = 1.0 - (sum(sims) / len(sims))
-
-                s = score_plan(plan, 0.5)
-                s += critic_score(plan, critique)
-                s += diversity_bonus * 0.5 # Add diversity bonus
-                scored.append((plan, s, 0.5))
-            best_plan = select_plan(scored)
-        else:
-            def plan_similarity_score(p: PlanGraph) -> float:
-                sim_total = 0.0
-                for other_p in plans:
-                    if other_p is p: continue
-                    sim_total += similarity(p, other_p)
-                return sim_total
-            plans.sort(key=plan_similarity_score, reverse=True)
-            best_plan = plans[0]
-
-        # Inject confidence
-        best_critique = critique_plan(best_plan, current_state or {})
-        c_score = critic_score(best_plan, best_critique)
-        fb = verify_plan(best_plan, state=current_state)
-        v_score = 1.0 - fb.get("risk_score", 0.5)
-        confidence = max(0.0, (1.0 - d_score) * c_score * v_score)
+        best_plan, confidence = self._consensus_select(
+            plans, d_score, conflicts, veto, has_shared_error, current_state, beta_active=True
+        )
         
         object.__setattr__(best_plan, "confidence", confidence) if hasattr(best_plan, "__dataclass_fields__") else None
         try:
@@ -969,44 +935,70 @@ class Planner:
         conflicts = detect_conflicts(plans)
         veto = minority_veto(plans)
         
-        from aja.decision.critic import compare_reasoning, critique_plan, critic_score
+        from aja.decision.critic import compare_reasoning
         shared_info = compare_reasoning(plans)
         shared = shared_info.get("shared_patterns", {})
         
         has_shared_error = any(count == len(plans) for count in shared.values())
-        update_disagreement_metrics(score, veto, False)
-        
-        if score > 0.5 or conflicts or veto or has_shared_error:
+
+        best_plan, confidence = self._consensus_select(
+            plans, score, conflicts, veto, has_shared_error, current_state, beta_active=False
+        )
+
+        return best_plan
+
+    def _consensus_select(
+        self,
+        plans: List[PlanGraph],
+        d_score: float,
+        conflicts: Any,
+        veto: Any,
+        has_shared_error: bool,
+        current_state: Optional[Dict],
+        beta_active: bool = False,
+    ) -> Tuple[PlanGraph, float]:
+        """
+        Shared consensus pipeline used by both beta decompose and the original path:
+        verify/critique/similarity selection followed by confidence injection.
+        Returns (best_plan, confidence).
+        """
+        from aja.decision.disagreement import update_disagreement_metrics
+        from aja.planning.verifier import verify_plan
+        from aja.planning.selector import select_plan
+        from aja.decision.critic import critique_plan, critic_score
+
+        update_disagreement_metrics(d_score, veto, beta_active)
+
+        if d_score > 0.5 or conflicts or veto or has_shared_error:
             verified_plans = []
             for p in plans:
                 fb = verify_plan(p, state=current_state)
                 risk = fb.get("risk_score", 0.5)
                 verified_plans.append((p, 1.0 - risk, risk))
             best_plan = select_plan(verified_plans)
-        elif score > 0.3:
+        elif d_score > 0.3:
             critiques = []
             for plan in plans:
                 critique = critique_plan(plan, current_state or {})
                 critiques.append((plan, critique))
-            
+
             from aja.planning.scorer import score_plan
             scored = []
             for plan, critique in critiques:
                 s = score_plan(plan, 0.5)
                 s += critic_score(plan, critique)
+                if beta_active:
+                    # Beta-only diversity bonus: reward plans that differ from peers.
+                    diversity_bonus = 0.0
+                    if len(plans) > 1:
+                        sims = [semantic_similarity(plan, op) for op in plans if op is not plan]
+                        diversity_bonus = 1.0 - (sum(sims) / len(sims))
+                    s += diversity_bonus * 0.5
                 scored.append((plan, s, 0.5))
             best_plan = select_plan(scored)
         else:
             def plan_similarity_score(p: PlanGraph) -> float:
-                sim_score = 0.0
-                p_nodes = {n.id for n in p.primitive_nodes()}
-                for other_p in plans:
-                    if other_p is p: continue
-                    other_nodes = {n.id for n in other_p.primitive_nodes()}
-                    inter = len(p_nodes.intersection(other_nodes))
-                    union = len(p_nodes.union(other_nodes))
-                    sim_score += inter / union if union > 0 else 0.0
-                return sim_score
+                return sum(similarity(p, other_p) for other_p in plans if other_p is not p)
             plans.sort(key=plan_similarity_score, reverse=True)
             best_plan = plans[0]
 
@@ -1015,12 +1007,12 @@ class Planner:
         c_score = critic_score(best_plan, best_critique)
         fb = verify_plan(best_plan, state=current_state)
         v_score = 1.0 - fb.get("risk_score", 0.5)
-        confidence = max(0.0, (1.0 - score) * c_score * v_score)
-        
+        confidence = max(0.0, (1.0 - d_score) * c_score * v_score)
+
         object.__setattr__(best_plan, "confidence", confidence) if hasattr(best_plan, "__dataclass_fields__") else None
         try:
             best_plan.confidence = confidence
         except Exception:
             logger.debug("[Planner] Could not attach confidence to plan", exc_info=True)
 
-        return best_plan
+        return best_plan, confidence

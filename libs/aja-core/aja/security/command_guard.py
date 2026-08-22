@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, List
 
 from aja.security.stripper import CommandStripper
@@ -94,8 +95,11 @@ def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     # and cannot be bypassed via safe roots like 'git' or 'npm'.
     # Remove quoted strings to avoid false positives (e.g. semicolons in commit messages)
     temp = re.sub(r'"[^"]*"|\'[^\']*\'', ' ', command)
-    # Remove output redirects (e.g. 2>&1)
-    temp = re.sub(r'[0-9]*>&[0-9]*|[0-9]*<&[0-9]*|-', ' ', temp)
+    # Any input/output redirection disqualifies the fast-path: redirect targets
+    # must be inspected by the full protected-path checks, not skipped.
+    if re.search(r"[0-9]*[<>]{1,2}[&0-9]*", temp):
+        return False
+    temp = re.sub(r"-", " ", temp)
     # Check for compound/chaining operators
     if any(op in temp for op in [';', '&&', '||', '|', '&', '\n', '\r', '`']):
         return False
@@ -108,11 +112,21 @@ def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     if root == "gh":
         return lower.startswith("gh repo view") or lower.startswith("gh issue list")
     if root == "git":
-        return True
+        # Strict allowlist: only common safe subcommands; -c config injection is denied.
+        if any(a == "-c" for a in args):
+            return False
+        subcommand = next((a for a in args if not a.startswith("-")), "")
+        return subcommand.lower() in {
+            "status", "log", "diff", "show", "branch", "add", "commit",
+            "push", "pull", "fetch", "checkout", "stash", "tag", "remote",
+            "clone", "init",
+        }
     if root in {"powershell", "pwsh"}:
+        # Read-only inspection cmdlets only. Process spawning and network
+        # execution cmdlets (start-process, invoke-webrequest, ...) are excluded.
         return bool(
             re.search(
-                r"\b(get-childitem|get-content|get-process|where-object|select-object|invoke-webrequest|invoke-restmethod|get-wmiobject|get-ciminstance|systeminfo|tasklist|netstat|ping|ipconfig|start-process|stop-process)\b",
+                r"\b(get-childitem|get-content|get-process|where-object|select-object|get-wmiobject|get-ciminstance|systeminfo|tasklist|netstat|ping|ipconfig)\b",
                 command,
                 re.IGNORECASE,
             )
@@ -120,9 +134,18 @@ def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     if root == "cmd":
         return bool(re.search(r"\b(dir|type|echo|where)\b", command, re.IGNORECASE))
     if root == "rm":
-        safe_targets = ["temp", "tmp", "cache", "node_modules", "dist", "build"]
-        return any(t in lower for t in safe_targets) and not ("/" in command and len(command.split("/")) < 3)
-    return False
+        # Every non-flag operand must target a known-safe directory pattern,
+        # matched against exact alphanumeric tokens (so "temporal-data" does
+        # not satisfy the "temp" rule).
+        safe_targets = {"temp", "tmp", "cache", "node_modules", "dist", "build"}
+        operands = [a for a in args if not a.startswith("-")]
+        if not operands:
+            return False
+        for operand in operands:
+            tokens = {t.lower() for t in re.split(r"[^a-zA-Z0-9]+", operand) if t}
+            if not (tokens & safe_targets):
+                return False
+        return True
 
 
 def split_compound_command(command: str) -> List[str]:
@@ -277,7 +300,9 @@ def _classify_single(command: str) -> Dict[str, Any]:
                         ask_reasons.append("Absolute paths outside the workspace root are flagged when out-of-bounds paths are disabled.")
                         break
     except Exception as e:
-        logger.debug("Path check failed: %s", e)
+        # Fail closed: if the workspace boundary cannot be verified, deny.
+        logger.warning("Workspace boundary check failed; failing closed: %s", e)
+        deny_reasons.append("Workspace boundary verification failed; command denied for safety.")
 
 
     if analysis.get("Blocked Env Vars"):

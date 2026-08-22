@@ -1,5 +1,6 @@
 import asyncio
 import os
+import threading
 from typing import Optional
 from aja.runtime.execution.transport import ExecutionTransport
 
@@ -33,6 +34,12 @@ class WindowsPTYTransport(ExecutionTransport):
         self._read_task = None
         self._poll_task = None
         self._cancelled = False
+        # Guards pty.read() vs pty.close() overlap: pywinpty is not
+        # thread-safe for a blocked native read concurrent with close.
+        self._io_lock = threading.Lock()
+        # Guards the one-shot transition to "closed" so double-close is safe.
+        self._close_lock = threading.Lock()
+        self._closed = False
 
     async def start(self) -> None:
         self.pty.spawn(
@@ -62,12 +69,12 @@ class WindowsPTYTransport(ExecutionTransport):
         self.stdin = PTYWriter(self.pty)
 
     async def _read_loop(self) -> None:
-        while not self._cancelled:
+        while not self._cancelled and not self._closed:
             try:
                 # pywinpty read is blocking, we use to_thread to prevent event loop stalls
                 data = await asyncio.to_thread(self._safe_pty_read)
                 if not data:
-                    if not getattr(self, 'pty', None) or not self.pty.isalive() or self._cancelled:
+                    if not getattr(self, 'pty', None) or not self.pty.isalive() or self._cancelled or self._closed:
                         break
                     await asyncio.sleep(0.01)
                     continue
@@ -77,18 +84,21 @@ class WindowsPTYTransport(ExecutionTransport):
         self.stdout.feed_eof()
 
     def _safe_pty_read(self) -> Optional[str]:
-        if self._cancelled or not getattr(self, 'pty', None):
-            return None
-        try:
-            return self.pty.read(4096, True)
-        except Exception:
-            return None
+        # Serialize against _cleanup_native: if cleanup already closed or is
+        # closing the handle, do not enter the native read at all.
+        with self._io_lock:
+            if self._cancelled or self._closed or not getattr(self, 'pty', None):
+                return None
+            try:
+                return self.pty.read(4096, True)
+            except Exception:
+                return None
 
     async def _poll_loop(self) -> None:
-        while getattr(self, 'pty', None) and self.pty.isalive() and not self._cancelled:
+        while getattr(self, 'pty', None) and self.pty.isalive() and not self._cancelled and not self._closed:
             await asyncio.sleep(0.1)
         
-        if not self._cancelled and getattr(self, 'pty', None):
+        if not self._cancelled and not self._closed and getattr(self, 'pty', None):
             try:
                 exit_code = self.pty.get_exitstatus()
                 self.returncode = -1 if exit_code is None else exit_code
@@ -98,31 +108,62 @@ class WindowsPTYTransport(ExecutionTransport):
             self.returncode = -1
             
         self._exited.set()
-        self._cleanup_native()
+        self._teardown()
 
     def _cleanup_native(self) -> None:
-        if self._cancelled:
-            return
-        self._cancelled = True
-        
-        if getattr(self, '_read_task', None) and not self._read_task.done():
-            self._read_task.cancel()
-        if getattr(self, '_poll_task', None) and not self._poll_task.done():
-            self._poll_task.cancel()
+        """Force-close the native ConPTY handle BEFORE touching the read loop.
 
-        try:
-            if getattr(self, 'pty', None):
-                self.pty.close()
-        finally:
-            self.pty = None
+        A reader thread parked inside the blocking ``pty.read(4096, True)``
+        call cannot be interrupted by task cancellation; only closing the
+        underlying ConPTY handle makes that native read error out promptly.
+        Cancelling tasks first (the old ordering) therefore left readers
+        wedged forever. Idempotent via ``_close_lock``.
+        """
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+        self._cancelled = True
+
+        pty = getattr(self, 'pty', None)
+        self.pty = None
+        if pty is not None:
+            # Prefer serialized close; if a native read is already parked we
+            # still force the close after a short grace period — that is what
+            # unblocks it. Never wait indefinitely for the io lock here.
+            locked = self._io_lock.acquire(timeout=0.5)
+            try:
+                try:
+                    pty.close()
+                except Exception:
+                    pass
+            finally:
+                if locked:
+                    self._io_lock.release()
+
+        # Only now cancel/wait on the loops: with the handle gone, any blocked
+        # native read has already errored out and the tasks can wind down.
+        for task in (self._read_task, self._poll_task):
+            if task is not None and not task.done():
+                task.cancel()
+
+    # Alias kept for callers of the previous name.
+    def _teardown(self) -> None:
+        self._cleanup_native()
+
+    def stop(self) -> None:
+        self._cleanup_native()
+        self._exited.set()
+
+    def close(self) -> None:
+        self.stop()
 
     async def wait(self) -> int:
         await self._exited.wait()
         return self.returncode or 0
 
     def terminate(self) -> None:
-        self._cleanup_native()
-        self._exited.set()
+        self.stop()
 
     def kill(self) -> None:
         self.terminate()

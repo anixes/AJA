@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -94,42 +95,6 @@ app.add_middleware(
 )
 
 
-@app.get("/tools")
-def list_available_tools():
-    """Returns a list of tools available to the AJA swarm via this bridge."""
-    return {
-        "tools": [
-            {
-                "id": "gpu_check",
-                "name": "Check GPU",
-                "description": "Returns current NVIDIA GPU status and memory usage.",
-                "action": "execute",
-                "command": "nvidia-smi",
-            },
-            {
-                "id": "mission_launcher",
-                "name": "Run Mission",
-                "description": "Launches a background mission with a specific objective.",
-                "action": "mission",
-                "params": ["objective", "worker_id"],
-            },
-            {
-                "id": "task_create",
-                "name": "Create Task",
-                "description": "Saves a new task to the local AJA memory.",
-                "action": "aja",
-                "params": ["title", "priority", "due_date"],
-            },
-            {
-                "id": "comm_broadcast",
-                "name": "Broadcast Message",
-                "description": "Sends a message to all connected mobile clients.",
-                "action": "broadcast",
-            },
-        ]
-    }
-
-
 RUNTIME_STATE_PATH = DATA_DIR / "runtime-state.json"  # debug export only
 BATON_DIR = DATA_DIR / "batons"
 API_TOKEN = os.getenv("AJA_API_TOKEN", "dev-token-123")
@@ -141,6 +106,8 @@ TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 TELEGRAM_COMMAND_TIMEOUT = int(os.getenv("TELEGRAM_COMMAND_TIMEOUT", "60"))
 AJA_MEMORY_DIR = DATA_DIR / "lancedb"
+
+logger = logging.getLogger(__name__)
 
 DENY_BINARIES = {
     "dd": "Low-level disk writes can irreversibly destroy data.",
@@ -222,8 +189,8 @@ class ConnectionManager:
         for q in list(self.queues):
             try:
                 q.put_nowait(msg)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("WS broadcast dropped event %s to a full/closed queue: %s", event_type, e)
 
 
 ws_manager = ConnectionManager()
@@ -289,8 +256,8 @@ def append_approval_audit(event: dict):
         record = {"created_at": now_iso(), **event}
         with APPROVAL_AUDIT_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=True) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to append approval audit entry: %s", e)
 
 
 def save_runtime_state(state: dict):
@@ -298,8 +265,8 @@ def save_runtime_state(state: dict):
     try:
         RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         RUNTIME_STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to write runtime state snapshot: %s", e)
 
 
 def add_runtime_event(event: dict):
@@ -373,8 +340,8 @@ def save_telegram_pending(data: dict):
     try:
         TELEGRAM_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
         TELEGRAM_PENDING_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to write telegram pending debug export: %s", e)
 
 
 def compact_text(value: str, limit: int = 1800):
@@ -1119,7 +1086,6 @@ async def approve_runtime_approval(request_id: str, user_id: int | None = None):
         telegram_meta = approval.get("telegram_meta") or {}
         telegram_user = (
             telegram_meta.get("userId")
-            or telegram_meta.get("userId")
             or approval.get("user_id")
         )
         if telegram_user is not None and int(telegram_user) != int(user_id):
@@ -1322,7 +1288,6 @@ def build_aja_chat_context(limit: int = 5):
 
     except Exception as e:
         logger.error(f"Error building chat context: {e}")
-        pass
 
     return "\n".join(context) or "No current task context is available."
 
@@ -1798,583 +1763,70 @@ async def get_telegram_history(limit: int = 25):
     for line in lines.splitlines()[-max(1, min(limit, 100)) :]:
         try:
             records.append(json.loads(line))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Skipping malformed telegram history line: %s", e)
     return {"history": records}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Priority Engine — multi-factor executive scoring
+# Priority Engine & Worker Matcher (extracted to aja/api/services/)
 # ──────────────────────────────────────────────────────────────────────────────
+# Compatibility re-exports: the scoring logic now lives in dedicated service
+# modules; these imports keep the bridge namespace stable for route handlers.
 
-STAKEHOLDER_WEIGHTS: dict[str, int] = {
-    "recruiter": 90,
-    "hiring manager": 95,
-    "client": 85,
-    "employer": 85,
-    "manager": 80,
-    "friend": 40,
-    "personal": 30,
-    "system": 20,
-    "maintenance": 15,
-    "default": 35,
-}
+from aja.api.services.priority_engine import (  # noqa: E402,F401
+    CONSEQUENCE_MAP,
+    DELEGATION_RULES,
+    STAKEHOLDER_WEIGHTS,
+    _days_until,
+    _delegation_recommendation,
+    _stakeholder_weight,
+    _urgency_challenge,
+    run_priority_engine,
+)
+from aja.api.services.worker_matcher import (  # noqa: E402,F401
+    _extract_risk_level,
+    _extract_speed_need,
+    _infer_task_type,
+    recommend_workers_for_task,
+)
 
-CONSEQUENCE_MAP: dict[str, int] = {
-    "urgent": 35,
-    "high": 25,
-    "medium": 15,
-    "low": 5,
-}
-
-DELEGATION_RULES = {
-    # Keywords in task title / description that suggest who should handle it
-    "code": "Delegate to AJA Worker",
-    "debug": "Delegate to AJA Worker",
-    "fix bug": "Delegate to AJA Worker",
-    "refactor": "Delegate to AJA Worker",
-    "test": "Delegate to AJA Worker",
-    "deploy": "Ask user first",
-    "send": "Ask user first",
-    "approve": "Ask user first",
-    "email": "Ask user first",
-    "reply": "Ask user first",
-    "call": "Ask user first",
-    "review": "Ask user first",
-    "apply": "Do now — time-sensitive",
-    "submit": "Do now — time-sensitive",
-    "payment": "Do now — financial risk",
-    "bill": "Do now — financial risk",
-    "deadline": "Do now — deadline miss risk",
-    "interview": "Do now — opportunity cost",
-    "offer": "Do now — opportunity cost",
-}
-
-
-def _days_until(due_date_str: str | None) -> float | None:
-    """Return signed days until due_date_str. Negative means overdue."""
-    if not due_date_str:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            due = datetime.strptime(due_date_str[:19], fmt[: len(due_date_str[:19])])
-            return (due - datetime.now()).total_seconds() / 86400
-        except ValueError:
-            continue
-    return None
-
-
-def _stakeholder_weight(task: dict) -> int:
-    title_lower = (task.get("title") or "").lower()
-    desc_lower = (task.get("description") or "").lower()
-    combined = f"{title_lower} {desc_lower}"
-    for keyword, weight in sorted(STAKEHOLDER_WEIGHTS.items(), key=lambda x: -x[1]):
-        if keyword in combined:
-            return weight
-    return STAKEHOLDER_WEIGHTS["default"]
-
-
-def _delegation_recommendation(task: dict) -> str:
-    title_lower = (task.get("title") or "").lower()
-    desc_lower = (task.get("description") or "").lower()
-    combined = f"{title_lower} {desc_lower}"
-    for keyword, rec in DELEGATION_RULES.items():
-        if keyword in combined:
-            return rec
-    priority = (task.get("priority") or "medium").lower()
-    if priority in ("urgent", "high"):
-        return "Do now"
-    if priority == "medium":
-        return "Follow up tomorrow"
-    return "Archive — no real consequence"
-
-
-def _urgency_challenge(days_left: float | None, priority: str) -> str | None:
-    """Return a challenge message if the task's urgency may be inflated."""
-    if days_left is None:
-        return None
-    if days_left > 5 and priority in ("low", "medium"):
-        return "This feels urgent, but nothing breaks if it waits until tomorrow."
-    if days_left > 14 and priority == "high":
-        return "Deadline is 2+ weeks away. Safe to plan rather than act immediately."
-    return None
-
-
-def run_priority_engine(memory: "AJAMemory") -> dict:
-    """
-    Score all active tasks using 5 dimensions:
-      1. Urgency          — deadline proximity, overdue state, escalation age
-      2. Stakeholder Weight — recruiter > client > friend > system
-      3. Consequence      — financial, trust, opportunity, deadline risk
-      4. Executive Intent — explicitly high-priority, repeated commitments
-      5. Delegatability   — AJA / AJA Worker / operator
-
-    Returns:
-        top3        — top 3 tasks with full scoring metadata
-        all_scored  — all tasks scored and sorted
-        ignore_candidates — tasks safe to defer / archive this week
-    """
-    tasks = memory.list_tasks(
-        statuses=["pending", "active", "blocked", "escalated"],
-        include_archived=False,
-        limit=100,
-    )
-
-    scored = []
-    for task in tasks:
-        priority = (task.get("priority") or "medium").lower()
-        urgency_raw = task.get("urgency_score") or 0
-        escalation = task.get("escalation_level") or 0
-        days_left = _days_until(task.get("due_date"))
-        stakeholder_w = _stakeholder_weight(task)
-        consequence_w = CONSEQUENCE_MAP.get(priority, 15)
-
-        # ── 1. Urgency score (0-40) ─────────────────────────────────────────
-        urgency_pts = 0
-        if days_left is not None:
-            if days_left < 0:  # overdue
-                urgency_pts = 40
-            elif days_left < 1:  # due today
-                urgency_pts = 35
-            elif days_left < 3:  # due very soon
-                urgency_pts = 25
-            elif days_left < 7:
-                urgency_pts = 15
-            else:
-                urgency_pts = max(0, 10 - int(days_left / 3))
-        else:
-            # No due date — rely on raw urgency_score
-            urgency_pts = min(40, int(urgency_raw * 0.4))
-
-        # Escalation age bonus
-        urgency_pts = min(40, urgency_pts + escalation * 5)
-
-        # ── 2. Stakeholder weight (0-30) ────────────────────────────────────
-        stakeholder_pts = int(stakeholder_w * 0.3)  # scale 0-95 → 0-28
-
-        # ── 3. Consequence of delay (0-20) ──────────────────────────────────
-        consequence_pts = min(20, consequence_w)
-
-        # ── 4. Executive Intent bonus (0-10) ────────────────────────────────
-        intent_pts = 0
-        if priority == "urgent":
-            intent_pts = 10
-        elif priority == "high":
-            intent_pts = 6
-        elif escalation >= 2:
-            intent_pts = 8
-
-        # ── Composite priority_score (0-100) ────────────────────────────────
-        priority_score = min(
-            100, urgency_pts + stakeholder_pts + consequence_pts + intent_pts
-        )
-
-        # ── Urgency tier ────────────────────────────────────────────────────
-        if priority_score >= 80:
-            tier = "critical"
-        elif priority_score >= 60:
-            tier = "high"
-        elif priority_score >= 35:
-            tier = "medium"
-        else:
-            tier = "low"
-
-        # ── Delegation recommendation ────────────────────────────────────────
-        delegation_rec = _delegation_recommendation(task)
-
-        # ── Escalation recommendation ────────────────────────────────────────
-        should_escalate = escalation < 2 and (
-            days_left is not None and days_left < 0 or priority_score >= 80
-        )
-        escalation_rec = (
-            "Escalate now — overdue or critical"
-            if should_escalate
-            else ("Monitor" if priority_score >= 50 else "No escalation needed")
-        )
-
-        # ── Ignore / Archive suggestion ─────────────────────────────────────
-        can_ignore = priority_score < 25 and (days_left is None or days_left > 7)
-        ignore_reason = None
-        if can_ignore:
-            if days_left and days_left > 14:
-                ignore_reason = (
-                    f"Due in {int(days_left)} days — low urgency, no stakeholder risk."
-                )
-            else:
-                ignore_reason = (
-                    "Low priority, no deadline pressure, no stakeholder consequence."
-                )
-
-        # ── Approval recommendation ──────────────────────────────────────────
-        approval_rec = (
-            "Approve immediately"
-            if priority_score >= 80
-            else "Review before acting"
-            if priority_score >= 50
-            else "No approval needed — low risk"
-        )
-
-        # ── Urgency challenge ────────────────────────────────────────────────
-        challenge = _urgency_challenge(days_left, priority)
-
-        scored.append(
-            {
-                **task,
-                "priority_score": priority_score,
-                "urgency_tier": tier,
-                "urgency_pts": urgency_pts,
-                "stakeholder_pts": stakeholder_pts,
-                "consequence_pts": consequence_pts,
-                "intent_pts": intent_pts,
-                "decision_recommendation": delegation_rec,
-                "escalation_recommendation": escalation_rec,
-                "can_ignore": can_ignore,
-                "ignore_reason": ignore_reason,
-                "approval_recommendation": approval_rec,
-                "urgency_challenge": challenge,
-                "days_until_due": round(days_left, 1)
-                if days_left is not None
-                else None,
-            }
-        )
-
-    scored.sort(key=lambda t: -t["priority_score"])
-    top3 = scored[:3]
-    ignore_candidates = [t for t in scored if t["can_ignore"]]
-
-    return {
-        "top3": top3,
-        "all_scored": scored,
-        "ignore_candidates": ignore_candidates,
-        "total_tasks": len(scored),
-    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Phase 6.1 — Worker Recommendation Engine
+# Remote Baton Intake
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_TASK_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "code": [
-        "code",
-        "implement",
-        "build",
-        "create",
-        "feature",
-        "develop",
-        "write code",
-        "add",
-    ],
-    "fix": [
-        "fix",
-        "bug",
-        "error",
-        "broken",
-        "issue",
-        "debug",
-        "patch",
-        "repair",
-        "crash",
-    ],
-    "refactor": [
-        "refactor",
-        "restructure",
-        "clean",
-        "reorganize",
-        "simplify",
-        "modularize",
-    ],
-    "test": [
-        "test",
-        "spec",
-        "coverage",
-        "unit test",
-        "e2e",
-        "integration test",
-        "assert",
-        "tdd",
-    ],
-    "deploy": [
-        "deploy",
-        "release",
-        "ci/cd",
-        "pipeline",
-        "production",
-        "staging",
-        "publish",
-    ],
-    "review": ["review", "audit", "inspect", "check", "evaluate", "pr review"],
-    "research": [
-        "research",
-        "investigate",
-        "analyze",
-        "explore",
-        "study",
-        "compare",
-        "evaluate",
-    ],
-    "documentation": [
-        "document",
-        "readme",
-        "docs",
-        "wiki",
-        "explain",
-        "api doc",
-        "specification",
-    ],
-    "git": ["git", "commit", "branch", "merge", "rebase", "cherry-pick", "stash"],
-    "pr": ["pull request", "pr", "merge request"],
-    "maintenance": ["maintain", "health", "monitor", "clean up", "optimize", "repair"],
-    "analysis": ["analyze", "analyse", "report", "metric", "dashboard", "data"],
-}
 
-_SPEED_MAP = {"fast": 3, "medium": 2, "slow": 1}
-
-
-def _infer_task_type(objective: str) -> list[str]:
-    """Infer task type tags from a free-text objective."""
-    objective_lower = objective.lower()
-    matched: list[str] = []
-    for task_type, keywords in _TASK_TYPE_KEYWORDS.items():
-        for kw in keywords:
-            if kw in objective_lower:
-                matched.append(task_type)
-                break
-    return matched or ["code"]  # default to 'code' if nothing matched
-
-
-def _extract_risk_level(task: dict | None) -> str:
-    """Determine the risk level from a task's priority or explicit risk field."""
-    if not task:
-        return "medium"
-    risk = (task.get("approval_risk_level") or "").lower()
-    if risk in ("high", "critical"):
-        return "high"
-    priority = (task.get("priority") or "medium").lower()
-    if priority in ("urgent", "high"):
-        return "high"
-    if priority == "low":
-        return "low"
-    return "medium"
-
-
-def _extract_speed_need(task: dict | None) -> str:
-    """Determine how fast we need the worker to be."""
-    if not task:
-        return "medium"
-    days_left = _days_until((task or {}).get("due_date"))
-    if days_left is not None and days_left < 1:
-        return "fast"
-    if days_left is not None and days_left < 3:
-        return "fast"
-    priority = (task.get("priority") or "medium").lower()
-    if priority in ("urgent",):
-        return "fast"
-    return "medium"
-
-
-def recommend_workers_for_task(
-    memory: "AJAMemory",
-    objective: str,
-    task: dict | None = None,
-    require_tests: bool = False,
-    require_git: bool = False,
-    require_deploy: bool = False,
-) -> dict:
+@app.post("/baton/receive")
+async def receive_baton_api(request: Request):
     """
-    Score and rank all available workers against a task objective.
+    Receives a remote baton payload (Arrow-encoded mission state).
 
-    Returns:
-        recommended  — ranked list of worker recommendations with scores + reasons
-        analysis     — task analysis summary
-        cautions     — any warnings for the operator
+    Security: when AJA_BATON_SECRET is configured, the request MUST carry a
+    valid HMAC-SHA256 signature of the raw body in the X-AJA-Signature header.
+    Baton codes are strictly validated; payloads are size-capped.
     """
-    workers = memory.list_workers(status="available", limit=50)
-    if not workers:
-        all_workers = memory.list_workers(limit=50)
-        return {
-            "recommended": [],
-            "analysis": {
-                "objective": objective,
-                "inferred_types": _infer_task_type(objective),
-                "risk_level": _extract_risk_level(task),
-                "speed_need": _extract_speed_need(task),
-            },
-            "cautions": [
-                f"No available workers found. {len(all_workers)} worker(s) registered but none with availability_status='available'."
-            ],
-            "total_workers": len(all_workers),
-        }
+    raw = await request.body()
+    if len(raw) > 16 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Baton payload too large")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
-    inferred_types = _infer_task_type(objective)
-    risk_level = _extract_risk_level(task)
-    speed_need = _extract_speed_need(task)
+    from aja.runtime.handover import BatonManager
 
-    recommendations = []
-    for worker in workers:
-        score = 0.0
-        reasons: list[str] = []
-        cautions: list[str] = []
-
-        # ── 1. Task type match (0-30) ─────────────────────────────────────────
-        preferred = set(worker.get("preferred_task_types") or [])
-        blocked = set(worker.get("blocked_task_types") or [])
-        matched_types = set(inferred_types) & preferred
-        blocked_types = set(inferred_types) & blocked
-
-        if blocked_types:
-            cautions.append(f"Blocked for: {', '.join(blocked_types)}")
-            score -= 50  # heavy penalty, but keep in list for transparency
-        if matched_types:
-            type_score = min(30, len(matched_types) * 10)
-            score += type_score
-            reasons.append(f"Matches task types: {', '.join(matched_types)}")
-        elif not blocked_types:
-            score += 5
-            reasons.append("General-purpose worker (no specific type match)")
-
-        # ── 2. Capability requirements (0-15) ────────────────────────────────
-        cap_score = 0
-        if require_tests and worker.get("supports_tests"):
-            cap_score += 5
-            reasons.append("Supports test execution")
-        elif require_tests and not worker.get("supports_tests"):
-            cautions.append("Does NOT support tests (required)")
-            score -= 10
-        if require_git and worker.get("supports_git_operations"):
-            cap_score += 5
-            reasons.append("Supports git operations")
-        elif require_git and not worker.get("supports_git_operations"):
-            cautions.append("Does NOT support git operations (required)")
-            score -= 10
-        if require_deploy and worker.get("supports_deployment"):
-            cap_score += 5
-            reasons.append("Supports deployment")
-        elif require_deploy and not worker.get("supports_deployment"):
-            cautions.append("Does NOT support deployment (required)")
-            score -= 15
-        score += cap_score
-
-        # ── 3. Reliability (0-25) ────────────────────────────────────────────
-        reliability = worker.get("reliability_score", 0.5)
-        reliability_pts = reliability * 25
-        score += reliability_pts
-        if reliability >= 0.9:
-            reasons.append(f"High reliability ({reliability:.0%})")
-        elif reliability < 0.7:
-            cautions.append(f"Low reliability ({reliability:.0%})")
-
-        # ── 4. Speed match (0-15) ────────────────────────────────────────────
-        worker_speed = _SPEED_MAP.get(worker.get("execution_speed", "medium"), 2)
-        needed_speed = _SPEED_MAP.get(speed_need, 2)
-        if worker_speed >= needed_speed:
-            speed_pts = min(15, worker_speed * 5)
-            score += speed_pts
-            if speed_need == "fast" and worker_speed >= 3:
-                reasons.append("Fast execution — matches urgency")
-        else:
-            score += max(0, worker_speed * 3)
-            if speed_need == "fast":
-                cautions.append("Slower than ideal for this urgent task")
-
-        # ── 5. Cost profile (0-10) ───────────────────────────────────────────
-        cost = worker.get("cost_profile", "subscription")
-        if cost == "free":
-            score += 10
-            reasons.append("Zero-cost execution")
-        elif cost == "subscription":
-            score += 7
-            reasons.append("Subscription-based (no per-task cost)")
-        else:
-            score += 3
-            cautions.append("Pay-per-use — may incur additional costs")
-
-        # ── 6. Risk alignment (0-5) ──────────────────────────────────────────
-        worker_risk = worker.get("approval_risk_level", "medium")
-        if risk_level == "high" and worker_risk == "low":
-            score += 5
-            reasons.append("Low-risk worker for high-risk task — safer choice")
-        elif risk_level == "low":
-            score += 3
-
-        # ── 7. Historical performance bonus (0-10) ──────────────────────────
-        success_rate = worker.get("historical_success_rate", 0)
-        total_executed = worker.get("total_tasks_executed", 0)
-        if total_executed >= 5:
-            perf_pts = min(10, success_rate / 10)
-            score += perf_pts
-            if success_rate >= 90:
-                reasons.append(
-                    f"Proven track record ({success_rate:.0f}% success over {total_executed} tasks)"
-                )
-            elif success_rate < 60:
-                cautions.append(f"Low success rate ({success_rate:.0f}%)")
-
-        # ── 8. Strength keyword overlap (0-5) bonus ──────────────────────────
-        strengths = " ".join(worker.get("primary_strengths") or []).lower()
-        objective_lower = objective.lower()
-        strength_hits = sum(
-            1 for word in objective_lower.split() if word in strengths and len(word) > 3
+    signature = request.headers.get("X-AJA-Signature")
+    try:
+        code = await asyncio.to_thread(
+            BatonManager().receive_baton, payload, signature, raw
         )
-        if strength_hits > 0:
-            score += min(5, strength_hits * 2)
-            reasons.append(f"Strength keywords overlap ({strength_hits} matches)")
+    except ValueError as e:
+        logger.warning("Rejected incoming baton: %s", e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-        # Final composite
-        final_score = max(0, min(100, score))
-
-        recommendations.append(
-            {
-                "worker_id": worker["worker_id"],
-                "worker_name": worker["worker_name"],
-                "worker_type": worker["worker_type"],
-                "recommendation_score": round(final_score, 1),
-                "reasons": reasons,
-                "cautions": cautions,
-                "execution_speed": worker.get("execution_speed"),
-                "reliability_score": worker.get("reliability_score"),
-                "cost_profile": worker.get("cost_profile"),
-                "supports_tests": worker.get("supports_tests"),
-                "supports_git": worker.get("supports_git_operations"),
-                "supports_deploy": worker.get("supports_deployment"),
-                "recent_failures": (worker.get("recent_failures") or [])[:3],
-            }
-        )
-
-    recommendations.sort(key=lambda r: -r["recommendation_score"])
-
-    # Top recommendation advisory
-    top = recommendations[0] if recommendations else None
-    advisory: list[str] = []
-    if top and top["cautions"]:
-        advisory.append(
-            f"Top pick ({top['worker_name']}) has cautions: {'; '.join(top['cautions'])}"
-        )
-    if len(recommendations) >= 2:
-        gap = (
-            recommendations[0]["recommendation_score"]
-            - recommendations[1]["recommendation_score"]
-        )
-        if gap < 5:
-            advisory.append(
-                f"Close match between {recommendations[0]['worker_name']} and {recommendations[1]['worker_name']} "
-                f"(gap: {gap:.1f}pts) — your judgment matters here."
-            )
-
-    return {
-        "recommended": recommendations,
-        "analysis": {
-            "objective": objective,
-            "inferred_types": inferred_types,
-            "risk_level": risk_level,
-            "speed_need": speed_need,
-            "require_tests": require_tests,
-            "require_git": require_git,
-            "require_deploy": require_deploy,
-        },
-        "cautions": advisory,
-        "total_workers": len(workers),
-    }
+    return {"ok": True, "code": code}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3060,8 +2512,8 @@ def load_config():
     if CONFIG_PATH.exists():
         try:
             return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse %s; returning defaults: %s", CONFIG_PATH, e)
     return {"provider": "openrouter", "api_key": "", "model": ""}
 
 

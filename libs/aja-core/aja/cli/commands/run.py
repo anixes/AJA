@@ -19,18 +19,22 @@ def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
     """
     if not objective:
         print_error("No mission objective provided.")
-        return
+        raise SystemExit(2)
 
     if background:
         print_info(f"Dispatching mission to background: {objective}")
         cmd_args = [PYTHON, "-m", "aja", "run", objective]
         if dry_run:
             cmd_args.append("--dry-run")
-        subprocess.Popen(
-            cmd_args,
-            start_new_session=True,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
-        )
+        try:
+            subprocess.Popen(
+                cmd_args,
+                start_new_session=True,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+            )
+        except OSError as e:
+            print_error(f"Failed to spawn background mission: {e}")
+            raise SystemExit(1) from e
         return
 
     with mission_spinner(objective):
@@ -41,5 +45,8 @@ def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
             asyncio.run(engine.plan_and_execute_batons(objective))
         except KeyboardInterrupt:
             console.print("\n[yellow]⚠ Mission interrupted by user.[/]")
+            raise SystemExit(130)
         except Exception as e:
             print_error(f"Swarm Execution Error: {e}")
+            # Propagate failure so scripts and CI can detect it.
+            raise SystemExit(1) from e

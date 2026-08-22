@@ -1,12 +1,23 @@
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from aja.config import PROJECT_ROOT, DATA_DIR
 
+logger = logging.getLogger(__name__)
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def _sql_quote(value: Any) -> str:
+    """Escapes a value for safe interpolation into a LanceDB SQL predicate
+    (single-quoted literal, embedded single quotes doubled)."""
+    if isinstance(value, (int, float)):
+        return str(value)
+    safe = str(value).replace("'", "''")
+    return f"'{safe}'"
 
 class JobState:
     def __init__(self, job_id: str):
@@ -70,9 +81,9 @@ class SchedulerJournal:
         self.journal_path = self.journal_dir / "scheduler_journal.jsonl"
 
     def emit(self, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        events = self.read_events()
-        seq = len(events)
-        
+        # Sequence derived from the journal tail (O(1)) instead of a full replay.
+        seq = self._last_sequence() + 1
+
         event = {
             "event_type": event_type,
             "event_schema_version": "1.0",
@@ -81,29 +92,60 @@ class SchedulerJournal:
             "timestamp_ts": time.time(),
             **payload
         }
-        
+
         with self.journal_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
-            
+
         try:
             rebuild_scheduler_projections(payload.get("job_id"))
         except Exception as e:
-            import logging
-            logging.getLogger("aja.runtime.scheduler_journal").warning(
+            logger.warning(
                 f"Failed to update write-through projection for scheduler jobs: {e}"
             )
-            
+
         return event
 
+    def _last_sequence(self) -> int:
+        """Reads the last parseable line of the journal and returns its sequence."""
+        if not self.journal_path.exists():
+            return -1
+        try:
+            with self.journal_path.open("rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 65536))
+                tail_lines = f.read().decode("utf-8", errors="replace").splitlines()
+            for line in reversed(tail_lines):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return int(json.loads(line).get("sequence", -1))
+                except (ValueError, json.JSONDecodeError):
+                    continue
+        except OSError as e:
+            logger.warning("Failed to read scheduler journal tail: %s", e)
+        return -1
+
     def read_events(self) -> List[Dict[str, Any]]:
+        """
+        Loads events tolerantly: malformed lines (e.g. torn writes from a crash)
+        are skipped with a warning instead of poisoning the journal permanently.
+        """
         if not self.journal_path.exists():
             return []
-        
+
         events = []
         with self.journal_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
+            for lineno, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                try:
                     events.append(json.loads(line))
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "Skipping corrupt scheduler journal line %d (%s)", lineno, e
+                    )
         return events
 
 def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
@@ -125,7 +167,7 @@ def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
     table = mem.db.open_table("aja_tasks")
     
     for job_id, job in jobs.items():
-        existing = table.search().where(f"task_id = '{job_id}'").to_list()
+        existing = table.search().where(f"task_id = {_sql_quote(job_id)}").limit(2).to_list()
         
         status = "archived" if job.deleted else ("scheduled_paused" if job.paused else "scheduled")
         
@@ -152,7 +194,7 @@ def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
         }
         
         if existing:
-            table.update(where=f"task_id = '{job_id}'", values=row)
+            table.update(where=f"task_id = {_sql_quote(job_id)}", values=row)
         else:
             row["created_at"] = utc_now()
             row["due_date"] = ""

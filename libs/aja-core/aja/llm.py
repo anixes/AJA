@@ -117,7 +117,11 @@ def get_gateway_for_model(model_str):
     if not api_key and provider == "google":
         api_key = os.getenv("GEMINI_API_KEY", "")
 
-    cache_key = f"{provider}:{api_key[:8] if api_key else ''}"
+    # Hash the key instead of truncating: a truncated prefix can collide
+    # between distinct keys and never refreshes after key rotation.
+    import hashlib
+    key_fragment = hashlib.sha256(api_key.encode()).hexdigest()[:12] if api_key else ""
+    cache_key = f"{provider}:{key_fragment}"
     if cache_key not in _gateway_cache:
         _gateway_cache[cache_key] = LLMGateway(provider=provider, api_key=api_key)
 

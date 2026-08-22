@@ -12,7 +12,8 @@ async def publish_heartbeats(memory, worker_id):
     """Periodically publishes the heartbeat to LanceDB in a background async loop."""
     while True:
         try:
-            memory.publish_heartbeat(worker_id, name="AJA Worker")
+            # Blocking disk I/O must not stall the event loop.
+            await asyncio.to_thread(memory.publish_heartbeat, worker_id, "ONLINE", "AJA Worker")
         except Exception as e:
             print(f"[!] Heartbeat publish error: {e}")
         await asyncio.sleep(10)
@@ -24,7 +25,7 @@ async def main_loop():
     
     # Publish initial heartbeat synchronously to mark worker ONLINE immediately
     try:
-        memory.publish_heartbeat(worker_id, name="AJA Worker")
+        await asyncio.to_thread(memory.publish_heartbeat, worker_id, "ONLINE", "AJA Worker")
         print("[*] Initial heartbeat published.")
     except Exception as e:
         print(f"[!] Initial heartbeat publish error: {e}")

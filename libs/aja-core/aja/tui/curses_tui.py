@@ -336,9 +336,14 @@ class TerminalDashboard:
         bindings_table.add_column("Action", style="white")
         bindings_table.add_column("State Info", justify="right")
         
+        selected_mcp = (
+            list(self.mcp_catalog.keys())[self.selected_mcp_index]
+            if self.mcp_catalog and 0 <= self.selected_mcp_index < len(self.mcp_catalog)
+            else "(empty — press R to refresh)"
+        )
         bindings_table.add_row("[T]", "Toggle Themes / Color Skins", f"Skin: [bold magenta]{skin['name']}[/]")
         bindings_table.add_row("[P]", "Pause / Interrupt Swarm", f"Engine State: {state_text}")
-        bindings_table.add_row("[W / S or Arrow]", "Navigate MCP Catalog", f"Selected: [yellow]{list(self.mcp_catalog.keys())[self.selected_mcp_index]}[/]")
+        bindings_table.add_row("[W / S or Arrow]", "Navigate MCP Catalog", f"Selected: [yellow]{selected_mcp}[/]")
         bindings_table.add_row("[I]", "Install Selected MCP Server", f"Executions: [green]{exec_state}[/]")
         bindings_table.add_row("[R]", "Refresh MCP Catalog", "")
         bindings_table.add_row("[Q / Ctrl+C]", "Exit Dashboard", "PID: [green]Worker Active[/]")
@@ -362,7 +367,10 @@ class TerminalDashboard:
             self.selected_mcp_index = max(0, self.selected_mcp_index - 1)
         elif key_lower in ('down', 's'):
             catalog_items = list(self.mcp_catalog.items())
-            self.selected_mcp_index = min(len(catalog_items) - 1, self.selected_mcp_index + 1)
+            if not catalog_items:
+                self.selected_mcp_index = 0
+            else:
+                self.selected_mcp_index = min(len(catalog_items) - 1, max(0, self.selected_mcp_index + 1))
         elif key_lower == 'i':
             self.install_selected_mcp()
         elif key_lower == 'r':
@@ -372,6 +380,9 @@ class TerminalDashboard:
         catalog_items = list(self.mcp_catalog.items())
         if not catalog_items:
             return
+        # Guard against a stale or negative index after catalog changes.
+        if not (0 <= self.selected_mcp_index < len(catalog_items)):
+            self.selected_mcp_index = 0
         server_name, info = catalog_items[self.selected_mcp_index]
         self.logs.append(f"[{time.strftime('%H:%M:%S')}] INFO [MCP Hub] Installing server '{server_name}'...")
         try:
