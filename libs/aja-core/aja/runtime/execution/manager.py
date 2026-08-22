@@ -232,10 +232,18 @@ class ExecutionManager:
                     from aja.runtime.execution.pty_windows import WindowsPTYTransport, pywinpty
                     if pywinpty is not None:
                         cmd_str = command if isinstance(command, str) else " ".join(shlex.quote(str(p)) for p in command)
-                        proc = WindowsPTYTransport(command=cmd_str, cwd=str(cwd), env=env)
-                        await proc.start()
+                        transport = WindowsPTYTransport(command=cmd_str, cwd=str(cwd), env=env)
+                        await transport.start()
+                        proc = transport
                 except Exception as e:
-                    pass  # Graceful fallback to subprocess
+                    # Graceful fallback to subprocess: MUST reset proc so a
+                    # half-constructed transport is never used downstream
+                    # (its StreamReader would never reach EOF -> wedge).
+                    logging.getLogger(__name__).warning(
+                        "PTY start failed for session %s; falling back to pipe transport: %s",
+                        session.session_id, e,
+                    )
+                    proc = None
 
             kwargs = {
                 "cwd": str(cwd),

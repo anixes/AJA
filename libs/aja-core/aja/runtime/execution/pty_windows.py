@@ -7,7 +7,11 @@ from aja.runtime.execution.transport import ExecutionTransport
 try:
     import pywinpty
 except ImportError:
-    pywinpty = None
+    try:
+        # The distribution is "pywinpty" but the import name is "winpty".
+        import winpty as pywinpty
+    except ImportError:
+        pywinpty = None
 
 
 class WindowsPTYTransport(ExecutionTransport):
@@ -42,9 +46,10 @@ class WindowsPTYTransport(ExecutionTransport):
         self._closed = False
 
     async def start(self) -> None:
+        # pywinpty 3.x: spawn(appname, cmdline=None, cwd=None, env=None) —
+        # appname is positional-required; the full command line is accepted.
         self.pty.spawn(
-            app_name=None,
-            cmdline=self.cmd,
+            self.cmd,
             cwd=self.cwd,
             env=self.env
         )
@@ -71,12 +76,14 @@ class WindowsPTYTransport(ExecutionTransport):
     async def _read_loop(self) -> None:
         while not self._cancelled and not self._closed:
             try:
-                # pywinpty read is blocking, we use to_thread to prevent event loop stalls
+                # Non-blocking native read (blocking=True would park the
+                # threadpool worker forever after child exit, since ConPTY
+                # keeps the output handle open until close()).
                 data = await asyncio.to_thread(self._safe_pty_read)
                 if not data:
                     if not getattr(self, 'pty', None) or not self.pty.isalive() or self._cancelled or self._closed:
                         break
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.05)
                     continue
                 self.stdout.feed_data(data.encode('utf-8'))
             except Exception:
@@ -90,7 +97,7 @@ class WindowsPTYTransport(ExecutionTransport):
             if self._cancelled or self._closed or not getattr(self, 'pty', None):
                 return None
             try:
-                return self.pty.read(4096, True)
+                return self.pty.read(4096, False)
             except Exception:
                 return None
 
