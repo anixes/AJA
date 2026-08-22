@@ -1,6 +1,8 @@
 import argparse
 import asyncio
 import json
+import logging
+from aja.utils.redact import redact_secrets
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -8,6 +10,8 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 from aja.config import DATA_DIR
 from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 
 def find_project_root() -> Path:
@@ -558,7 +562,18 @@ class LLMGateway:
                     return {"content": msg.content or "", "tool_calls": tool_calls}
                 return msg.content or ""
             except Exception as e:
-                print(f"[Gateway] Error on attempt {attempt}: {e}")
+                # Do not retry deterministic client errors (bad model name,
+                # invalid schema, auth failures) — they will fail identically.
+                status_code = getattr(e, "status_code", None) or getattr(
+                    getattr(e, "response", None), "status_code", None
+                )
+                if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):
+                    logger.error(
+                        "[Gateway] Non-retryable provider error (%s %s): %s",
+                        type(e).__name__, status_code, redact_secrets(str(e)),
+                    )
+                    return None
+                logger.warning("[Gateway] Error on attempt %d/%d: %s", attempt, retries, redact_secrets(str(e)))
                 if attempt == retries:
                     return None
                 if self.provider == "copilot":
@@ -654,7 +669,13 @@ class LLMGateway:
         ).rstrip("/")
         if base_url.endswith("/openai"):
             base_url = base_url[:-7]
-        url = f"{base_url}/models/{model_name}:generateContent?key={api_key}"
+        url = f"{base_url}/models/{model_name}:generateContent"
+
+        # Auth via header by default so the key never appears in the URL
+        # (which leaks into proxies/logs/exception messages). Custom OpenAI-
+        # compatible Gemini proxies may only support query-param auth, so keep
+        # that fallback when an explicit base_url is configured.
+        use_header_auth = not self.base_url
 
         if isinstance(prompt, list):
             contents = []
@@ -696,13 +717,19 @@ class LLMGateway:
             payload["tools"] = [{"functionDeclarations": google_tools}]
 
         session = self._get_session()
+        request_url = url if use_header_auth else f"{url}?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        if use_header_auth:
+            headers["x-goog-api-key"] = api_key
         try:
             async with session.post(
-                url, json=payload, headers={"Content-Type": "application/json"}
+                request_url, json=payload, headers=headers
             ) as response:
                 if response.status != 200:
                     detail = await response.text()
-                    print(f"[Gateway] Google Error {response.status}: {detail}")
+                    logger.error(
+                        "[Gateway] Google Error %s: %s", response.status, detail[:500]
+                    )
                     return None
 
                 data = await response.json()
@@ -735,7 +762,13 @@ class LLMGateway:
                     ]
                     return "\n".join(text_parts).strip() or None
         except Exception as e:
-            print(f"[Gateway] Google Error: {e}")
+            # Do NOT interpolate raw exception text unchecked: aiohttp errors
+            # embed the full request URL, which can carry the API key when
+            # query-param auth is in use.
+            import re as _re
+
+            safe = _re.sub(r"([?&]key=)[^&'\s]+", r"\1***", str(e))
+            logger.error("[Gateway] Google request failed: %s: %s", type(e).__name__, safe)
             return None
 
     @durable_activity("llm.embed")

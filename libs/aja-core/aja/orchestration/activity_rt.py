@@ -88,6 +88,14 @@ class ActivityRuntime:
                     permission_decision="deny",
                 )
                 if self._journal:
+                    self._journal.emit("PERMISSION_DENIED", {
+                        "tool": activity.tool,
+                        "decision": "deny",
+                        "reason": result.error,
+                        "trace_id": activity.trace_id,
+                        "authorized_scope": "shell.blocked",
+                        "source": "command_guard",
+                    })
                     self._journal.emit("TOOL_FAILED", {
                         "tool": activity.tool,
                         "error": result.error,
