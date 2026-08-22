@@ -9,13 +9,13 @@ Upgrade AJA into a "premium" high-performance orchestration framework—compleme
 - **Tech**: Pydantic V2, Python 3.12+
 - **Action**: Refactored planning models to Pydantic for runtime type safety and ultra-fast JSON serialization.
 
-### Phase 2: Premium Dashboard Experience [DONE]
-- **Tech**: shadcn/ui, Tailwind CSS, Anime.js, Zustand
-- **Action**: Centralized state management with Zustand and premium UI components via shadcn.
+### Phase 2: Premium Terminal Experience [DONE]
+- **Tech**: Python curses, HTN DAG renderer, Theme Skins
+- **Action**: Replaced the former React web dashboard with a premium local curses TUI (`aja tui`) rendering the live HTN plan tree, tailing logs, and metrics panels with switchable theme skins.
 
 ### Phase 3: Hardened Security Gate [DONE]
-- **Tech**: Bash Scripting, Node.js
-- **Action**: Refactored bashTool with high-precision sanitization and Windows/Linux shell abstraction.
+- **Tech**: Python, CommandGuard (`aja/security/command_guard.py`)
+- **Action**: Implemented dual-mode command classification (`classify_command`) with high-precision sanitization and Windows/Linux shell abstraction; Layer-1 denial of catastrophic commands plus Allow/Ask/Deny operator approval.
 
 ### Phase 4: Multi-Agent Swarm (Baton Protocol) [DONE]
 - **Tech**: Apache Arrow IPC, JSON-RPC, Subprocess Handover

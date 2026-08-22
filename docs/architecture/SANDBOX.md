@@ -10,6 +10,10 @@ Commands run in an isolated local workspace by default.
 - Execution logs, manifests, and artifacts are stored under `.aja/executions/<session_id>`.
 - The source workspace is not merged automatically. Operators must inspect the generated diff before applying changes.
 
+### Fail-Closed Isolation
+
+If workspace sandbox creation fails (e.g. worktree and temp-copy both error), the session **fails closed**: `ExecutionManager` aborts the session with a descriptive error instead of silently executing against the live project root.
+
 ## Docker Mode
 
 When Docker is available, the container mounts the isolated execution root, not the live project root.

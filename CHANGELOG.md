@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 5 Follow-Ups
+- **Skill-runtime CommandGuard**: Every recorded shell step in `SkillExecutor` is re-classified through `classify_command` before execution — `deny` steps abort the run cleanly; `ask` steps deny by default unless explicitly permitted via `allow_ask_steps`.
+- **Per-platform gateway authorization**: Unified `aja/gateway/auth.py::is_user_authorized(platform, user_id)` with `DISCORD_ALLOWED_USER_IDS` / `SLACK_ALLOWED_USER_IDS` envs; Discord/Slack intake checks wired through it; Gateway Auth Posture reported by `aja doctor`; schema formalized as `GatewayAuthConfig`.
+
+#### Phase 5 — Full-Stack Audit Remediation
+- **Worker registry implementation**: `update_worker`/`delete_worker`/`get_worker`/`seed_default_workers`/`log_worker_execution` implemented (previously called but never defined); `WORKERS_SCHEMA` extended with registry columns + `add_columns` migration; new `aja_worker_executions` table with track-record folding.
+- **Telemetry fan-out dispatcher**: per-chat queues fed by a single dispatcher (events previously went to one arbitrary chat); lifecycle-tracked tail tasks; bounded telemetry queue with drop-oldest and approval-exemption.
+- **Secret redaction utility** (`aja/utils/redact.py`) applied across gateway, guard, swarm, and planner output paths.
+- **Retention**: `cleanup_old_tasks` / `cleanup_old_approvals` / `prune_events` now perform real terminal+stale row deletion.
+
+#### Phase 4 — Security Hardening Pass
+- **CommandGuard strict-deny semantics**: Git restricted to a safe subcommand allowlist with `-c` config injection denied; redirects disqualify the known-safe fast path; process-spawning/network cmdlets removed from the PowerShell whitelist; exact-token `rm` matching; fail-closed workspace-boundary checks.
+- **Root-deletion detection hardened**: Quoted/POSIX root `Remove-Item` variants (`-Force /`, `C:\*`) deny while ordinary deep paths still route to operator confirmation.
+- **Baton transfer security**: Baton codes validated against `^[A-Z0-9]{6}$` (kills path traversal), HMAC-SHA256 authentication via `AJA_BATON_SECRET`, HTTPS enforcement for non-local endpoints, 10 MB payload cap with strict base64 validation, `secrets`-based code generation, and `arrow_ref` containment within the baton directory.
+- **Skill compiler injection resistance**: Goal/payload literal embedding via `repr()`, dangerous-construct AST scan (`os.system`, `eval`, `exec`, `__import__`, forbidden modules), validate-before-write ordering.
+- **AJAGuard result contract**: `check_and_execute` returns structured status dicts (`executed`/`denied`/`cancelled`/failed`) with injectable gateway and input function; decorative LLM risk-analysis gate removed.
+- **Security regression suite**: New tests covering baton traversal/auth, skill injection resistance, guard strict-deny bypasses, quoted-root deletion variants, and fail-closed sandboxing.
+- **Per-test timeout ceiling**: pytest-timeout enforced globally (300s) so hung tests cannot stall CI.
+
 #### Phase 2 — Native Agentic Engine
 - **Manager vs Worker architecture**: Replaced legacy bash-string prompting with a structured `SwarmEngine.execute_direct` FSM loop backed by `NativeToolRegistry` and strict JSON-schema tool calling.
 - **`/goal` command**: Background single-agent relentless execution loop (`GoalSession`) that audits its own work each iteration until `GOAL_COMPLETE` or `GOAL_FAILED` is signalled.
@@ -36,7 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `providers.json` consolidated to a single canonical root file; `copilot` provider added; Google base URL updated to the OpenAI-compatible `/v1beta/openai` endpoint.
 
 ### Fixed
+- **pytest-xdist isolation activated**: conftest checked the legacy `_PYTEST_XDIST_WORKER` env name, but modern xdist sets `PYTEST_XDIST_WORKER`. Per-worker `AJA_DATA_DIR`/`AJA_TRACE_DIR` isolation never engaged, so all parallel workers shared one LanceDB directory → native crashes ("node down") → xdist controller INTERNALERROR stall. Fixed by honoring both names; the full suite now passes `-n 8 --dist loadgroup` with **587 passed in ~1m45s** (previously ~29 min serial and unstable under xdist).
+- **PTY/xdist wedge**: Bounded reader reaping in `ExecutionManager._run_session` (`asyncio.wait` timeout=5s); force-close-before-cancel ConPTY cleanup with `io`/`close` locks in `WindowsPTYTransport`; fast-fail timeout marks on PTY-stress tests so a wedged reader can no longer hang the whole xdist run.
+- **Copilot token storage hardening**: `.env` ACLs restricted after write (`icacls` on Windows, `chmod 600` on POSIX); the Copilot token is no longer exported into child-process environments by default — opt back in via `AJA_EXPORT_COPILOT_TOKEN=1`.
+- **Phase 5 audit fixes**: gateway `datetime` NameError; streaming-fallback `logger` NameError; Google API key moved to header with exception scrubbing; torn-JSONL journal poisoning; non-atomic gateway session persistence (merge_insert + sanitized predicates); cross-process heartbeat race (merge_insert upsert); phantom shard mission projections; O(n²) journal emit; blocking LanceDB calls on the event loop; open platform authorization when bot token set without allowlist; `list_communications` signature mismatch breaking `/communications`; deterministic 4xx provider errors retried 3×; `reflection.py` crashes on None gateway returns; CLI exit-code swallowing in `aja run`; duplicate `_auto_boot_local_worker`; TUI empty-catalog IndexError; llm.py gateway cache-key collision/staleness.
 - Fixed critical sandbox jailbreak flaw: `ActivityRuntime._authorize` now evaluates all `ActivityType.SHELL` inputs dynamically with `classify_command` instead of blindly accepting `NativeToolRegistry`'s static generic scopes (e.g., `shell.write`), allowing correct out-of-bounds containment.
+- **Fail-closed sandboxing**: `ExecutionManager` now fails the session when workspace sandbox creation fails, instead of silently executing against the live project root.
+- **Uniform permission journal contract**: CommandGuard denials in `ActivityRuntime` emit `PERMISSION_DENIED` before `TOOL_FAILED`.
+- Latent `NameError`: `bridge.py` logged via an undefined `logger`; duplicate unauthenticated `/tools` route removed; duplicated Telegram `userId` fallback fixed.
+- SQLite connection leaks in `BiTemporalEntityGraph` (connections are now always closed); unchanged-upsert returns stored timeline values; falsy-zero `valid_from` bug.
+- `ExecutionManager.wait()` raises a descriptive error for unknown sessions and terminal sessions are pruned from the registry (memory leak).
+- `AJAGuard` called nonexistent `TokenJuice.compact()` — corrected to `squeeze()`.
+- Deflaked `test_conpty_resource_exhaustion` (sleep headroom) and `test_parallel_dag_node_execution` (SwarmEngine class mocked instead of real per-node construction).
+- Updated stale gateway test mocks to match the loop-aware reusable `AsyncOpenAI` client contract.
 - `allow_out_of_bounds_paths` reset to `false` in `aja.json` (was mistakenly left `true`, bypassing the `PermissionEngine` path-boundary check).
 - `pylance` removed from `[project.dependencies]` in `pyproject.toml` (it is a VS Code extension, not a PyPI runtime package).
 - Windows `asyncio` event loop policy now explicitly set to `WindowsProactorEventLoopPolicy` in `conftest.py` so async subprocess tests work correctly on Windows.
