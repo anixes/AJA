@@ -444,6 +444,42 @@ class NativeToolRegistry:
             {
                 "type": "function",
                 "function": {
+                    "name": "browser.extract_markdown",
+                    "activity_type": "browser",
+                    "retry_policy": "safe",
+                    "required_scope": "browser.read",
+                    "description": "Extract the mission browser page (or a selector within it) as clean markdown-ish text. Prefer this over extract_text for reading pages.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "selector": {"type": "string", "default": "body"},
+                            "max_chars": {"type": "integer", "default": 8000},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "browser.wait_for_selector",
+                    "activity_type": "browser",
+                    "retry_policy": "none",
+                    "required_scope": "browser.interact",
+                    "description": "Wait until a selector reaches the given state before interacting with it.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "selector": {"type": "string"},
+                            "state": {"type": "string", "default": "visible"},
+                            "timeout_s": {"type": "number", "default": 30},
+                        },
+                        "required": ["selector"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "browser.navigate",
                     "activity_type": "browser",
                     "retry_policy": "none",
@@ -989,7 +1025,8 @@ class NativeToolRegistry:
             return f"Error fetching URL: {e}"
 
     def http_fetch(self, url: str) -> str:
-        import urllib.request        try:
+        import urllib.request
+        try:
             req = urllib.request.Request(
                 url,
                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AJA/1.0'}
