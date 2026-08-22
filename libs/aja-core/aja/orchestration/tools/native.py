@@ -61,6 +61,8 @@ class NativeToolRegistry:
         self.tools["query_past_experiences"] = self.query_past_experiences
         self.tools["ask_user"] = self.ask_user
         self.tools["get_datetime"] = self.get_datetime
+        self.tools["search_web"] = self.search_web
+        self.tools["fetch_url"] = self.fetch_url
 
     def get_schemas(self, interactive: bool = True) -> List[Dict[str, Any]]:
         schemas = [
@@ -404,6 +406,40 @@ class NativeToolRegistry:
                         "required": ["query"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_web",
+                    "retry_policy": "safe",
+                    "required_scope": "web.search",
+                    "description": "Search the web. Returns a list of {title, url, snippet}. Uses the first configured provider (Serper/Brave/Bing API keys) or zero-config DuckDuckGo.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query."},
+                            "max_results": {"type": "integer", "default": 5, "description": "Max results (1-10)."}
+                        },
+                        "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "fetch_url",
+                    "retry_policy": "safe",
+                    "required_scope": "web.read",
+                    "description": "Fetch a web page and return clean markdown-ish main content with the page title. Prefer this over http_fetch for reading pages.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string"},
+                            "max_chars": {"type": "integer", "default": 8000, "description": "Content character cap."}
+                        },
+                        "required": ["url"],
+                    },
+                },
             },
             {
                 "type": "function",
@@ -927,9 +963,33 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Error executing git commit: {e}"
 
-    def http_fetch(self, url: str) -> str:
-        import urllib.request
+    def search_web(self, query: str, max_results: int = 5) -> str:
+        """Web search via pluggable providers (see aja.tools.web)."""
+        import json
+
+        from aja.tools.web import search_web as _search
         try:
+            results = _search(query, max_results)
+            if not results:
+                return "No results found."
+            return json.dumps(results, indent=2)
+        except Exception as e:
+            return f"Error searching web: {e}"
+
+    def fetch_url(self, url: str, max_chars: int = 8000) -> str:
+        """Fetch a page and return clean markdown-ish content."""
+        import json
+
+        from aja.tools.web import fetch_url as _fetch
+        try:
+            data = _fetch(url, max_chars)
+            header = f"# {data['title']}\nSource: {data['url']}\n\n" if data.get("title") else ""
+            return header + data["content"]
+        except Exception as e:
+            return f"Error fetching URL: {e}"
+
+    def http_fetch(self, url: str) -> str:
+        import urllib.request        try:
             req = urllib.request.Request(
                 url,
                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AJA/1.0'}
