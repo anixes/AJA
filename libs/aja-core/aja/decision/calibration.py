@@ -102,6 +102,7 @@ def run_calibration_tests(tracker=None) -> Dict[str, Any]:
             from aja.decision.evaluator import get_evaluation_context
             eval_ctx = get_evaluation_context(objective, ctx)
         except Exception:
+            logger.debug("get_evaluation_context failed; using default eval context", exc_info=True)
             eval_ctx = {"task_type": "general", "difficulty": "medium"}
 
         for evaluator in EVALUATORS:

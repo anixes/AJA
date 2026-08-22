@@ -1,9 +1,15 @@
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
+
 import traceback
+
+from aja.utils.redact import redact_secrets
+
+logger = logging.getLogger(__name__)
 
 class NativeToolRegistry:
     _external_schemas: Dict[str, Dict[str, Any]] = {}
@@ -756,7 +762,11 @@ class NativeToolRegistry:
             from aja.config import CONFIG
             sandbox = getattr(CONFIG.swarm_settings, "sandbox_mode", "local")
             auto_proceed = getattr(CONFIG.swarm_settings, "auto_proceed_local", False)
-            print(f"DEBUG run_shell_command: sandbox={sandbox}, auto_proceed={auto_proceed}")
+            logger.debug(
+                "run_shell_command: sandbox=%s, auto_proceed=%s",
+                sandbox,
+                auto_proceed,
+            )
             if sandbox == "local" and auto_proceed:
                 granted = True
             else:
@@ -766,12 +776,12 @@ class NativeToolRegistry:
                 if hasattr(self, "engine") and self.engine and hasattr(self.engine, "authorize"):
                     result = self.engine.authorize(scope, reason=reason)
                     granted = result.allowed
-                    print(f"DEBUG run_shell_command: self.engine.authorize returned {granted}")
+                    logger.debug("run_shell_command: self.engine.authorize returned %s", granted)
                 else:
                     from aja.security.permissions import PermissionEngine
                     result = PermissionEngine().authorize(scope, reason=reason)
                     granted = result.allowed
-                    print(f"DEBUG run_shell_command: PermissionEngine().authorize returned {granted}")
+                    logger.debug("run_shell_command: PermissionEngine().authorize returned %s", granted)
                 
             if not granted:
                 return f"Security Error: Command blocked. Permission denied by user or policy. Reasons: {', '.join(classification['reasons'])}"

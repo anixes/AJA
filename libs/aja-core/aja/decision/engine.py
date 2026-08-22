@@ -86,6 +86,7 @@ class DecisionEngine:
                 context["metrics_data"] = _metrics_data
         except Exception:
             _metrics_data = {}
+            logger.debug("Metrics injection unavailable; proceeding without metrics context", exc_info=True)
 
         
         try:
@@ -166,7 +167,7 @@ class DecisionEngine:
                             f"Soft boost: {decision['type']} has {int(_acc*100)}% historical accuracy"
                         )
             except Exception:
-                pass
+                logger.warning("Metrics biasing skipped: confidence penalty/boost not applied", exc_info=True)
 
             # --- Phase 24: Uncertainty Trend & False-Success Biasing ---
             # Penalise complex paths when system is in a degraded state.
@@ -192,7 +193,7 @@ class DecisionEngine:
                     )
                     logger.info("[Engine] HIGH_FALSE_SUCCESS_RATE: penalised SKILL by %.2f", _penalty)
             except Exception:
-                pass
+                logger.warning("False-success/uncertainty biasing skipped: confidence penalty not applied", exc_info=True)
 
             # --- Phase 15: Uncertainty Hard Gate ---
             if decision.get("confidence", 1.0) < UNCERTAINTY_THRESHOLD:
@@ -341,7 +342,7 @@ def estimate_task_difficulty(objective: str, context: Dict[str, Any]) -> Dict[st
         elif _fs > 0.05:
             complexity += 0.10
     except Exception:
-        pass
+        logger.debug("Failure-rate complexity signal unavailable", exc_info=True)
 
     # ── Heuristic 4: Uncertainty trend ───────────────────────────────────
     try:
@@ -350,7 +351,7 @@ def estimate_task_difficulty(objective: str, context: Dict[str, Any]) -> Dict[st
         if _trend == "rising":
             complexity += 0.20
     except Exception:
-        pass
+        pass  # best-effort: context dict access; trend signal optional
 
     # ── Heuristic 5: Risk level signal ───────────────────────────────────
     if context.get("risk_level") == "HIGH" or context.get("high_risk"):

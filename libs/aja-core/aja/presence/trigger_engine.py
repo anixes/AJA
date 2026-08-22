@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 
 from aja.persistence.triggers import fetch_active_triggers, disable_trigger
@@ -7,6 +8,8 @@ from aja.persistence.tasks import create_task
 from aja.memory.manager import MemoryManager, get_memory_manager
 
 _manager = get_memory_manager()
+
+logger = logging.getLogger(__name__)
 
 try:
     from aja.persistence.tracker import log_event
@@ -115,7 +118,11 @@ def evaluate_triggers():
                         values={"created_at": now.isoformat()}  # reusing created_at as last_fired
                     )
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Trigger timestamp update failed for %s: duplicate suppression may re-fire this trigger",
+                        trigger_id,
+                        exc_info=True,
+                    )
                 log_event("TRIGGER_FIRED", {"trigger_id": trigger_id, "task_id": task_id})
                 send_notification("TRIGGER_FIRED", {"trigger_id": trigger_id, "task_id": task_id})
             except Exception as e:

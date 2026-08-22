@@ -88,6 +88,6 @@ def compact_context(context: Dict[str, Any], tracker=None) -> Dict[str, Any]:
                     "dropped": dropped,
                 })
             except Exception:
-                pass
+                pass  # best-effort: telemetry event logging is optional
 
     return compacted

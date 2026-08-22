@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from typing import Dict, Any, Optional
+from aja.gateway.auth import is_user_authorized
 from aja.gateway.base import BasePlatformAdapter, MessageEvent, MessageType
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class SlackAdapter(BasePlatformAdapter):
         self.gateway = None
         self.metrics = {
             "events_received": 0,
+            "events_rejected": 0,
             "messages_sent": 0,
         }
 
@@ -60,6 +62,26 @@ class SlackAdapter(BasePlatformAdapter):
                 if req.type == "events_api":
                     event = req.payload.get("event", {})
                     if event.get("type") == "message" and not event.get("bot_id"):
+                        slack_user_id = str(event.get("user"))
+                        if not is_user_authorized("slack", slack_user_id):
+                            logger.warning(
+                                "[SlackAdapter] Unauthorized event dropped (user_id=%s, channel=%s): '%s'",
+                                slack_user_id,
+                                event.get("channel"),
+                                event.get("text"),
+                            )
+                            self.metrics["events_rejected"] += 1
+                            try:
+                                await self._web_client.chat_postMessage(
+                                    channel=str(event.get("channel")),
+                                    text=(
+                                        "🚫 Access Denied. Your Slack user is not authorized to command AJA.\n"
+                                        f"Add your ID to the `.env` file: `SLACK_ALLOWED_USER_IDS={slack_user_id}`"
+                                    ),
+                                )
+                            except Exception as e:
+                                logger.debug(f"[SlackAdapter] Could not deliver denial notice: {e}")
+                            return
                         evt = MessageEvent(
                             platform="slack",
                             chat_id=str(event.get("channel")),

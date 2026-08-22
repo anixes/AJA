@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 import sys
 import time
 import subprocess
@@ -8,6 +9,9 @@ import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
 from aja.config import PROJECT_ROOT, DATA_DIR
+from aja.utils.redact import redact_secrets
+
+logger = logging.getLogger(__name__)
 
 from aja.orchestration.gateway import LLMGateway
 from aja.orchestration.registry import WorkerRegistry
@@ -193,11 +197,11 @@ class SwarmEngine:
                         console.print(f"[bold green]✔ Tool '{r.tool}' succeeded[/bold green]")
                         if r.data:
                             from rich.markup import escape
-                            console.print(f"[dim]{escape(str(r.data))}[/dim]")
+                            console.print(f"[dim]{escape(redact_secrets(str(r.data)))}[/dim]")
                     else:
                         from rich.markup import escape
                         err_msg = r.error or getattr(r, "stderr", None) or r.data
-                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {escape(str(err_msg))}[/bold red]")
+                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {escape(redact_secrets(str(err_msg)))}[/bold red]")
                     
                     from aja.orchestration.context_window import truncate_tool_result, MAX_TOOL_RESULT_CHARS
                     raw_output = str(r.data or r.error or getattr(r, "stderr", "") or "")
@@ -250,7 +254,7 @@ class SwarmEngine:
                 if result.get("status") == "success":
                     console.print(f"[bold green]✔ Command succeeded with code {result.get('code', 0)}[/bold green]")
                     if result.get("stdout"):
-                        console.print(f"[dim]{result['stdout']}[/dim]")
+                        console.print(f"[dim]{redact_secrets(result['stdout'])}[/dim]")
                 else:
                     console.print(f"[bold red]✘ Command failed: {result.get('message', 'Unknown failure') or result.get('stderr')}[/bold red]")
                     all_completed_successfully = False
@@ -277,7 +281,7 @@ class SwarmEngine:
             return json.load(f)
 
     def deploy_background_swarm(self):
-        print("--- AJA BACKGROUND SWARM DEPLOYMENT ---")
+        logger.info("--- AJA BACKGROUND SWARM DEPLOYMENT ---")
         config = self.load_config()
         territories = config.get("territories", [])
         env = os.environ.copy()
@@ -286,27 +290,27 @@ class SwarmEngine:
         for entry in territories:
             territory = entry["path"]
             if os.path.exists(territory):
-                print(f"[-] Dispatching Healing Worker to territory: {territory}")
+                logger.info("Dispatching Healing Worker to territory: %s", territory)
                 process = subprocess.Popen(
                     [PYTHON, "-m", "aja.utils.self_healer", territory],
                     env=env
                 )
                 self.workers[territory] = process
-        
-        print(f"\n[+] Swarm Active: {len(self.workers)} agents monitoring the system.")
-        print("Press Ctrl+C to recall the swarm.")
+
+        logger.info("Swarm Active: %d agents monitoring the system.", len(self.workers))
+        logger.info("Press Ctrl+C to recall the swarm.")
         try:
             while True:
                 time.sleep(5)
         except KeyboardInterrupt:
-            print("\n[!] Recalling the swarm. Terminating all agents...")
+            logger.warning("Recalling the swarm. Terminating all agents...")
             for territory, process in self.workers.items():
                 process.terminate()
-            print("[+] Swarm offline.")
+            logger.info("Swarm offline.")
 
     # --- MODE 2: PARALLEL TASK LAUNCHER (Swarm Launcher) ---
     def _run_agent_sync(self, agent_id: int, task: str, target_provider: str):
-        print(f"🐝 [Agent {agent_id}] Starting task on {target_provider.upper()}...")
+        logger.info("Agent %d starting task on %s...", agent_id, target_provider.upper())
         cmd = [
             PYTHON, "-m", "aja.orchestration.gateway",
             "--provider", target_provider,
@@ -321,7 +325,7 @@ class SwarmEngine:
             return {"agent_id": agent_id, "provider": target_provider, "status": "failed", "error": e.stderr}
 
     def launch_parallel_swarm(self, objective: str, sub_tasks: list, providers: list):
-        print(f"[*] Launching Parallel Swarm with {len(sub_tasks)} agents...")
+        logger.info("Launching Parallel Swarm with %d agents...", len(sub_tasks))
         results = []
         # Cap workers at CPU count to prevent resource exhaustion (PERF-04)
         max_w = min(len(sub_tasks), os.cpu_count() or 2)
@@ -337,7 +341,7 @@ class SwarmEngine:
 
     # --- MODE 3: BATON ORCHESTRATOR (Autonomous Tool Loop - Power 2 & 4) ---
     async def plan_and_execute_batons(self, objective: str, run_id: str = None, worker_id: str = "swarm-maintenance"):
-        print(f"🐝 Orchestrating Autonomous Objective: {objective}")
+        logger.info("Orchestrating Autonomous Objective: %s", redact_secrets(objective))
         
         # ── Power 4: Deep Territory RAG ──
         try:
@@ -349,7 +353,7 @@ class SwarmEngine:
             knowledge = mem.query_territory(query_vec, limit=5)
             rag_context = "\n".join([f"File: {k['path']}\nContent: {k['content']}" for k in knowledge])
         except Exception as e:
-            print(f"RAG Lookup failed: {e}")
+            logger.warning("RAG Lookup failed: %s", e)
             rag_context = "No additional codebase context available."
 
         # ── Power 5: Hot-Swapping Skills (Synthetic Library) ──
@@ -359,7 +363,7 @@ class SwarmEngine:
             relevant_skills = sk_store.search_skills(objective, limit=3)
             skills_context = "\n".join([f"Skill: {s['name']}\nDescription: {s['description']}\nTools: {s['tool_sequence_json']}" for s in relevant_skills])
         except Exception as e:
-            print(f"Skill search failed: {e}")
+            logger.warning("Skill search failed: %s", e)
             skills_context = "No relevant synthetic skills found."
 
         planning_prompt = (
@@ -374,7 +378,7 @@ class SwarmEngine:
             plan_str = await self.gateway.chat(model=self.model, prompt=planning_prompt)
         except Exception as e:
             if self.dry_run:
-                print(f"[DRY-RUN] LLM Planning failed or is unauthenticated ({e}). Simulating a default safe plan.")
+                logger.warning("[DRY-RUN] LLM Planning failed or is unauthenticated (%s). Simulating a default safe plan.", e)
                 plan_str = json.dumps([
                     {"id": 1, "task": f"Mock analysis: {objective}"}
                 ])
@@ -383,7 +387,7 @@ class SwarmEngine:
 
         if not plan_str:
             if self.dry_run:
-                print("[DRY-RUN] LLM returned empty plan. Simulating a default safe plan.")
+                logger.info("[DRY-RUN] LLM returned empty plan. Simulating a default safe plan.")
                 plan_str = json.dumps([
                     {"id": 1, "task": f"Mock analysis: {objective}"}
                 ])
@@ -392,7 +396,7 @@ class SwarmEngine:
         
         # ── Power 2: Autonomous Tool Loop ──
         if self.dry_run:
-            print("[DRY-RUN] Simulating tool planning and verification. No physical system changes will be made.")
+            logger.info("[DRY-RUN] Simulating tool planning and verification. No physical system changes will be made.")
 
         try:
             plan_str = plan_str.strip().replace("```json", "").replace("```", "")
@@ -404,7 +408,7 @@ class SwarmEngine:
             else:
                 plan = []
         except Exception:
-            print("Planning failed. Defaulting to single-step execution.")
+            logger.warning("Planning failed. Defaulting to single-step execution.")
             plan = [{"id": 1, "task": objective}]
 
         import hashlib
@@ -415,7 +419,7 @@ class SwarmEngine:
         results = []
         for task in plan:
             task_worker_id = f"worker-{task['id']}"
-            print(f"  - Dispatching Worker {task_worker_id}: {task['task']}")
+            logger.info("Dispatching Worker %s: %s", task_worker_id, redact_secrets(str(task['task'])))
             baton_id = f"baton_{task_worker_id}_{task['id']}.arrow"
             baton_path = self.baton_dir / baton_id
             
@@ -446,13 +450,13 @@ class SwarmEngine:
         
         # MEMORY CHECK: If the results are too large, summarize them first to stay under the 'Latency Wall'
         if len(results_str) > 5000: # Aggressive 5k limit for 4GB VRAM stability
-            print("[MEMORY] Context threshold reached. Summarizing task history to maintain reasoning speed...")
+            logger.info("Context threshold reached. Summarizing task history to maintain reasoning speed...")
             results_str = await self.gateway.chat(model=self.model, prompt=f"Summarize these task results concisely: {results_str}")
             
         synthesis_prompt = f"Objective: {objective}\nSub-task results: {results_str}\nSynthesize these results into a final report."
         final_report = await self.gateway.chat(model=self.model, prompt=synthesis_prompt)
 
-        print("\nFinal Synthesis Complete:\n" + str(final_report))
+        logger.info("Final Synthesis Complete:\n%s", redact_secrets(str(final_report)))
 
     async def _execute_baton_worker(self, baton_path: Path):
         baton_data = read_baton(baton_path)
@@ -462,7 +466,7 @@ class SwarmEngine:
         write_baton(baton_path, baton_data)
 
         if self.dry_run:
-            print(f"  [DRY-RUN SIMULATION] Simulating worker execution for baton: '{baton_path.name}'")
+            logger.info("[DRY-RUN SIMULATION] Simulating worker execution for baton: '%s'", baton_path.name)
             latency = 0.05
             baton_data = read_baton(baton_path)
             baton_data["worker_stdout"] = f"[DRY-RUN MOCK STDOUT] Swarm worker successfully processed objective: {baton_data['objective']}"

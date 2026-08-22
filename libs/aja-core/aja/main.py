@@ -62,6 +62,16 @@ def main():
         # Default to agent mode (JSON) if stdout is piped or redirected, else human mode
         AGENT_MODE = not sys.stdout.isatty()
 
+    # Fail-fast configuration validation (fast, no network/DB).
+    # Exit non-zero only on severity=="error"; warnings just print.
+    # In agent mode, route output to stderr to keep the stdout JSON contract pure.
+    from aja.utils.startup_checks import format_startup_checks, run_startup_checks
+
+    _out = sys.stderr if AGENT_MODE else None
+    if format_startup_checks(run_startup_checks(), file=_out) > 0:
+        print("Startup validation failed: fix the [ERR] items above.", file=sys.stderr)
+        sys.exit(1)
+
     # Dispatch subcommand via CLI Command Registry
     registry.dispatch(args, agent_mode=AGENT_MODE)
 

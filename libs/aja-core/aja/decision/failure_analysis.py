@@ -82,7 +82,7 @@ def record_failure(task_id, objective: str, error: str, result: str = "", tracke
         try:
             tracker.log_event("FAILURE_ATTRIBUTED", {"task_id": task_id, "root_cause": root_cause, "error": (error or "")[:200]})
         except Exception:
-            pass
+            pass  # best-effort: telemetry event logging is optional
     return root_cause
 
 

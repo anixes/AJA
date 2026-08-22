@@ -1,4 +1,5 @@
 from aja.config import DATA_DIR
+import logging
 import os
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -6,6 +7,8 @@ from datetime import datetime, timezone, timedelta
 from aja.memory.manager import MemoryManager, get_memory_manager
 
 _manager = get_memory_manager()
+
+logger = logging.getLogger(__name__)
 
 
 def get_system_state() -> dict:
@@ -50,7 +53,7 @@ def get_system_state() -> dict:
             )
             state["trigger_count"] = len(active_triggers)
         except Exception:
-            pass
+            logger.debug("Trigger count unavailable (core_triggers table missing?)", exc_info=True)
 
         # ── Recent events from Arrow event feed ──────────────────────────────
         try:
@@ -68,7 +71,10 @@ def get_system_state() -> dict:
                     state["recent_failures"] += 1
             state["recent_events"] = recent
         except Exception:
-            pass
+            logger.warning(
+                "Recent-events read failed: loop_status/health signals degraded to defaults",
+                exc_info=True,
+            )
 
         # ── Loop status from last tick timestamp ─────────────────────────────
         if state["loop_status"] != "stopped (flagged)" and state["last_loop_tick"]:

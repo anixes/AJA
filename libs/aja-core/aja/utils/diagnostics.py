@@ -107,14 +107,35 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
     else:
         secrets.append("Gemini API Key missing")
 
-    tg_token = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-    tg_user = os.getenv("TELEGRAM_ALLOWED_USER_ID") or os.getenv("TELEGRAM_USER_ID")
-    if tg_token and tg_user:
-        secrets.append(f"Telegram Bot active (Authorized User ID: {tg_user})")
-    elif tg_token:
-        secrets.append("Telegram Token set (Warning: TELEGRAM_ALLOWED_USER_ID not set)")
-    else:
-        secrets.append("Telegram Token missing (remote assistant disabled)")
+    # Per-platform gateway authorization posture
+    # (token configured + allowlist set = SECURE; token without allowlist =
+    # fail-safe deny; no token = local-only, remote disabled anyway)
+    try:
+        from aja.gateway.auth import get_platform_posture
+
+        postures = []
+        for platform in ("telegram", "discord", "slack"):
+            token_set, allowlist_set = get_platform_posture(platform)
+            if token_set and allowlist_set:
+                postures.append(f"{platform}: token configured + allowlist set (SECURE)")
+            elif token_set:
+                postures.append(
+                    f"{platform}: token configured + NO ALLOWLIST "
+                    f"({platform.upper()}_ALLOWED_USER_IDS unset - REMOTE USERS DENIED)"
+                )
+            else:
+                postures.append(f"{platform}: no token (local-only)")
+
+        tg_token_set, tg_allowlist_set = get_platform_posture("telegram")
+        if tg_token_set and tg_allowlist_set:
+            tg_user = os.getenv("TELEGRAM_ALLOWED_USER_ID") or os.getenv("TELEGRAM_USER_ID") or "configured"
+            secrets.append(f"Telegram Bot active (Authorized User ID: {tg_user})")
+        elif not tg_token_set:
+            secrets.append("Telegram Token missing (remote assistant disabled)")
+
+        secrets.append("Gateway Auth Posture: " + " | ".join(postures))
+    except Exception as e:
+        checks.append(("Gateway Authorization", False, f"Posture check failed: {e}"))
 
     checks.append(("API & Credentials", True, " | ".join(secrets)))
 

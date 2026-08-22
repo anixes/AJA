@@ -32,6 +32,7 @@ Public API
 """
 
 import json
+import logging
 import os
 import pyarrow as pa
 from datetime import datetime, timezone, timedelta
@@ -40,6 +41,22 @@ from aja.memory.manager import (
     get_memory_manager,
     list_tables_defensive,
 )
+
+logger = logging.getLogger(__name__)
+
+# Tool names that represent shell-command replay steps inside a tool_sequence.
+_SHELL_TOOL_NAMES = {
+    "shell",
+    "shell_command",
+    "bash",
+    "run_shell",
+    "run_shell_command",
+    "execute_shell",
+    "codeact_shell",
+}
+
+# args_schema keys under which a recorded shell command may be stored.
+_COMMAND_ARG_KEYS = ("cmd", "command", "shell", "script", "code")
 
 _manager = get_memory_manager()
 
@@ -299,17 +316,93 @@ def _clear_checkpoints(skill_id: str, run_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _execute_step(run_id: str, step: dict, step_index: int) -> tuple:
+def _extract_shell_command(args: dict):
+    """Return the recorded shell command string from a step's args, if any."""
+    for key in _COMMAND_ARG_KEYS:
+        val = args.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+    return None
+
+
+def classify_skill_step(step: dict, step_index: int) -> tuple:
+    """
+    Run CommandGuard classification on a skill step that replays a shell command.
+
+    Returns (classification: dict | None, error: str | None).
+      - (None, None)                  → not a shell step, or classified "allow".
+      - ({...}, reason_str)           → step must be aborted; reason explains why.
+    The full classification dict is always logged for auditability.
+    """
+    tool_name = str(step.get("tool_name", "")).lower()
+    if tool_name not in _SHELL_TOOL_NAMES:
+        return None, None
+
+    args = step.get("args_schema") or {}
+    command = _extract_shell_command(args)
+    if command is None:
+        # Shell-shaped step with no recorded command — nothing to guard.
+        return None, None
+
+    from aja.security.command_guard import classify_command
+
+    classification = classify_command(command)
+    decision = classification.get("decision", "allow")
+    reasons = classification.get("reasons") or []
+    logger.info(
+        "[SkillExec][Step %d] CommandGuard classification: decision=%s tool=%s command=%r reasons=%s",
+        step_index,
+        decision,
+        tool_name,
+        command,
+        reasons,
+    )
+    if decision == "allow":
+        return None, None
+    reason = (
+        f"CommandGuard {decision}: {'; '.join(reasons)}"
+        if reasons
+        else f"CommandGuard {decision}"
+    )
+    return classification, reason
+
+
+def _execute_step(
+    run_id: str,
+    step: dict,
+    step_index: int,
+    allow_ask_steps: bool = False,
+) -> tuple:
     """
     Execute a single tool_sequence step via ToolGuard.
 
     Returns (success: bool, result: str | None, error: str | None).
+
+    Security: any shell-replay step is first classified by CommandGuard.
+    "deny" steps abort the run; "ask" steps deny unless allow_ask_steps=True.
 
     The actual tool implementation is looked up via the tool registry.
     If no real implementation exists, the step is recorded as a
     SIMULATED execution (safe for replay/testing).
     """
     from aja.persistence.tools import ToolGuard
+
+    # ── Runtime CommandGuard gate — skills must never bypass live-exec policy ──
+    classification, denial_reason = classify_skill_step(step, step_index)
+    if denial_reason is not None:
+        decision = classification.get("decision")
+        if decision == "ask" and allow_ask_steps:
+            logger.warning(
+                "[SkillExec][Step %d] 'ask' step explicitly permitted via allow_ask_steps",
+                step_index,
+            )
+        else:
+            logger.warning(
+                "[SkillExec][Step %d] Step DENIED by CommandGuard before execution (%s)",
+                step_index,
+                denial_reason,
+            )
+            return False, None, denial_reason
 
     tool_name = step.get("tool_name", "unknown")
     args = step.get("args_schema", {})
@@ -418,6 +511,7 @@ def execute_skill(
     objective: str,
     tracker=None,
     confirm_fn=None,
+    allow_ask_steps: bool = False,
 ) -> bool:
     """
     Execute a recommended skill safely within system guarantees.
@@ -542,7 +636,9 @@ def execute_skill(
                 )
                 continue
 
-            ok, result, error = _execute_step(run_id, step, step_index=i)
+            ok, result, error = _execute_step(
+                run_id, step, step_index=i, allow_ask_steps=allow_ask_steps
+            )
             step_results.append({"step": i, "tool": step.get("tool_name"), "ok": ok})
 
             if ok:

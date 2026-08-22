@@ -74,10 +74,30 @@ class SwarmSettings(BaseModel):
             raise ValueError(f"operating_mode must be one of {allowed}, got '{v}'")
         return v.lower()
 
+class GatewayAuthConfig(BaseModel):
+    """Per-platform gateway authorization allowlists.
+
+    These mirror (and are superseded by) the environment variables
+    TELEGRAM_ALLOWED_USER_ID / DISCORD_ALLOWED_USER_IDS / SLACK_ALLOWED_USER_IDS.
+    Comma-separated lists are supported for discord/slack; "*" = allow all.
+    Fail-safe: when a platform bot token is configured without an allowlist,
+    remote users are DENIED.
+    """
+    telegram_allowed_user_id: Optional[str] = Field(
+        default=None, description="Env: TELEGRAM_ALLOWED_USER_ID. Single authorized Telegram user id ('*' allows all)."
+    )
+    discord_allowed_user_ids: Optional[str] = Field(
+        default=None, description="Env: DISCORD_ALLOWED_USER_IDS. Comma-separated Discord user ids allowed to command AJA."
+    )
+    slack_allowed_user_ids: Optional[str] = Field(
+        default=None, description="Env: SLACK_ALLOWED_USER_IDS. Comma-separated Slack member ids allowed to command AJA."
+    )
+
 class AJAConfig(BaseModel):
     project_name: str = "AJA"
     territories: List[TerritoryConfig] = Field(default_factory=list)
     swarm_settings: SwarmSettings = Field(default_factory=SwarmSettings)
     execution_policy: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
     permission_policy: PermissionPolicyConfig = Field(default_factory=PermissionPolicyConfig)
+    gateway_auth: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)

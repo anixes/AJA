@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from typing import Dict, Any, Optional
+from aja.gateway.auth import is_user_authorized
 from aja.gateway.base import BasePlatformAdapter, MessageEvent, MessageType
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class DiscordAdapter(BasePlatformAdapter):
         self.gateway = None
         self.metrics = {
             "events_received": 0,
+            "events_rejected": 0,
             "messages_sent": 0,
         }
 
@@ -55,6 +57,23 @@ class DiscordAdapter(BasePlatformAdapter):
         @self._bot.event
         async def on_message(message):
             if message.author == self._bot.user:
+                return
+
+            if not is_user_authorized("discord", str(message.author.id)):
+                logger.warning(
+                    "[DiscordAdapter] Unauthorized event dropped (user_id=%s, channel=%s): '%s'",
+                    message.author.id,
+                    message.channel.id,
+                    message.content,
+                )
+                self.metrics["events_rejected"] += 1
+                try:
+                    await message.reply(
+                        "🚫 Access Denied. Your Discord user is not authorized to command AJA.\n"
+                        f"Add your ID to the `.env` file: `DISCORD_ALLOWED_USER_IDS={message.author.id}`"
+                    )
+                except Exception as e:
+                    logger.debug(f"[DiscordAdapter] Could not deliver denial notice: {e}")
                 return
 
             event = MessageEvent(

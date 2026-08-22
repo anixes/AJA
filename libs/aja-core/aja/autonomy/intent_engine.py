@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 import time
 from typing import Any, Dict, List
 
 from aja.goals.goal_engine import goal_engine
 from aja.memory.experience_store import experience_store
 from aja.memory.failure_memory import failure_memory
+
+logger = logging.getLogger(__name__)
 
 INTENT_SOURCES = [
     "scheduled_tasks",
@@ -250,7 +253,7 @@ class IntentEngine:
                     self.intent_last_run = data.get("last_run", {})
                     self.intent_failures = data.get("failures", {})
             except Exception:
-                pass
+                logger.warning("Cooldown state load failed: intent rate-limit/failure memory reset", exc_info=True)
 
     def save_cooldowns(self):
         try:
@@ -264,7 +267,7 @@ class IntentEngine:
                     f,
                 )
         except Exception:
-            pass
+            logger.warning("Cooldown state save failed: intents may re-fire before cooldown expires", exc_info=True)
 
 
 intent_engine = IntentEngine()

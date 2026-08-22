@@ -1,6 +1,18 @@
 """GitHub Copilot authentication utilities for AJA.
 
 Implements the OAuth device code flow and token exchange for the Copilot API.
+
+Token storage security notes:
+- The raw GitHub OAuth device-flow token is persisted in plaintext to
+  ``PROJECT_ROOT/.env`` (gitignored). After every write, this module restricts
+  file ACLs so only the current user can read it (icacls on Windows,
+  chmod 0o600 on POSIX).
+- The token is NOT exported into child-process environments by default. Set
+  ``AJA_EXPORT_COPILOT_TOKEN=1`` to opt back into exporting
+  ``COPILOT_GITHUB_TOKEN`` to ``os.environ``.
+- Recommended future storage upgrade: use the OS keyring instead of a
+  plaintext file, e.g. ``keyring.set_password("AJA", "copilot", token)`` and
+  retrieve via ``keyring.get_password("AJA", "copilot")``.
 """
 
 from __future__ import annotations
@@ -15,6 +27,13 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+_EXPORT_TOKEN_FLAG = "AJA_EXPORT_COPILOT_TOKEN"
+
+
+def _export_token_enabled() -> bool:
+    """Whether the raw token should be exported to child-process environments."""
+    return os.getenv(_EXPORT_TOKEN_FLAG, "").strip() == "1"
 
 # OAuth device code flow constants
 COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98"
@@ -35,6 +54,31 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
             "Classic PATs (ghp_*) are not supported. Use device code or fine-grained PAT.",
         )
     return True, "OK"
+
+
+def _restrict_file_acl(path) -> None:
+    """Restrict a file's permissions to the current user only. Never raises."""
+    try:
+        if os.name == "nt":
+            username = os.environ.get("USERNAME") or Path(path).owner()
+            cmd = [
+                "icacls",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                f"{username}:F",
+            ]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, check=False
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "Failed to restrict ACLs on %s: %s", path, result.stderr.strip()
+                )
+        else:
+            os.chmod(path, 0o600)
+    except Exception as exc:
+        logger.warning("Could not restrict file permissions on %s: %s", path, exc)
 
 
 # In-memory session cache for resolved raw GitHub token: (token, source)
@@ -82,7 +126,15 @@ def resolve_copilot_token() -> tuple[str, str]:
         else:
             _CACHED_RAW_TOKEN = (token, "gh auth token")
             # Export to os.environ so child tools/processes inherit it
-            os.environ["COPILOT_GITHUB_TOKEN"] = token
+            # (opt-in via AJA_EXPORT_COPILOT_TOKEN=1)
+            if _export_token_enabled():
+                os.environ["COPILOT_GITHUB_TOKEN"] = token
+            else:
+                logger.debug(
+                    "Skipping COPILOT_GITHUB_TOKEN export to child-process "
+                    "environment (set %s=1 to enable).",
+                    _EXPORT_TOKEN_FLAG,
+                )
             return token, "gh auth token"
 
     return "", ""
@@ -205,10 +257,18 @@ def copilot_device_code_login(
                 new_lines = [line for line in existing_lines if not line.startswith("COPILOT_GITHUB_TOKEN=")]
                 new_lines.append(f"COPILOT_GITHUB_TOKEN={token}")
                 env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                
+                _restrict_file_acl(env_path)
+
                 # Update current session environment so it works immediately
-                import os
-                os.environ["COPILOT_GITHUB_TOKEN"] = token
+                # (opt-in via AJA_EXPORT_COPILOT_TOKEN=1)
+                if _export_token_enabled():
+                    os.environ["COPILOT_GITHUB_TOKEN"] = token
+                else:
+                    logger.debug(
+                        "Skipping COPILOT_GITHUB_TOKEN export to child-process "
+                        "environment (set %s=1 to enable).",
+                        _EXPORT_TOKEN_FLAG,
+                    )
             except Exception as e:
                 print(f"[Copilot] Warning: Could not save token to .env: {e}")
                 

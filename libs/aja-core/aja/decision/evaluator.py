@@ -383,7 +383,7 @@ def evaluate_pipeline(task_id: int, result: str, context: Dict[str, Any], strict
             from aja.decision.metrics import update_evaluation_metrics
             update_evaluation_metrics(True, True, False, eval_path="fast")
         except Exception:
-            pass
+            logger.debug("Evaluation metrics update failed after deterministic FAIL", exc_info=True)
         return {
             "decision": "FAIL",
             "risk_score": 1.0,
@@ -430,6 +430,7 @@ def evaluate_pipeline(task_id: int, result: str, context: Dict[str, Any], strict
                         _threshold_confidence, _dis_rate)
             print(f"[Evaluator] ADAPTIVE_THRESHOLD_UPDATED: confidence_threshold={_threshold_confidence:.2f}")
     except Exception:
+        logger.debug("Adaptive threshold update failed; keeping defaults", exc_info=True)
         pass  # keep defaults on error
 
     # ── Phase 24: Cascade spam guard ──────────────────────────────────────
@@ -506,7 +507,7 @@ def evaluate_pipeline(task_id: int, result: str, context: Dict[str, Any], strict
                 eval_path="fast",
             )
         except Exception:
-            pass
+            logger.debug("Fast-path evaluation metrics update failed", exc_info=True)
 
         return {
             "decision": out_decision,
@@ -611,7 +612,7 @@ def evaluate_pipeline(task_id: int, result: str, context: Dict[str, Any], strict
         try:
             update_evaluator_performance(ev, dec, disagreement, is_veto, task_type=eval_context["task_type"], difficulty=eval_context["difficulty"])
         except Exception:
-            pass
+            logger.debug("Evaluator performance update failed for %s", ev, exc_info=True)
 
     veto_triggered = (hard_vetoes > 0)
     
