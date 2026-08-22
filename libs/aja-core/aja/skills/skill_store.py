@@ -132,3 +132,17 @@ class SkillStore:
     def list_skills(self, limit: int = 50) -> List[Dict[str, Any]]:
         table = self.db.open_table("aja_skills")
         return table.to_arrow().slice(0, limit).to_pylist()
+
+def update_skill_metrics(skill_id: str, success: bool) -> None:
+    """Atomically fold an execution outcome into the skill's track record."""
+    store = SkillStore()
+    skill = store.get_skill(skill_id)
+    if not skill:
+        return
+    total = int(skill.get("success_count") or 0) + (1 if success else 0)
+    updates = {
+        "success_count": total,
+        "confidence_score": 1.0 if success else max(0.0, float(skill.get("confidence_score") or 1.0) - 0.05),
+        "updated_at": utc_now(),
+    }
+    store.update_skill(skill_id, updates)

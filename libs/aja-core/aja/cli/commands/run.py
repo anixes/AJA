@@ -38,6 +38,11 @@ def cmd_run(objective: str, background: bool = False, dry_run: bool = False):
         return
 
     with mission_spinner(objective):
+        # The swarm engine reports progress exclusively via logging; without a
+        # handler the whole mission is silent to the operator.
+        import logging
+
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         from aja.orchestration.swarm import SwarmEngine
 
         engine = SwarmEngine(dry_run=dry_run)
