@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 import time
 import json
@@ -11,6 +12,52 @@ from aja.runtime.events import LanceRuntimeEventSink, RuntimeEventSink
 from aja.runtime.task_store import LanceRuntimeTaskStore, RuntimeTaskStore
 
 logger = logging.getLogger("aja.scheduler.cron_scheduler")
+
+# Default hard interrupt limit for scheduled job execution. Configurable via
+# the AJA_JOB_TIMEOUT_S environment variable (mirrors AJA_WORKER_TIMEOUT_S).
+_DEFAULT_JOB_TIMEOUT_S = 600.0
+
+# Output contract used to capture research mission reports.
+_REPORT_CONTRACT = {
+    "type": "object",
+    "required": ["summary"],
+    "properties": {"summary": {"type": "string"}},
+}
+
+# Keyword heuristic for classifying a scheduled goal as a RESEARCH mission.
+_RESEARCH_KEYWORDS_RE = re.compile(
+    r"\b(search|research|monitor|check|summarize|fetch|news|report|latest|changes)\b",
+    re.IGNORECASE,
+)
+
+
+def get_job_timeout() -> float:
+    """Returns the hard execution timeout (seconds) for scheduled jobs.
+
+    Reads ``AJA_JOB_TIMEOUT_S`` from the environment; falls back to the
+    600-second default when unset or non-numeric.
+    """
+    raw = os.getenv("AJA_JOB_TIMEOUT_S")
+    if raw is None:
+        return _DEFAULT_JOB_TIMEOUT_S
+    try:
+        val = float(raw)
+        return val if val > 0 else _DEFAULT_JOB_TIMEOUT_S
+    except ValueError:
+        return _DEFAULT_JOB_TIMEOUT_S
+
+
+def is_research_goal(goal: str, meta: Optional[Dict[str, Any]] = None) -> bool:
+    """Heuristic: is this scheduled goal a RESEARCH mission?
+
+    True when the job metadata explicitly flags ``research=True`` (override)
+    OR the goal text matches a research keyword
+    (search|research|monitor|check|summarize|fetch|news|report|latest|changes).
+    """
+    if isinstance(meta, dict) and meta.get("research") is True:
+        return True
+    return bool(goal and _RESEARCH_KEYWORDS_RE.search(goal))
+
 
 def match_cron_field(field_val: str, dt_val: int) -> bool:
     if field_val == "*":
@@ -103,7 +150,8 @@ class CronScheduler:
     Deterministic cron and duration task scheduler for AJA runtime.
     Persists through an injected runtime task store and emits observable events
     through an injected event sink.
-    Enforces a 3-minute hard interrupt limit on scheduled executions.
+    Enforces a hard interrupt limit on scheduled executions
+    (AJA_JOB_TIMEOUT_S env var, default 600 seconds).
     """
     
     def __init__(
@@ -142,8 +190,12 @@ class CronScheduler:
         }
         self.event_sink.emit(payload)
 
-    def add_job(self, goal: str, schedule_expr: str) -> Dict[str, Any]:
-        """Registers and persists a new scheduled job in LanceDB."""
+    def add_job(self, goal: str, schedule_expr: str, **meta_kwargs: Any) -> Dict[str, Any]:
+        """Registers and persists a new scheduled job in LanceDB.
+
+        Extra keyword arguments (e.g. ``research=True``) are merged into the
+        job's persistent metadata dict.
+        """
         tid = f"JOB-{uuid.uuid4().hex[:6].upper()}"
         
         # Verify schedule expression (either 5-field cron or 'every ...')
@@ -163,7 +215,8 @@ class CronScheduler:
             "metadata": {
                 "schedule_expr": schedule_expr,
                 "last_run": 0.0,
-                "paused": False
+                "paused": False,
+                **meta_kwargs
             }
         }
         
@@ -232,7 +285,13 @@ class CronScheduler:
         return jobs
 
     async def _execute_job(self, job_id: str, goal: str, run_id: str, trace_id: str):
-        """Executes a single job with a hard 3-minute timeout limit."""
+        """Executes a single job with a hard configurable timeout limit.
+
+        Research missions (see :func:`is_research_goal`) additionally capture
+        a structured report via an output contract (with graceful fallback to
+        a plain synthesis), persist it as ``last_report`` in the job metadata,
+        and publish it on the runtime event bus for platform delivery.
+        """
         with TraceContextManager(trace_id):
             logger.info(f"Starting execution of scheduled task: '{goal}'")
             self._emit_event(
@@ -245,13 +304,31 @@ class CronScheduler:
             from aja.config import CONFIG
 
             engine = SwarmEngine()
+            timeout_s = get_job_timeout()
+            is_research = is_research_goal(goal)
+            if is_research:
+                try:
+                    meta = json.loads(
+                        self.store.get_task(job_id).get("metadata_json") or "{}"
+                    )
+                except Exception:
+                    meta = {}
+                is_research = is_research_goal(goal, meta)
+
+            report: Optional[str] = None
 
             try:
-                # Enforce the 3-minute hard interrupt limit
+                # Enforce the hard interrupt limit (AJA_JOB_TIMEOUT_S, default 600s)
                 if CONFIG.swarm_settings.direct_execution:
-                    await asyncio.wait_for(engine.execute_direct(goal), timeout=180.0)
+                    if is_research:
+                        report = await asyncio.wait_for(
+                            self._run_research_mission(engine, goal),
+                            timeout=timeout_s * 2,  # contract attempt + fallback call
+                        )
+                    else:
+                        await asyncio.wait_for(engine.execute_direct(goal), timeout=timeout_s)
                 else:
-                    await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=180.0)
+                    await asyncio.wait_for(engine.plan_and_execute_batons(goal), timeout=timeout_s)
 
                 logger.info(f"Successfully completed scheduled task: '{goal}'")
                 self._emit_event(
@@ -259,6 +336,10 @@ class CronScheduler:
                     f"Successfully completed job: {goal}",
                     metadata={"job_id": job_id, "run_id": run_id},
                 )
+
+                if report:
+                    self._deliver_research_report(job_id, goal, report)
+
             except asyncio.CancelledError:
                 self._emit_event(
                     "SCHEDULER_JOB_CANCELLED",
@@ -268,10 +349,12 @@ class CronScheduler:
                 )
                 raise
             except asyncio.TimeoutError:
-                logger.error(f"Execution of scheduled task '{goal}' timed out after 3 minutes!")
+                logger.error(
+                    f"Execution of scheduled task '{goal}' timed out after {timeout_s:.0f} seconds!"
+                )
                 self._emit_event(
                     "SCHEDULER_JOB_TIMEOUT",
-                    f"Job execution exceeded 3-minute limit (hard interrupted): {goal}",
+                    f"Job execution exceeded the {timeout_s:.0f}s limit (hard interrupted): {goal}",
                     level="error",
                     metadata={"job_id": job_id, "run_id": run_id},
                 )
@@ -292,9 +375,71 @@ class CronScheduler:
                         meta = json.loads(job["metadata_json"])
                         meta.pop("active_run_id", None)
                         meta.pop("active_trace_id", None)
+                        if report:
+                            meta["last_report"] = report
                         self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
                 except Exception:
                     logger.exception("Failed to clear active scheduler metadata for %s", job_id)
+
+    async def _run_research_mission(self, engine, goal: str) -> Optional[str]:
+        """Runs a research mission capturing its report via an output contract.
+
+        Mirrors NativeWorkerAdapter: attempt a structured synthesis; on
+        StructuredOutputError (or any contract failure) fall back gracefully
+        to a plain execute_direct call. Returns the summary text or None.
+        """
+        from aja.llm_structured import StructuredOutputError
+
+        try:
+            res = await engine.execute_direct(
+                goal,
+                output_contract=json.loads(json.dumps(_REPORT_CONTRACT)),
+            )
+            if isinstance(res, dict):
+                result = res.get("result") or {}
+                if isinstance(result, dict):
+                    summary = result.get("summary")
+                    if summary:
+                        return str(summary)
+        except StructuredOutputError:
+            logger.warning(
+                "Research job model cannot honor output contracts; "
+                "falling back to plain synthesis."
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Structured research synthesis failed; falling back.")
+
+        # Graceful fallback to a plain (non-contract) call.
+        await engine.execute_direct(goal)
+        return None
+
+    def _deliver_research_report(self, job_id: str, goal: str, report: str) -> None:
+        """Persists + broadcasts a research mission report for platform delivery."""
+        self._emit_event(
+            "SCHEDULER_JOB_REPORT",
+            f"Research report for scheduled job {job_id}: {report}",
+            metadata={"job_id": job_id, "goal": goal, "report": report},
+        )
+
+        from aja.runtime.event_bus import bus, EVENTS
+
+        # MISSION_COMPLETED is the canonical delivery event; some runtimes do
+        # not yet register it in EVENTS, so fall back to MISSION_RESULT which
+        # gateway adapters subscribe to via EVENTS.values().
+        delivery_event = (
+            "MISSION_COMPLETED"
+            if "MISSION_COMPLETED" in EVENTS
+            else EVENTS.get("MISSION_RESULT", "MISSION_RESULT")
+        )
+        bus.publish(delivery_event, {
+            "job_id": job_id,
+            "goal": goal,
+            "report": report,
+            "message": f"Scheduled research complete ({goal}):\n{report}",
+        })
+
 
     async def tick_loop(self):
         """Infinite loop checking schedules and triggering due tasks."""

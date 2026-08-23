@@ -266,6 +266,7 @@ class SwarmEngine:
             )
         except StructuredOutputError as e:
             logger.warning("Structured planning returned invalid JSON (%s).", e)
+            plan = await self._planning_recovery_ladder(planning_prompt, PLAN_SCHEMA)
         except Exception as e:
             if self.dry_run:
                 logger.warning("[DRY-RUN] LLM Planning failed or is unauthenticated (%s). Simulating a default safe plan.", e)
@@ -332,6 +333,63 @@ class SwarmEngine:
         final_report = await self.gateway.chat(model=self.model, prompt=synthesis_prompt)
 
         logger.info("Final Synthesis Complete:\n%s", redact_secrets(str(final_report)))
+
+    async def _planning_recovery_ladder(self, planning_prompt: str, full_schema: dict):
+        """Recovery rungs between full-schema planning failure and single-step fallback.
+
+        Rung 1: retry with a JSON-only system hint (forces the Strategy-B
+        extraction path in llm_structured).
+        Rung 2: retry with a simplified task-only schema; missing ids are
+        synthesized by enumeration.
+        Rung 3 (implicit): return None so the caller degrades to single-step.
+        """
+        from aja.llm_structured import structured_completion
+
+        # ── Rung 1: JSON-only system hint ──
+        try:
+            plan = await structured_completion(
+                self.gateway,
+                planning_prompt,
+                full_schema,
+                system="Respond ONLY with a JSON array. No prose.",
+                model=self.model,
+            )
+            logger.warning("[Planning] recovered via rung 1 (JSON-only system hint).")
+            return plan
+        except Exception as e:
+            logger.warning("[Planning] rung 1 failed (%s).", e)
+
+        # ── Rung 2: simplified schema, synthesize ids ──
+        simple_schema = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"task": {"type": "string"}},
+                "required": ["task"],
+            },
+        }
+        try:
+            raw_plan = await structured_completion(
+                self.gateway,
+                planning_prompt,
+                simple_schema,
+                model=self.model,
+            )
+            plan = []
+            for i, item in enumerate(raw_plan):
+                if isinstance(item, dict) and item.get("task"):
+                    plan.append({"id": item.get("id", i + 1), "task": str(item["task"])})
+                elif isinstance(item, str) and item.strip():
+                    plan.append({"id": i + 1, "task": item.strip()})
+            if plan:
+                logger.warning("[Planning] recovered via rung 2 (simplified schema).")
+                return plan
+            logger.warning("[Planning] rung 2 returned an empty plan.")
+        except Exception as e:
+            logger.warning("[Planning] rung 2 failed (%s).", e)
+
+        logger.warning("[Planning] recovery ladder exhausted; degrading to single-step execution.")
+        return None
 
     async def _execute_baton_worker(self, baton_path: Path):
         baton_data = read_baton(baton_path)

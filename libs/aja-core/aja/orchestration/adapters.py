@@ -1,7 +1,25 @@
+import logging
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict
+
+logger = logging.getLogger(__name__)
+
+# Process-local cache of which worker models can honor output contracts.
+# Prevents double-executing every task (contract attempt + plain fallback)
+# on weak local models that raise StructuredOutputError every time.
+_MODEL_CONTRACT_CAPABLE: Dict[str, bool] = {}
+
+
+def _model_supports_contracts(model: str) -> bool:
+    """False only when the model is known (this process) to fail output contracts."""
+    return _MODEL_CONTRACT_CAPABLE.get(model, True)
+
+
+def _mark_model_contract_capable(model: str, capable: bool) -> None:
+    _MODEL_CONTRACT_CAPABLE[model] = capable
 
 
 async def dispatch_worker(worker_id: str, baton: dict, workspace_dir: str) -> dict:
@@ -319,19 +337,30 @@ class NativeWorkerAdapter(BaseAdapter):
             from aja.llm_structured import StructuredOutputError
 
             answer = None
-            try:
-                res = await engine.execute_direct(
-                    task,
-                    output_contract={
-                        "type": "object",
-                        "required": ["summary"],
-                        "properties": {"summary": {"type": "string"}},
-                    },
-                )
-                if isinstance(res, dict):
-                    answer = res.get("result", {}).get("summary")
-            except (StructuredOutputError, Exception):
-                answer = None
+            if _model_supports_contracts(worker_model):
+                try:
+                    res = await engine.execute_direct(
+                        task,
+                        output_contract={
+                            "type": "object",
+                            "required": ["summary"],
+                            "properties": {"summary": {"type": "string"}},
+                        },
+                    )
+                    if isinstance(res, dict):
+                        answer = res.get("result", {}).get("summary")
+                        if answer:
+                            _mark_model_contract_capable(worker_model, True)
+                except StructuredOutputError:
+                    _mark_model_contract_capable(worker_model, False)
+                    logger.warning(
+                        "[WorkerAdapter] model '%s' cannot honor output contracts; "
+                        "skipping contract attempts for future tasks.",
+                        worker_model,
+                    )
+                    answer = None
+                except Exception:
+                    answer = None
 
             if not answer:
                 await engine.execute_direct(task)

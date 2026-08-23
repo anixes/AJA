@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 10 — Dual-Model System & Scheduled Research
+- **Dual-model routing**: `resolve_provider_model()` pure function (offline/hybrid/online matrix, 13 tests); hybrid mode honors explicit per-role selections — cloud planner + local GPU worker coexist; doctor warns on local-worker-under-online misconfiguration.
+- **Scheduled autonomous research**: research-goal heuristics + metadata override in `CronScheduler`; `AJA_JOB_TIMEOUT_S` (default 600s); report capture via output contract, persisted per-job and published as `MISSION_COMPLETED` for platform delivery.
+- **Local conformance profile** (`tests/python/live/test_local_conformance.py`): llama.cpp/LM Studio auto-detect, direct gateway binding bypassing mode redirects. LFM2.5-1.2B passes all 4 checks live incl. native tool-calling.
+- **Tokenizer map** (`aja/utils/tokenizer_map.py`): exact cl100k via Rust; per-family heuristics for gemini/llama/gemma.
+- **Planning reliability ladder**: prose-retry → simplified schema → single-step fallback (logged rungs). Worker contract-capability cache kills double-execution. `anthropic` registered in providers.json. `AJA_WORKER_RUN_TESTS=1` opt-in for worker test runs.
+
 #### Phase 9 — LLM Harness Grade-Up
 - **Replay-based evaluation framework** (`aja/evals/`): `EvalCase` rubric scoring against journaled missions (unexpected TOOL_FAILED caps at 0.5), regression-gate mode vs stored baselines, `aja eval` CLI.
 - **Structured output** (`aja/llm_structured.py`): forced synthetic-tool strategy + JSON-extraction fallback + repair round-trip; planner bracket-slicing replaced; `execute_direct(output_contract=...)` validates final synthesis.

@@ -1,6 +1,7 @@
 """Client-facing presentation helpers for orchestration surfaces."""
 
 import os
+from typing import Optional
 
 
 def _neutral_prompts_requested() -> bool:
@@ -55,8 +56,12 @@ class AJAPresenter(NullPresenter):
 
     Set AJA_NEUTRAL_PROMPTS=1 (or swarm_settings.neutral_prompts=true) to
     swap the persona system prompt for the neutral operator variant — for
-    benchmark/eval/benchmark-adjacent usage where persona text would pollute
-    model-behavior comparisons.
+    benchmark/eval usage where persona text would pollute model-behavior
+    comparisons.
+
+    ``direct_system_prompt`` may also be ASSIGNED an explicit override
+    (e.g. autonomous-worker adapters inject a non-interactive variant);
+    overrides take precedence over both persona and neutral modes.
     """
 
     @staticmethod
@@ -79,16 +84,24 @@ class AJAPresenter(NullPresenter):
         "7. NEVER output raw forbidden words or reference deprecated components."
     )
 
-    @property
-    def direct_system_prompt(self) -> str:
-        if _neutral_prompts_requested():
-            return NEUTRAL_SYSTEM_PROMPT
-        return self._persona_system_prompt()
-
     def __init__(self):
         from aja.interface.modern import console
 
         self.console = console
+        self._explicit_override: Optional[str] = None
+
+    @property
+    def direct_system_prompt(self) -> str:
+        # Explicit per-engine overrides (e.g. autonomous-worker adapter) win.
+        if self._explicit_override:
+            return self._explicit_override
+        if _neutral_prompts_requested():
+            return NEUTRAL_SYSTEM_PROMPT
+        return self._persona_system_prompt()
+
+    @direct_system_prompt.setter
+    def direct_system_prompt(self, value: str) -> None:
+        self._explicit_override = value
 
     def info(self, message: str) -> None:
         self.console.print(message)
