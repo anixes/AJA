@@ -3,16 +3,30 @@
 Implements the OAuth device code flow and token exchange for the Copilot API.
 
 Token storage security notes:
-- The raw GitHub OAuth device-flow token is persisted in plaintext to
-  ``PROJECT_ROOT/.env`` (gitignored). After every write, this module restricts
-  file ACLs so only the current user can read it (icacls on Windows,
-  chmod 0o600 on POSIX).
+- Resolution order for the raw GitHub device-flow token:
+  1. In-memory session cache
+  2. OS keyring (preferred persistent store):
+     ``keyring.get_password("AJA", "copilot")``
+  3. Environment variables (including the python-dotenv-loaded
+     ``PROJECT_ROOT/.env`` copy): ``COPILOT_GITHUB_TOKEN``, ``GH_TOKEN``,
+     ``GITHUB_TOKEN``
+  4. ``gh auth token`` CLI fallback
+  Keyring unavailability or backend errors (common on headless Linux) are
+  swallowed at debug level and resolution falls through to the next source.
+- Dual-write rationale: on successful device-flow login the token is written
+  BOTH to the OS keyring AND to the ACL-restricted plaintext
+  ``PROJECT_ROOT/.env`` (gitignored; ACLs restricted after every write via
+  icacls on Windows / chmod 0o600 on POSIX). The .env copy remains as a
+  documented fallback so headless/keyring-less hosts keep working.
 - The token is NOT exported into child-process environments by default. Set
   ``AJA_EXPORT_COPILOT_TOKEN=1`` to opt back into exporting
   ``COPILOT_GITHUB_TOKEN`` to ``os.environ``.
-- Recommended future storage upgrade: use the OS keyring instead of a
-  plaintext file, e.g. ``keyring.set_password("AJA", "copilot", token)`` and
-  retrieve via ``keyring.get_password("AJA", "copilot")``.
+- Migration: ``migrate_token_to_keyring()`` copies an existing .env token
+  into the keyring when the keyring does not already hold one. It never
+  deletes .env content (the fallback copy stays valid); returns True only
+  when a migration actually occurred. It is invoked opportunistically
+  (best-effort, exception-swallowed) during the login save path after a
+  successful keyring write.
 """
 
 from __future__ import annotations
@@ -29,6 +43,53 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _EXPORT_TOKEN_FLAG = "AJA_EXPORT_COPILOT_TOKEN"
+_KEYRING_SERVICE = "AJA"
+_KEYRING_USERNAME = "copilot"
+
+
+def _keyring_get() -> Optional[str]:
+    """Read the Copilot token from the OS keyring. Never raises."""
+    try:
+        import keyring
+    except Exception as exc:
+        logger.debug("keyring unavailable; skipping OS keychain lookup: %s", exc)
+        return None
+    try:
+        return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USERNAME)
+    except Exception as exc:
+        logger.debug("keyring lookup failed (headless backend?): %s", exc)
+        return None
+
+
+def _keyring_set(token: str) -> bool:
+    """Persist the Copilot token to the OS keyring. Returns success."""
+    try:
+        import keyring
+    except Exception as exc:
+        logger.debug("keyring unavailable; cannot store token: %s", exc)
+        return False
+    try:
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_USERNAME, token)
+        return True
+    except Exception as exc:
+        logger.debug("keyring write failed (headless backend?): %s", exc)
+        return False
+
+
+def _read_env_file_token() -> str:
+    """Read the raw COPILOT_GITHUB_TOKEN line from PROJECT_ROOT/.env, if any."""
+    try:
+        from aja.config import PROJECT_ROOT
+
+        env_path = PROJECT_ROOT / ".env"
+        if not env_path.exists():
+            return ""
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("COPILOT_GITHUB_TOKEN="):
+                return line.split("=", 1)[1].strip()
+    except Exception as exc:
+        logger.debug("Could not read .env Copilot token: %s", exc)
+    return ""
 
 
 def _export_token_enabled() -> bool:
@@ -106,7 +167,17 @@ def resolve_copilot_token() -> tuple[str, str]:
             return token, source
         _CACHED_RAW_TOKEN = None
 
-    # 2. Check environment variables
+    # 2. OS keyring (preferred persistent store; falls through on None/error)
+    kr_token = _keyring_get()
+    if kr_token:
+        valid, msg = validate_copilot_token(kr_token)
+        if not valid:
+            logger.warning("Token from OS keyring is not supported: %s", msg)
+        else:
+            _CACHED_RAW_TOKEN = (kr_token, "keyring")
+            return kr_token, "keyring"
+
+    # 3. Check environment variables
     for env_var in COPILOT_ENV_VARS:
         val = os.getenv(env_var, "").strip()
         if val:
@@ -117,7 +188,7 @@ def resolve_copilot_token() -> tuple[str, str]:
             _CACHED_RAW_TOKEN = (val, env_var)
             return val, env_var
 
-    # 3. Fall back to gh auth token CLI fallback (memoized once per session)
+    # 4. Fall back to gh auth token CLI fallback (memoized once per session)
     token = _try_gh_cli_token()
     if token:
         valid, msg = validate_copilot_token(token)
@@ -177,6 +248,21 @@ def _try_gh_cli_token() -> Optional[str]:
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     return None
+
+
+def migrate_token_to_keyring() -> bool:
+    """Copy an existing .env Copilot token into the OS keyring.
+
+    No-op when the .env token is absent or the keyring already holds a token.
+    Never deletes .env content (the plaintext fallback stays valid).
+    Returns True only when a migration actually occurred.
+    """
+    token = _read_env_file_token()
+    if not token:
+        return False
+    if _keyring_get():
+        return False
+    return _keyring_set(token)
 
 
 def copilot_device_code_login(
@@ -250,6 +336,8 @@ def copilot_device_code_login(
                 print(" OK\n")
             
             token = result["access_token"]
+            # Dual-write: OS keyring first, then the ACL'd .env fallback copy.
+            keyring_saved = _keyring_set(token)
             try:
                 from aja.config import PROJECT_ROOT
                 env_path = PROJECT_ROOT / ".env"
@@ -258,6 +346,14 @@ def copilot_device_code_login(
                 new_lines.append(f"COPILOT_GITHUB_TOKEN={token}")
                 env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
                 _restrict_file_acl(env_path)
+
+                if keyring_saved:
+                    try:
+                        migrate_token_to_keyring()
+                    except Exception as exc:
+                        logger.debug(
+                            "Opportunistic keyring migration failed: %s", exc
+                        )
 
                 # Update current session environment so it works immediately
                 # (opt-in via AJA_EXPORT_COPILOT_TOKEN=1)

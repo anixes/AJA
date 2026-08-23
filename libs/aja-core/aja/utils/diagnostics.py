@@ -51,8 +51,14 @@ def run_diagnostics() -> List[Tuple[str, bool, str]]:
     try:
         if os.name == "nt":
             try:
-                import pywinpty
-                has_pty = pywinpty is not None
+                # Match pty_windows.py resolution: distribution "pywinpty"
+                # installs importable module "winpty".
+                try:
+                    import pywinpty  # noqa: F401
+                    has_pty = True
+                except ImportError:
+                    import winpty  # noqa: F401
+                    has_pty = True
                 pty_msg = "Windows ConPTY active via pywinpty"
             except ImportError:
                 has_pty = False

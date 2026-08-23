@@ -27,7 +27,8 @@ dependencies = [
     "platformdirs",
     "pandas>=2.0",
     "mcp",
-    "filelock>=3.12"
+    "filelock>=3.12",
+    "keyring>=25.0"
 ]
 
 [project.optional-dependencies]
@@ -77,6 +78,7 @@ pythonpath = ["libs/aja-core"]
 markers = [
     "e2e: real-LLM end-to-end tests (deselect with '-m not e2e')",
     "live_web: tests that hit real web services (deselect with '-m \"not live_web\"')",
+    "benchmark: Performance baseline measurements (deselect with '-m \"not benchmark\"')",
     "unit: Fast unit tests without disk or network bottlenecks",
     "integration: Subsystem integration and durable workflow tests",
     "planning: Task decomposition and DAG planning tests",

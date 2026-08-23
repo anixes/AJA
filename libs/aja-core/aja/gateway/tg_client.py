@@ -489,84 +489,15 @@ class TelegramAdapter(BasePlatformAdapter):
             await query.edit_message_text(text="🚫 Unauthorized callback action.")
             return
 
-        from aja.memory.secretary import get_aja_memory
-        memory = get_aja_memory()
-        mission = await asyncio.to_thread(memory.get_mission, mission_id)
-        if not mission:
-            await query.edit_message_text(
-                text=f"ℹ️ Mission {mission_id} no longer exists or was already handled."
-            )
-            return
+        from aja.gateway.approvals import resolve_approval
 
-        status = str(mission.get("status", "")).upper()
-        metadata_raw = mission.get("metadata_json") or "{}"
-        try:
-            metadata = json.loads(metadata_raw)
-        except Exception:
-            metadata = {}
-
-        expires_at = metadata.get("approval_expires_at") or metadata.get("expires_at")
-        approval_expired = False
-        if expires_at:
-            # Only the date parse is tolerant; the Telegram edit await below
-            # must not be swallowed by this handler.
-            try:
-                parsed_expires_at = datetime.fromisoformat(
-                    str(expires_at).replace("Z", "+00:00")
-                )
-                approval_expired = datetime.now(timezone.utc) > parsed_expires_at
-            except ValueError as e:
-                logger.warning("Could not parse approval expiry %r: %s", expires_at, e)
-        if approval_expired:
-            await query.edit_message_text(
-                text=f"⏳ Mission {mission_id} approval has expired."
-            )
-            return
-
-        if action == "approve":
-            if status in {"ACTIVE", "DONE", "FAILED", "REJECTED"}:
-                await query.edit_message_text(
-                    text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
-                )
-                return
-            # Update mission status to ACTIVE to signal GoalEngine to resume
-            await asyncio.to_thread(memory.update_mission, mission_id, {"status": "ACTIVE"})
-
-            # Log approval event
-            table = memory.db.open_table("aja_runtime_events")
-            await asyncio.to_thread(table.add, [{
-                "event_id": uuid.uuid4().hex[:8],
-                "kind": "NODE_APPROVED",
-                "target": mission_id,
-                "status": "SUCCESS",
-                "message": f"User approved mission {mission_id}",
-                "command": "",
-                "metadata_json": "{}",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }])
-            await query.edit_message_text(text=f"✅ Mission {mission_id} Approved.")
-        else:
-            if status in {"ACTIVE", "REJECTED", "DONE", "FAILED"}:
-                await query.edit_message_text(
-                    text=f"ℹ️ Mission {mission_id} already handled (status: {status})."
-                )
-                return
-            # Update mission status to REJECTED
-            await asyncio.to_thread(memory.update_mission, mission_id, {"status": "REJECTED"})
-
-            # Log rejection event
-            table = memory.db.open_table("aja_runtime_events")
-            await asyncio.to_thread(table.add, [{
-                "event_id": uuid.uuid4().hex[:8],
-                "kind": "NODE_REJECTED",
-                "target": mission_id,
-                "status": "ERROR",
-                "message": f"User rejected mission {mission_id}",
-                "command": "",
-                "metadata_json": "{}",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }])
-            await query.edit_message_text(text=f"❌ Mission {mission_id} Rejected.")
+        handled, message = await resolve_approval(
+            platform="telegram",
+            user_id=callback_user_id,
+            mission_id=mission_id,
+            action=action,
+        )
+        await query.edit_message_text(text=message)
 
     async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.send_message(

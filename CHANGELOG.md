@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 7 — Performance Baselines, Keyring Vault & Discord Depth
+- **Performance measurement layer**: benchmark suite (`tests/python/benchmarks/`, marker `benchmark`, xdist-safe) covering classify_command latency, embedding warm latency, LanceDB round-trips, journal emit throughput, registry dispatch; mission profiler (`scripts/profile_mission.py`); baseline numbers in `docs/operator/PERFORMANCE.md` (classify ~1.3ms/call, MiniLM warm ~10ms, LanceDB round-trip ~34ms).
+- **Copilot token → OS keyring**: resolution order keyring → env → `.env` → gh CLI; dual-write on login (keyring + ACL'd `.env` fallback); `migrate_token_to_keyring()` helper; exception-wrapped for headless environments. `keyring>=25` added to core deps.
+- **Discord adapter full Telegram parity** (`discord_adapter.py`, 631 lines): shared approval engine (`gateway/approvals.py::resolve_approval`) with Telegram delegation; persistent approval buttons with per-interaction auth; telemetry pipeline parity (bounded queues, per-channel dispatcher fan-out, LanceDB poller via `to_thread`, lifecycle-managed tasks); vision attachments → data URLs; metrics/health snapshot parity; resilient connect backoff + complete stop cleanup.
+
 #### Phase 6 — Real Web Capabilities & Fleet
 - **`search_web` / `fetch_url` tools** (`aja/tools/web.py`): pluggable providers (Serper/Brave/Bing API keys; zero-config DuckDuckGo POST fallback), clean markdown extraction with content-type guards and truncation caps; registered in `NativeToolRegistry` so the WebResearcher persona's tools exist.
 - **Browser automation depth**: `browser.extract_markdown`, `browser.wait_for_selector`, `browser.wait_for_network_idle`; structured `BrowserActionError` normalization (timeout/selector/navigation); parameterized timeouts.
