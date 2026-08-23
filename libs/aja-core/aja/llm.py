@@ -11,6 +11,8 @@ from aja.api.interfaces import BaseModelProvider
 
 # Gateway instance cache: cache_key -> LLMGateway
 _gateway_cache: Dict[str, LLMGateway] = {}
+# Default gateway singleton (lazily initialized by get_gateway())
+_gateway = None
 
 
 def clear_gateway_cache():

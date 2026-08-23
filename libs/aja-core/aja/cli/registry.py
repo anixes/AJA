@@ -2,10 +2,74 @@
 AJA CLI Command Registry
 ========================
 Dispatches subcommands to modular command implementations.
+
+Consolidated user-facing surface (8 commands):
+    aja            -> interactive chat REPL
+    aja chat       -> force terminal REPL mode
+    aja serve      -> headless 24/7 daemon (gateway + cron + autonomy)
+    aja run        -> one-shot mission
+    aja doctor     -> diagnostics
+    aja setup      -> configuration wizard
+    aja status     -> system status
+    aja eval       -> evaluation framework
+Plus low-priority helpers: mcp, pickup (internal), healthcheck.
 """
 
-from typing import List, Callable, Dict
-from aja.interface.modern import print_error
+from typing import List, Callable, Dict, Optional
+from aja.interface.modern import print_error, print_info
+
+
+# Legacy command -> (replacement hint, target behavior)
+_MIGRATION_HINTS: Dict[str, str] = {
+    "ws": "use 'aja serve' (workspace scheduling now runs inside the serve daemon)",
+    "workspace": "use 'aja serve'",
+    "workspaces": "use 'aja serve'",
+    "live": "use 'aja' (the default REPL includes the live experience)",
+    "ui": "use 'aja' (the default REPL includes the TUI dashboard)",
+    "tui": "use 'aja' (the default REPL includes the TUI dashboard)",
+    "direct": "use 'aja chat'",
+    "daemon": "use 'aja serve'",
+    "rebuild-projections": "use 'aja doctor' (projections verified as part of diagnostics)",
+}
+
+_ALIASES: Dict[str, str] = {
+    "ws": "serve",
+    "workspace": "serve",
+    "workspaces": "serve",
+    "live": "chat",
+    "ui": "chat",
+    "tui": "chat",
+    "direct": "chat",
+    "daemon": "serve",
+}
+
+
+def _cmd_healthcheck(args: List[str]):
+    """Lightweight liveness probe (no LanceDB opens) — safe as a container healthcheck."""
+    import sys
+
+    quick = "--quick" in args
+    try:
+        from aja.utils.startup_checks import (
+            run_startup_checks,
+            format_startup_checks,
+            check_data_dir_writable,
+        )
+
+        results = []
+        if not quick:
+            results.extend(check_data_dir_writable())
+            results.extend(run_startup_checks())
+        else:
+            results.append(check_data_dir_writable())
+
+        failed = format_startup_checks(results)
+        sys.exit(1 if failed else 0)
+    except SystemExit:
+        raise
+    except Exception as e:  # fail loudly: a broken probe must not report healthy
+        print_error(f"healthcheck failed: {e}")
+        sys.exit(2)
 
 
 class CommandRegistry:
@@ -19,6 +83,14 @@ class CommandRegistry:
     def register(self, name: str, handler: Callable):
         self._handlers[name.lower()] = handler
 
+    def _resolve(self, cmd: str) -> str:
+        return _ALIASES.get(cmd, cmd)
+
+    def _migration_notice(self, original: str):
+        hint = _MIGRATION_HINTS.get(original)
+        if hint:
+            print_info(f"'aja {original}' is deprecated: {hint}.")
+
     def dispatch(self, args: List[str], agent_mode: bool = False):
         if not args:
             from aja.cli.commands.chat import run_chat_with_gateway
@@ -26,7 +98,12 @@ class CommandRegistry:
             run_chat_with_gateway()
             return
 
-        cmd = args[0].lower()
+        raw_cmd = args[0].lower()
+        cmd = self._resolve(raw_cmd)
+
+        # Surface deprecation hints for legacy names once, before dispatch.
+        if raw_cmd in _MIGRATION_HINTS and raw_cmd != cmd:
+            self._migration_notice(raw_cmd)
 
         if cmd in ("help", "--help", "-h"):
             from aja.cli.commands.help_cmd import show_help
@@ -34,6 +111,8 @@ class CommandRegistry:
             show_help(agent_mode=agent_mode)
             return
 
+        # NOTE: self._handlers is registration-only API compat; dispatch is
+        # intentionally explicit below so per-command flag parsing stays exact.
         if cmd == "run":
             from aja.cli.commands.run import cmd_run
 
@@ -42,16 +121,6 @@ class CommandRegistry:
             objective_parts = [a for a in args[1:] if a not in ("--bg", "--dry-run")]
             objective = " ".join(objective_parts)
             cmd_run(objective, background=bg, dry_run=dry_run)
-
-        elif cmd == "direct":
-            from aja.cli.commands.direct import cmd_direct
-
-            dry_run = "--dry-run" in args
-            resume = "--resume" in args
-            model = next(
-                (a.split("=", 1)[1] for a in args if a.startswith("--model=")), None
-            )
-            cmd_direct(dry_run=dry_run, model=model, resume=resume)
 
         elif cmd == "chat":
             from aja.cli.commands.chat import run_chat_with_gateway
@@ -68,60 +137,30 @@ class CommandRegistry:
 
             cmd_setup()
 
-        elif cmd == "daemon":
-            from aja.cli.commands.daemon_cmd import cmd_daemon
-
-            cmd_daemon(args[1:])
-
         elif cmd == "doctor":
             from aja.cli.commands.doctor import cmd_doctor
 
             ci_mode = "--ci" in args
             cmd_doctor(ci_mode=ci_mode, agent_mode=agent_mode)
 
-        elif cmd == "exec":
-            from aja.cli.commands.exec_cmd import cmd_exec
-
-            cmd_exec(args[1:])
+        elif cmd == "healthcheck":
+            _cmd_healthcheck(args[1:])
 
         elif cmd == "mcp":
             from aja.cli.commands.mcp_cmd import cmd_mcp
 
             cmd_mcp(args[1:])
 
-        elif cmd == "live":
-            from aja.cli.commands.tui_cmd import cmd_live
+        elif cmd == "exec":
+            # Hidden helper (not part of the consolidated user surface).
+            from aja.cli.commands.exec_cmd import cmd_exec
 
-            cmd_live()
+            cmd_exec(args[1:])
 
-        elif cmd == "ui":
-            from aja.cli.commands.tui_cmd import cmd_ui
+        elif cmd == "serve":
+            from aja.cli.commands.serve_cmd import cmd_serve
 
-            cmd_ui()
-
-        elif cmd == "pickup":
-            from aja.cli.commands.pickup import cmd_pickup
-
-            if len(args) < 2:
-                print_error("Usage: aja pickup <code>")
-            else:
-                cmd_pickup(args[1])
-
-        elif cmd == "tui":
-            from aja.cli.commands.tui_cmd import cmd_tui
-
-            dry_run = "--dry-run" in args
-            cmd_tui(dry_run=dry_run)
-
-        elif cmd in ("ws", "workspace", "workspaces"):
-            from aja.cli.commands.ws_cmd import cmd_ws
-
-            cmd_ws(args[1:])
-
-        elif cmd == "rebuild-projections":
-            from aja.cli.commands.projections import cmd_rebuild_projections
-
-            cmd_rebuild_projections()
+            cmd_serve()
 
         elif cmd == "eval":
             from aja.cli.commands.eval_cmd import cmd_eval
@@ -153,15 +192,26 @@ class CommandRegistry:
             else:
                 cmd_eval(mode="run", case=case, mission_id=mission_id)
 
-        elif cmd == "serve":
-            from aja.cli.commands.serve_cmd import cmd_serve
+        elif cmd == "pickup":
+            # Internal-only: kept functional for fleet baton handover, hidden from help.
+            from aja.cli.commands.pickup import cmd_pickup
 
-            cmd_serve()
+            if len(args) < 2:
+                print_error("Usage: aja pickup <code>")
+            else:
+                cmd_pickup(args[1])
+
+        elif cmd == "rebuild-projections":
+            # Deprecated: projections verification lives under `aja doctor`.
+            self._migration_notice("rebuild-projections")
+            from aja.cli.commands.projections import cmd_rebuild_projections
+
+            cmd_rebuild_projections()
 
         else:
             from aja.cli.commands.help_cmd import show_help
 
-            print_error(f"Unknown command: '{cmd}'")
+            print_error(f"Unknown command: '{raw_cmd}'")
             show_help(agent_mode=agent_mode)
 
 

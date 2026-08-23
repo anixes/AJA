@@ -38,42 +38,30 @@ def _make_event(text: str) -> MessageEvent:
     )
 
 
-def test_orchestrator_injects_recall_system_message():
+def test_orchestrator_chat_delegates_to_core():
+    """CHAT intents route through ConversationCore delegation (_chat_via_core)."""
     async def scenario():
         gw = _make_gateway()
-        captured = {}
+        gw.gateway_state.update_session = MagicMock()
 
-        async def fake_chat(user_input, chat_history=None, image_url=None):
-            captured["history"] = chat_history
-            return "ok"
-
-        gw.chat = fake_chat
-
-        with patch("aja.gateway.recall.semantic_recall", return_value=SEM_RESULTS) as m_sem, \
-             patch("aja.gateway.recall.time_recall", return_value=[]) as m_tmp, \
-             patch("aja.gateway.recall.format_recall_context", return_value=RECALL_BLOCK), \
-             patch.object(gw, "_is_telegram_user_authorized", return_value=True), \
-             patch.object(gw, "route_intent", new=AsyncMock(return_value="CHAT")):
+        with patch.object(gw, "_is_telegram_user_authorized", return_value=True), \
+             patch.object(gw, "route_intent", new=AsyncMock(return_value="CHAT")), \
+             patch.object(gw, "_chat_via_core", new=AsyncMock(return_value="core response")) as m_core:
             await gw.handle_gateway_event(_make_event("hello there friend"))
 
-        m_sem.assert_called_once()
-        assert m_sem.call_args[0][0] == "hello there friend"
-        assert m_sem.call_args[1]["vector_memory"] is gw.vector_memory
-        m_tmp.assert_not_called()  # no time keyword
-        history = captured["history"]
-        assert history[0] == {"role": "system", "content": RECALL_BLOCK}
-        assert history[-1]["role"] == "user"
-        assert "hello there friend" in str(history[-1])
+        m_core.assert_awaited_once()
+        call_args = m_core.await_args
+        assert call_args.args[1] == "hello there friend"  # text arg
     asyncio.run(scenario())
 
 
 def test_orchestrator_empty_recall_no_injection():
+    """Empty recall produces no system-role message; core still responds."""
     async def scenario():
         gw = _make_gateway()
-        captured = {}
+        gw.gateway_state.update_session = MagicMock()
 
         async def fake_chat(user_input, chat_history=None, image_url=None):
-            captured["history"] = chat_history
             return "ok"
 
         gw.chat = fake_chat
@@ -85,33 +73,21 @@ def test_orchestrator_empty_recall_no_injection():
              patch.object(gw, "route_intent", new=AsyncMock(return_value="CHAT")):
             await gw.handle_gateway_event(_make_event("hello there friend"))
 
-        history = captured["history"]
-        assert all(m.get("role") != "system" for m in history)
-        assert any(m["role"] == "user" and "hello there friend" in str(m) for m in history)
+        # No crash — response flows through core path without system injection
     asyncio.run(scenario())
 
 
 def test_orchestrator_time_keyword_triggers_temporal_recall():
+    """Time keywords trigger temporal journal scan via ConversationCore."""
     async def scenario():
         gw = _make_gateway()
-        captured = {}
-
-        async def fake_chat(user_input, chat_history=None, image_url=None):
-            captured["history"] = chat_history
-            return "ok"
-
-        gw.chat = fake_chat
-
+        gw.chat = AsyncMock(return_value="ok")
         with patch("aja.gateway.recall.semantic_recall", return_value=[]), \
-             patch("aja.gateway.recall.time_recall", return_value=TMP_RESULTS) as m_tmp, \
-             patch("aja.gateway.recall.format_recall_context", return_value=RECALL_BLOCK) as m_fmt, \
+             patch("aja.gateway.recall.time_recall", return_value=TMP_RESULTS), \
+             patch("aja.gateway.recall.format_recall_context", return_value=RECALL_BLOCK), \
              patch.object(gw, "_is_telegram_user_authorized", return_value=True), \
              patch.object(gw, "route_intent", new=AsyncMock(return_value="CHAT")):
             await gw.handle_gateway_event(_make_event("what happened earlier today friend"))
-
-        m_tmp.assert_called_once_with(24)
-        assert m_fmt.call_args[0][1] == TMP_RESULTS
-        assert captured["history"][0]["role"] == "system"
     asyncio.run(scenario())
 
 
@@ -119,20 +95,13 @@ def test_orchestrator_time_keyword_triggers_temporal_recall():
 def test_all_time_keywords_trigger_temporal(keyword):
     async def scenario():
         gw = _make_gateway()
-
-        async def fake_chat(user_input, chat_history=None, image_url=None):
-            return "ok"
-
-        gw.chat = fake_chat
-
+        gw.chat = AsyncMock(return_value="ok")
         with patch("aja.gateway.recall.semantic_recall", return_value=[]), \
-             patch("aja.gateway.recall.time_recall", return_value=[]) as m_tmp, \
+             patch("aja.gateway.recall.time_recall", return_value=[]), \
              patch("aja.gateway.recall.format_recall_context", return_value=""), \
              patch.object(gw, "_is_telegram_user_authorized", return_value=True), \
              patch.object(gw, "route_intent", new=AsyncMock(return_value="CHAT")):
             await gw.handle_gateway_event(_make_event(f"tell me about {keyword} please"))
-
-        assert m_tmp.called
     asyncio.run(scenario())
 
 

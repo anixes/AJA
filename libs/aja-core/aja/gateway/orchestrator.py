@@ -472,21 +472,6 @@ class UnifiedGateway:
         reg = get_workspace_registry()
         content_stripped = content.strip()
 
-        # Recall injection: semantic (+temporal on time keywords) context block
-        recall_context = ""
-        try:
-            from aja.gateway.recall import semantic_recall, time_recall, format_recall_context
-
-            sem = semantic_recall(content_stripped, vector_memory=self.vector_memory)
-            tmp = (
-                time_recall(24)
-                if any(w in content_stripped.lower() for w in ("yesterday", "earlier", "last week"))
-                else []
-            )
-            recall_context = format_recall_context(sem, tmp)
-        except Exception:
-            pass
-
         # Handle Multi-Workspace Telegram Commands
         if content_stripped.lower() in ("/workspaces", "/ws", "/projects"):
             workspaces = reg.list_all()
@@ -674,11 +659,11 @@ class UnifiedGateway:
                     status_report += f"• **Report**: {summary}\n"
             response = status_report
         else:
-            # Simple Chat Reasoning
-            chat_history = session["history"]
-            if recall_context:
-                chat_history = [{"role": "system", "content": recall_context}] + chat_history
-            response = await self.chat(content_stripped, chat_history=chat_history, image_url=image_url)
+            # Simple Chat Reasoning — delegated to ConversationCore.
+            if image_url:
+                response = await self.chat(content_stripped, chat_history=session["history"], image_url=image_url)
+            else:
+                response = await self._chat_via_core(event, content_stripped)
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)
@@ -702,6 +687,48 @@ class UnifiedGateway:
             session["history"] = session["history"][-50:]
         await asyncio.to_thread(self.gateway_state.update_session, chat_id, session)
 
+
+    def _get_conversation_core(self):
+        """Lazy-init the shared ConversationCore brain for gateway chat turns."""
+        if getattr(self, "_conversation_core", None) is None:
+            from aja.core.conversation import ConversationCore
+            from aja.llm import get_gateway
+            from aja.orchestration.tools.executor import ToolExecutor
+            from aja.orchestration.tools.native import NativeToolRegistry
+
+            def _recall(query):
+                from aja.gateway.recall import semantic_recall
+
+                return semantic_recall(query, vector_memory=self.vector_memory)
+
+            self._conversation_core = ConversationCore(
+                gateway=get_gateway(),
+                tools_registry=NativeToolRegistry(),
+                executor=ToolExecutor(),
+                recall_fn=_recall,
+                model=self.model_id,
+            )
+        return self._conversation_core
+
+    async def _chat_via_core(self, event: MessageEvent, text: str) -> str:
+        """Runs a CHAT turn through ConversationCore and returns the Final text."""
+        from aja.core.events import Final
+        from aja.messaging.envelope import InboundMessage
+
+        msg = InboundMessage(
+            surface="telegram",
+            chat_id=str(event.chat_id),
+            user_id=str(event.user_id),
+            text=text,
+        )
+        final_text = ""
+        async for ev in self._get_conversation_core().handle(msg):
+            if isinstance(ev, Final):
+                final_text = ev.text
+        return final_text or (
+            "⚠️ **AJA Warning**: Unable to generate response. "
+            "Please verify that your LLM provider endpoint is online and accessible."
+        )
 
     def _auto_boot_local_worker(self):
         """Launches supervised daemon & background autonomous worker loop.

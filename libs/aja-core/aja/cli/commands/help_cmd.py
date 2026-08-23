@@ -102,19 +102,28 @@ def show_help(agent_mode: bool = False):
                     "description": "Run environment readiness and diagnostics checks.",
                 },
                 {
-                    "name": "pickup",
-                    "description": "Resume a mission from a high-performance Arrow Baton code.",
+                    "name": "serve",
+                    "description": "Run the headless 24/7 daemon (gateway + cron + autonomy).",
+                },
+                {
+                    "name": "eval",
+                    "description": "Evaluation framework: run a case or gate against a baseline.",
+                },
+                {
+                    "name": "setup",
+                    "description": "Run the interactive configuration wizard.",
+                },
+                {
+                    "name": "healthcheck",
+                    "description": "Lightweight liveness probe; exits non-zero on failure.",
                     "parameters": [
-                        {"name": "<code>", "type": "string", "required": True}
+                        {
+                            "name": "--quick",
+                            "type": "boolean",
+                            "required": False,
+                            "description": "Minimal in-memory checks only",
+                        }
                     ],
-                },
-                {
-                    "name": "tui",
-                    "description": "Run the live terminal curses TUI dashboard.",
-                },
-                {
-                    "name": "rebuild-projections",
-                    "description": "Rebuild derived LanceDB projections from append-only journals.",
                 },
             ],
             "rules": rules
@@ -142,21 +151,23 @@ def show_help(agent_mode: bool = False):
     from rich.panel import Panel
 
     help_text = """
-[bold cyan]Core Mission Commands[/]
-[green]swarm[/] <objective> [--dry-run] → Start a mission (with optional simulation)
-[green]direct[/] [--dry-run] [--model=<m>] [--resume] → Persistent interactive developer session
-[green]chat[/]              → Interactive conversational loop
-[green]status[/]            → Show swarm health
-[green]pickup[/] <code>      → Resume a mission
-[green]tui[/] [--dry-run]     → Run premium live HTN dashboard
+[bold cyan]Daily Use[/]
+[green]aja[/]                  → Interactive chat REPL (default)
+[green]chat[/]               → Force terminal REPL mode
+[green]serve[/]              → Headless 24/7 daemon (gateway + cron + autonomy)
+[green]run[/] <objective> [--dry-run] [--bg] → One-shot autonomous mission
 
-[bold cyan]System Commands[/]
-[yellow]setup[/]              → Onboarding setup wizard
-[yellow]mode[/] <mode>        → Set mode (offline/online/hybrid)
-[yellow]doctor[/]             → Run diagnostics
-[yellow]metrics[/]            → View performance
-[yellow]exec[/] <cmd>          → Inspect execution sessions, timelines, and diffs
-[yellow]mcp reload[/] <server> → Reload MCP server tools
-[yellow]rebuild-projections[/] → Rebuild derived LanceDB read projections
+[bold cyan]System & Ops[/]
+[yellow]doctor[/] [--ci]      → Diagnostics (incl. projection verification)
+[yellow]setup[/]              → Configuration wizard
+[yellow]status[/]             → System status (missions, workers, batons)
+[yellow]eval[/] <case>        → Evaluation framework (`--mode=list`, `--baseline=<f>` gate)
+[yellow]healthcheck[/] [--quick] → Lightweight liveness probe (container-safe)
+
+[dim]Also available: mcp (MCP server tools), pickup <code> (internal baton resume).[/]
+
+[dim bold]Migrations (removed aliases):[/dim]
+[dim]  ws / daemon → aja serve · direct → aja chat[/dim]
+[dim]  live / ui / tui → aja (default REPL) · rebuild-projections → aja doctor[/dim]
     """
     console.print(Panel(help_text, title="AJA Command Suite", border_style="cyan"))
