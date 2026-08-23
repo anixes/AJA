@@ -63,6 +63,15 @@ class SwarmSettings(BaseModel):
         default=False,
         description="Swap the AJA persona system prompt for a neutral operator variant (evals/benchmarks).",
     )
+    embedding_backend: str = Field(
+        default="auto",
+        description=(
+            "Embedding backend: 'auto' | 'sentence_transformers' | 'onnx' | 'mock'. "
+            "'auto' prefers the ONNX runtime (fastembed, vector-compatible MiniLM "
+            "weights) when installed, else sentence-transformers. Overridable via "
+            "the AJA_EMBEDDING_BACKEND env var; AJA_MOCK_EMBEDDINGS=1 forces mock."
+        ),
+    )
     context_limit_tokens: Optional[int] = Field(
         default=None,
         ge=1024,

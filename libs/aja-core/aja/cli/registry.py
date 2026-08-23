@@ -153,6 +153,11 @@ class CommandRegistry:
             else:
                 cmd_eval(mode="run", case=case, mission_id=mission_id)
 
+        elif cmd == "serve":
+            from aja.cli.commands.serve_cmd import cmd_serve
+
+            cmd_serve()
+
         else:
             from aja.cli.commands.help_cmd import show_help
 

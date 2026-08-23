@@ -62,4 +62,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD aja doctor || exit 1
 
 USER aja
-CMD ["aja", "--help"]
+CMD ["aja", "serve"]

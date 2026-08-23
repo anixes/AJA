@@ -18,7 +18,18 @@ async def publish_heartbeats(memory, worker_id):
             print(f"[!] Heartbeat publish error: {e}")
         await asyncio.sleep(10)
 
-async def main_loop():
+async def _stoppable_sleep(seconds: float, stop_event) -> None:
+    """Sleep for ``seconds`` unless ``stop_event`` is set first."""
+    if stop_event is None:
+        await asyncio.sleep(seconds)
+        return
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        pass
+
+
+async def main_loop(stop_event=None):
     print("[*] Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
     memory = LanceRuntimeStore()
     worker_id = "local-terminal-worker"
@@ -54,13 +65,18 @@ async def main_loop():
     consecutive_errors = 0
 
     while True:
+        if stop_event is not None and stop_event.is_set():
+            print("[!] Autonomous loop stopped by external stop event.")
+            intent_engine.stop()
+            heartbeat_task.cancel()
+            break
         try:
             active_goals = goal_engine.get_active_goals()
-            
+
             # Backpressure: pause polling if queue is overflowing
             if len(active_goals) > MAX_PENDING_GOALS:
                 print(f"[AutonomousLoop] Backpressure threshold reached ({len(active_goals)} active goals). Pausing mission intake.")
-                await asyncio.sleep(10)
+                await _stoppable_sleep(10, stop_event)
                 continue
 
             # Run next step asynchronously directly in event loop
@@ -69,7 +85,7 @@ async def main_loop():
 
             # Adaptive sleep: 2s when active, 5s when idle
             sleep_time = BASE_SLEEP if active_goals else 5
-            await asyncio.sleep(sleep_time)
+            await _stoppable_sleep(sleep_time, stop_event)
 
         except KeyboardInterrupt:
             print("[!] Autonomous loop stopped by user.")
@@ -80,12 +96,12 @@ async def main_loop():
             consecutive_errors += 1
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 print(f"[!] Circuit Breaker OPEN: {consecutive_errors} consecutive failures ({e}). Cooling down for 60s.")
-                await asyncio.sleep(60)
+                await _stoppable_sleep(60, stop_event)
                 consecutive_errors = 0
             else:
                 backoff = min(30, BASE_SLEEP * (2 ** consecutive_errors))
                 print(f"[!] Error in autonomous loop (#{consecutive_errors}): {e}. Backing off {backoff}s.")
-                await asyncio.sleep(backoff)
+                await _stoppable_sleep(backoff, stop_event)
 
 
 if __name__ == "__main__":

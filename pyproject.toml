@@ -41,7 +41,8 @@ discord = ["discord.py>=2.3"]
 slack   = ["slack-sdk>=3.27"]
 browser = ["playwright>=1.40"]
 desktop = ["pyautogui>=0.9"]
-all     = ["aja[embed,metrics,pty-win,discord,slack,browser,desktop]"]
+vps     = ["aja[discord]", "fastembed>=0.3"]
+all     = ["aja[embed,metrics,pty-win,discord,slack,browser,desktop,vps]"]
 dev     = [
     # Build
     "maturin>=1.4,<2.0",

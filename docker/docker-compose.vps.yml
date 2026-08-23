@@ -1,0 +1,65 @@
+# AJA VPS deployment — single-service profile (Telegram/Discord polling, outbound-only).
+# Usage:
+#   cp .env.vps.example .env   # fill in secrets, then:
+#   docker compose -f docker/docker-compose.vps.yml build
+#   docker compose -f docker/docker-compose.vps.yml up -d
+name: aja
+
+services:
+  aja:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: aja:vps
+    container_name: aja
+    restart: unless-stopped
+    stop_grace_period: 45s
+    init: true # tini-style PID1 reaping for spawned workers/PTY children
+    env_file: .env
+    environment:
+      AJA_DATA_DIR: /data/aja
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - aja-data:/data/aja
+      # Project config (workers registry, swarm settings) — optional, read-only:
+      - ../aja.json:/app/aja.json:ro
+    # Telegram/Discord adapters poll outbound; NO inbound ports published.
+    healthcheck:
+      test: ["CMD", "aja", "healthcheck", "--quick"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: false # LanceDB writes under /data/aja only; /tmp needed by libs
+    user: "1000:1000" # NOTE: named volume is chown'd to this UID on first use;
+                      # if bind-mounting instead, run: sudo chown -R 1000:1000 <host-dir>
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # ── Optional: home-GPU worker joining the fleet via baton receive ──────────
+  # Run on your LOCAL GPU machine (not on the VPS). The VPS transmits mission
+  # batons; the worker picks them up over HTTPS with HMAC auth.
+  # See docs/operator/FLEET.md for the full security model and setup.
+  #
+  # aja-gpu-worker:
+  #   image: aja:vps
+  #   restart: unless-stopped
+  #   env_file: .env.gpu-worker # AJA_BATON_SECRET must match the VPS value
+  #   environment:
+  #     AJA_DATA_DIR: /data/aja
+  #     AJA_WORKER_MODEL: http://host.docker.internal:8080/v1
+  #   volumes:
+  #     - aja-worker-data:/data/aja
+  #   command: ["aja", "worker", "--pickup"]
+
+volumes:
+  aja-data:

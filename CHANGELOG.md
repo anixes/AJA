@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+#### Phase 12 - 24/7 VPS Deployment Kit
+- aja serve production entrypoint: single-process composition (gateway + autonomy + CronScheduler tick) with graceful SIGTERM/SIGINT shutdown; Dockerfile CMD updated.
+- Lightweight health probe (aja healthcheck --quick) replacing heavyweight doctor as the container healthcheck.
+- Slim vps pip extra plus embedding backend selection (mock / sentence-transformers / onnx-fastembed with identical MiniLM vectors); explicit-unavailable fails loudly.
+- Telegram channel-post/anonymous-admin crash guards; deploy kit (docker-compose.vps.yml hardened: no ports, non-root, cap_drop ALL, log rotation; .env.vps.example; docs/operator/VPS.md runbook covering host selection, Oracle setup, update/rollback, quiesce-based backup).
+
 
 #### Phase 11 — Personal Assistant Pack
 - **Natural reminders**: `nl_time.py` pure-stdlib time parser; CronScheduler one-shot `at=` jobs firing bus events to the ORIGIN platform chat then auto-deleting; `REMINDER`/`REMINDERS_LIST` intent routes + snooze-from-chat; LLM prompt examples extended.

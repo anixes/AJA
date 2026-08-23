@@ -61,6 +61,7 @@ class TelegramAdapter(BasePlatformAdapter):
             "send_failures": 0,
             "poll_retries": 0,
             "callback_handled": 0,
+            "events_rejected": 0,
             "last_error": None,
             "last_error_at": None,
             "queue_lag_seconds": 0.0,
@@ -174,6 +175,29 @@ class TelegramAdapter(BasePlatformAdapter):
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         if not update.message:
+            return
+
+        # Channel posts and anonymous-admin messages carry from_user=None.
+        # There is no user to address or authorize against: fail closed by
+        # skipping cleanly (no denial reply) but count the rejection.
+        from_user = getattr(update.message, "from_user", None)
+        if from_user is None:
+            logger.info(
+                "Skipping Telegram message without from_user "
+                "(channel post / anonymous admin), chat_id=%s",
+                getattr(update.message, "chat_id", "?"),
+            )
+            self.metrics["events_rejected"] += 1
+            return
+
+        # Guard the chat edge: a message without resolvable chat identity
+        # cannot be routed or replied to.
+        if (
+            getattr(update.message, "chat", None) is None
+            and getattr(update.message, "chat_id", None) is None
+        ):
+            logger.info("Skipping Telegram message without chat context.")
+            self.metrics["events_rejected"] += 1
             return
 
         text_content = getattr(update.message, "text", None) or getattr(update.message, "caption", None) or ""
@@ -465,6 +489,10 @@ class TelegramAdapter(BasePlatformAdapter):
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
+        if query is None:
+            logger.info("Ignoring callback update without callback_query payload.")
+            self.metrics["events_rejected"] += 1
+            return
         await query.answer()
 
         data = query.data or ""
@@ -500,8 +528,14 @@ class TelegramAdapter(BasePlatformAdapter):
         await query.edit_message_text(text=message)
 
     async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        message = getattr(update, "message", None)
+        chat_id = getattr(message, "chat_id", None)
+        if chat_id is None:
+            logger.info("Ignoring /start without a resolvable chat_id.")
+            self.metrics["events_rejected"] += 1
+            return
         await self.send_message(
-            str(update.message.chat_id),
+            str(chat_id),
             "Hello! I am AJA (Assistant of Joint Agents), your personal natural-language secretary.",
         )
 

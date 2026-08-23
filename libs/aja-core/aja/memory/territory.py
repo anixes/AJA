@@ -163,19 +163,22 @@ class TerritoryScanner:
 
 def get_text_embedding(text: str) -> List[float]:
     """
-    Generates semantic embeddings using sentence-transformers.
-    Falls back to a deterministic placeholder if the model is unavailable.
-    """
-    model = get_embedding_model()
-    if model:
-        try:
-            # model.encode returns a numpy array
-            vec = model.encode(text)
-            return vec.tolist()
-        except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
+    Generates semantic embeddings via the shared EmbeddingService.
 
-    # Fallback (384 dimensions to match MiniLM schema)
+    Backend selection (sentence_transformers / onnx / mock) is handled there;
+    falls back to a deterministic placeholder if no model is available.
+    """
+    try:
+        from aja.embeddings.service import EmbeddingService
+
+        return EmbeddingService().embed(text)
+    except Exception as e:
+        logger.error(f"Embedding generation failed: {e}")
+        return _placeholder_embedding(text)
+
+
+def _placeholder_embedding(text: str) -> List[float]:
+    """Deterministic 384-dim placeholder matching MiniLM schema."""
     import hashlib
 
     h = hashlib.sha256(text.encode()).digest()
@@ -183,6 +186,35 @@ def get_text_embedding(text: str) -> List[float]:
     for i in range(min(384, len(h))):
         vec[i] = float(h[i]) / 255.0
     return vec
+
+
+def get_embedding_model():
+    """Lazy-loads the sentence-transformers model (mock-aware for test suites).
+
+    Retained for backward compatibility; the canonical embedding path is
+    EmbeddingService (see get_text_embedding), which honors backend selection.
+    """
+    global _embedding_model
+    if _embedding_model is None:
+        import os
+
+        # Test suites force deterministic placeholder vectors for speed.
+        if os.environ.get("AJA_MOCK_EMBEDDINGS") == "1":
+            return None
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            # Use a lightweight, high-performance model (384 dimensions)
+            _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        except ImportError:
+            logger.warning(
+                "sentence-transformers not installed. Falling back to placeholder embeddings."
+            )
+            return None
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {e}")
+            return None
+    return _embedding_model
 
 if __name__ == "__main__":
     import asyncio
