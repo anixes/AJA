@@ -28,7 +28,9 @@ dependencies = [
     "pandas>=2.0",
     "mcp",
     "filelock>=3.12",
-    "keyring>=25.0"
+    "keyring>=25.0",
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0"
 ]
 
 [project.optional-dependencies]

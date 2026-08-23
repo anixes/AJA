@@ -203,7 +203,53 @@ def local_router_fallback(message: str) -> Optional[Dict[str, Any]]:
             "confidence": 1.0,
         }
 
-    # 3. File Operations
+    # 4. Reminders & Snooze (routed to CronScheduler one-shot jobs downstream)
+    stripped = raw
+    if stripped.lower().startswith("aja "):
+        stripped = stripped[4:].strip()
+    if stripped.startswith("/"):
+        stripped = stripped[1:].strip()
+
+    m_rem = re.match(
+        r"remind me (?:to )?(?P<task>.+?)(?=\s+(?:at|by|on|tomorrow|tonight|in)\b)"
+        r"(?:\s+(?P<when>at .+|by .+|tomorrow.*|tonight.*|in \d+ ?(?:m|h|hour|minute|min)s?.*))?$",
+        stripped,
+        re.IGNORECASE,
+    )
+    if m_rem:
+        task = m_rem.group("task").strip().rstrip("?.!")
+        when_raw = (m_rem.group("when") or "").strip()
+        when_display = when_raw or "no time given"
+        return {
+            "type": "reminder",
+            "task": task,
+            "when_raw": when_raw,
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": f"⏰ Scheduled: {task} ({when_display})",
+            "confidence": 1.0,
+        }
+
+    m_snooze = re.match(
+        r"snooze (?:that |the )?reminder(?: for)? ?(?P<amount>\d+) ?(?P<unit>m|min|minutes|h|hours)?",
+        cleaned,
+    )
+    if m_snooze:
+        amount = int(m_snooze.group("amount"))
+        unit = m_snooze.group("unit") or "m"
+        minutes = amount * 60 if unit.startswith("h") else amount
+        return {
+            "type": "reminder_snooze",
+            "minutes": minutes,
+            "goal": None,
+            "command": None,
+            "tool_calls": None,
+            "response": f"⏰ Snoozed the reminder by {minutes} minute(s).",
+            "confidence": 1.0,
+        }
+
+    # 5. File Operations
     # ls / dir / list files
     m_ls = re.match(
         r"^(?:ls|dir|list|show)\s*(?:all\s+|the\s+)?(?:files|directory|dirs|folder)?(?:\s+(?:in|of|at)\s+(.+))?$",
@@ -367,6 +413,8 @@ EXAMPLES:
 - User: "look for 'Arrow' in libs/handover.py" -> {{"type":"tool_calls","tool_calls":[{{"tool":"grep_search","args":{{"query":"Arrow","path":"libs/handover.py"}}}}],"response":"Searching handover.py."}}
 - User: "refactor state locks & test" -> {{"type":"goal","goal":"refactor state locks & test","response":"Initiating swarm mission to refactor locks."}}
 - User: "what is the default swarm mode?" -> {{"type":"question","response":"It is hybrid mode, my friend."}}
+- User: "remind me to call mom tomorrow 9am" -> {{"type":"reminder","task":"call mom","when_raw":"tomorrow 9am","response":"⏰ Scheduled: call mom (tomorrow 9am)"}}
+- User: "snooze that reminder for 10 minutes" -> {{"type":"reminder_snooze","minutes":10,"response":"⏰ Snoozed."}}
 """
 
     state_context = ""
@@ -443,9 +491,12 @@ Output ONLY valid JSON:
   "goal": "Extracted goal if type is 'goal', else null",
   "command": "status/doctor/gpu/logs/pause/resume/exit if type is 'control', else null",
   "tool_calls": [{{"tool": "name", "args": {{...}}}}] or null,
-  "response": "Polite, witty, developer-fluent, concise response using 'Sir' or 'my friend'.",
-  "confidence": 0.0 to 1.0
+   "response": "Polite, witty, developer-fluent, concise response using 'Sir' or 'my friend'.",
+   "confidence": 0.0 to 1.0
 }}
+
+EXAMPLES:
+- User: "remind me to stretch in 30 minutes" -> {{"type":"reminder","task":"stretch","when_raw":"in 30 minutes","response":"⏰ Scheduled: stretch (in 30 minutes)"}}
 """
 
     state_context = ""

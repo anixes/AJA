@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 import time
@@ -593,6 +594,45 @@ class UnifiedGateway:
                     asyncio.create_task(self.telegram_adapter.tail_events(chat_id))
                 self.active_telemetry_bridges.add(chat_id)
 
+        elif intent == "REMINDER":
+            # Personal-assistant: natural-language reminder creation
+            from aja.scheduler.cron_scheduler import create_reminder
+
+            job = await asyncio.to_thread(
+                create_reminder, content_stripped, chat_id=chat_id, platform="telegram"
+            )
+            if job:
+                response = f"⏰ Saved — I'll remind you here at {job.get('run_at', 'the scheduled time')}."
+            else:
+                response = "⚠️ Couldn't parse that time. Try: 'remind me to call mom tomorrow 3pm'."
+
+        elif intent == "REMINDERS_LIST":
+            from aja.scheduler.cron_scheduler import CronScheduler
+
+            jobs = [
+                j for j in await asyncio.to_thread(CronScheduler().list_jobs)
+                if str(j.get("goal", "")).startswith("Reminder:")
+            ]
+            if not jobs:
+                response = "📭 No active reminders."
+            else:
+                lines = [f"⏰ **Reminders** ({len(jobs)}):"] + [
+                    f"  - [{j.get('job_id')}] {str(j.get('goal', ''))[10:]} → {j.get('schedule_expr', '')}"
+                    for j in jobs[:15]
+                ]
+                response = "\n".join(lines)
+
+        elif intent == "TASK_CAPTURE":
+            # Personal-assistant: frictionless task capture
+            task_text = re.sub(r"^(remember to|add task|note that)\s*", "", content_stripped, flags=re.IGNORECASE)
+            task = self.aja_memory.create_task({
+                "title": task_text[:120] or content_stripped[:120],
+                "context": content_stripped,
+                "owner": "assistant_capture",
+                "status": "pending",
+            })
+            response = f"📌 Saved — *{task_text[:100]}*"
+
         elif intent == "STATUS":
             active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
             status_report = "📊 **AJA Mission & System Status**\n\n"
@@ -702,8 +742,18 @@ class UnifiedGateway:
                 return "STATUS"
             if text_lower.startswith(("/run", "/todo", "/doing", "/done", "/failed", "/rmtask", "/boot", "/start_all")):
                 return "MISSION"
+            if text_lower.startswith(("/reminders",)):
+                return "REMINDERS_LIST"
 
             return "CHAT"
+
+        # Personal-assistant intents: reminders & task capture (<1ms regex)
+        if re.match(r"^remind me\b", text_lower) or (
+            text_lower.startswith("snooze") and "reminder" in text_lower
+        ):
+            return "REMINDER"
+        if re.match(r"^(remember to|add task|note that)\b", text_lower):
+            return "TASK_CAPTURE"
 
         if has_image:
             return "CHAT"

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 11 — Personal Assistant Pack
+- **Natural reminders**: `nl_time.py` pure-stdlib time parser; CronScheduler one-shot `at=` jobs firing bus events to the ORIGIN platform chat then auto-deleting; `REMINDER`/`REMINDERS_LIST` intent routes + snooze-from-chat; LLM prompt examples extended.
+- **Google Calendar integration** (`aja/calendar/`): OAuth with keyring-first refresh-token storage (+ ACL'd .env fallback), list/create events, hourly bi-temporal graph sync as superseding calendar_event entities, setup guide (`docs/operator/CALENDAR.md`). Deps guarded.
+- **Briefing composer** (`aja/assistant/briefing.py`): 🔴 Overdue · 📅 Today (tasks + calendar) · ⏰ Reminders · 🎯 Priority Focus · 🌍 Overnight Research — one structured markdown digest delivered via bus → platform tails; idempotent morning/evening registration; in-process execution.
+- **Frictionless capture**: "remember to X" / "add task" / "note that" → TASK_CAPTURE route creating tasks from chat.
+
 #### Phase 10 — Dual-Model System & Scheduled Research
 - **Dual-model routing**: `resolve_provider_model()` pure function (offline/hybrid/online matrix, 13 tests); hybrid mode honors explicit per-role selections — cloud planner + local GPU worker coexist; doctor warns on local-worker-under-online misconfiguration.
 - **Scheduled autonomous research**: research-goal heuristics + metadata override in `CronScheduler`; `AJA_JOB_TIMEOUT_S` (default 600s); report capture via output contract, persisted per-job and published as `MISSION_COMPLETED` for platform delivery.

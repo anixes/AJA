@@ -101,6 +101,26 @@ class GatewayAuthConfig(BaseModel):
         default=None, description="Env: SLACK_ALLOWED_USER_IDS. Comma-separated Slack member ids allowed to command AJA."
     )
 
+class GoogleCalendarSettings(BaseModel):
+    """Google Calendar integration settings (see aja.calendar and
+    docs/operator/CALENDAR.md). OAuth tokens live in the OS keyring under
+    service "AJA" / username "gcal" with an ACL-restricted .env fallback."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch for calendar features; off by default.",
+    )
+    calendar_ids: List[str] = Field(
+        default_factory=lambda: ["primary"],
+        description="Calendar IDs to read from ('primary' is the user's main calendar).",
+    )
+    sync_interval_minutes: int = Field(
+        default=60,
+        ge=1,
+        description="How often background graph syncs pull upcoming events.",
+    )
+
+
 class AJAConfig(BaseModel):
     project_name: str = "AJA"
     territories: List[TerritoryConfig] = Field(default_factory=list)
@@ -109,3 +129,4 @@ class AJAConfig(BaseModel):
     permission_policy: PermissionPolicyConfig = Field(default_factory=PermissionPolicyConfig)
     gateway_auth: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)
+    google_calendar: Optional[GoogleCalendarSettings] = None

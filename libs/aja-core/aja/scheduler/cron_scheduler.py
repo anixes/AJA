@@ -5,7 +5,7 @@ import re
 import time
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from aja.observability.telemetry import TraceContextManager, get_trace_id
 from aja.runtime.events import LanceRuntimeEventSink, RuntimeEventSink
@@ -145,6 +145,72 @@ def parse_duration_to_seconds(expr: str) -> Optional[float]:
     return None
 
 
+def _resolve_run_at(value: Any) -> datetime:
+    """Resolves an ``at=`` value (datetime | ISO string | NL string) to naive-local."""
+    from aja.utils.nl_time import parse_nl_time
+
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value).strip()
+        dt = None
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            dt = parse_nl_time(raw)
+    if dt is None:
+        raise ValueError(f"Could not parse one-shot time: {value!r}")
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt.replace(microsecond=0)
+
+
+def create_reminder(
+    task: str,
+    when_raw: str,
+    chat_id: Any = None,
+    platform: Optional[str] = None,
+    scheduler: Optional["CronScheduler"] = None,
+) -> Optional[Dict[str, Any]]:
+    """Creates a one-shot reminder job that publishes a bus event at fire time.
+
+    INTEGRATOR WIRING (chat intent -> reminder):
+        In the intent consumer (e.g. bridge.execute_telegram_command or
+        gateway orchestrator route_intent), handle intent type == "reminder":
+
+            from aja.scheduler.cron_scheduler import create_reminder
+
+            job = create_reminder(
+                task=intent["task"],
+                when_raw=intent.get("when_raw", ""),
+                chat_id=chat_id,
+                platform="telegram",
+            )
+            if job is None:
+                reply("I couldn't understand that time; try 'tomorrow 9am'.")
+            else:
+                reply(intent.get("response", "⏰ Reminder scheduled."))
+
+        For type == "reminder_snooze" ({"minutes": N}), resolve the most
+        recent reminder job id for the chat and call
+        CronScheduler().snooze_reminder(job_id, N).
+
+    Returns the created job dict, or None when ``when_raw`` is unparseable.
+    """
+    from aja.utils.nl_time import parse_nl_time
+
+    run_at = parse_nl_time(when_raw) if when_raw else None
+    if run_at is None:
+        return None
+    sched = scheduler or CronScheduler()
+    meta_kwargs = {"reminder": True, "cleanup_after_fire": True}
+    if chat_id is not None:
+        meta_kwargs["chat_id"] = chat_id
+    if platform is not None:
+        meta_kwargs["platform"] = platform
+    return sched.add_job(f"Reminder: {task}", at=run_at.isoformat(), **meta_kwargs)
+
+
 class CronScheduler:
     """
     Deterministic cron and duration task scheduler for AJA runtime.
@@ -190,21 +256,41 @@ class CronScheduler:
         }
         self.event_sink.emit(payload)
 
-    def add_job(self, goal: str, schedule_expr: str, **meta_kwargs: Any) -> Dict[str, Any]:
+    def add_job(
+        self,
+        goal: str,
+        schedule_expr: Optional[str] = None,
+        *,
+        at: Optional[str] = None,
+        **meta_kwargs: Any,
+    ) -> Dict[str, Any]:
         """Registers and persists a new scheduled job in LanceDB.
 
         Extra keyword arguments (e.g. ``research=True``) are merged into the
         job's persistent metadata dict.
+
+        One-shot jobs: pass ``at=<ISO datetime or natural-language string>``
+        (e.g. ``"2026-08-23T15:00:00"`` or ``"tomorrow 9am"``) instead of a
+        cron/interval ``schedule_expr``. The job fires once when
+        ``now >= run_at``, then is auto-disabled (or auto-deleted for
+        reminders).
         """
         tid = f"JOB-{uuid.uuid4().hex[:6].upper()}"
-        
-        # Verify schedule expression (either 5-field cron or 'every ...')
-        is_cron = len(schedule_expr.strip().split()) == 5
-        is_dur = parse_duration_to_seconds(schedule_expr) is not None
-        
-        if not (is_cron or is_dur):
-            raise ValueError(f"Invalid schedule expression: '{schedule_expr}'. Must be a 5-field cron or 'every <num><unit>'.")
-            
+
+        if at is not None:
+            run_dt = _resolve_run_at(at)
+            iso = run_dt.isoformat()
+            schedule_expr = f"at:{iso}"
+            meta_kwargs["one_shot"] = True
+            meta_kwargs["run_at"] = iso
+        else:
+            # Verify schedule expression (either 5-field cron or 'every ...')
+            is_cron = bool(schedule_expr) and len(schedule_expr.strip().split()) == 5
+            is_dur = bool(schedule_expr) and parse_duration_to_seconds(schedule_expr) is not None
+
+            if not (is_cron or is_dur):
+                raise ValueError(f"Invalid schedule expression: '{schedule_expr}'. Must be a 5-field cron, 'every <num><unit>', or use at=... for one-shot jobs.")
+
         job_data = {
             "task_id": tid,
             "title": f"Scheduled Job: {goal}",
@@ -267,6 +353,55 @@ class CronScheduler:
         logger.info(f"Deleted/archived scheduled job {job_id}")
         return True
 
+    def _fire_reminder(self, job_id: str, goal: str, meta: Dict[str, Any]) -> None:
+        """Fires a reminder one-shot by publishing a telemetry-delivery bus event."""
+        self._emit_event(
+            "SCHEDULER_REMINDER_FIRED",
+            f"Reminder due: {goal}",
+            metadata={"job_id": job_id},
+        )
+        from aja.runtime.event_bus import bus, EVENTS
+
+        delivery_event = (
+            "MISSION_COMPLETED"
+            if "MISSION_COMPLETED" in EVENTS
+            else EVENTS.get("MISSION_RESULT", "MISSION_RESULT")
+        )
+        bus.publish(delivery_event, {
+            "job_id": job_id,
+            "message": f"⏰ Reminder: {goal}",
+            "chat_id": meta.get("chat_id"),
+            "platform": meta.get("platform"),
+        })
+
+    def snooze_reminder(self, job_id: str, minutes: int) -> bool:
+        """Reschedules a fired/past one-shot reminder ``minutes`` into the future.
+
+        Re-enables the job (status 'scheduled') with an updated run_at so it
+        fires again through the normal tick loop.
+        """
+        if minutes <= 0:
+            return False
+        job = self.store.get_task(job_id)
+        if not job or job.get("owner") != "scheduler":
+            return False
+        try:
+            meta = json.loads(job.get("metadata_json") or "{}")
+        except Exception:
+            return False
+        if not meta.get("one_shot"):
+            return False
+        new_run_at = (datetime.now() + timedelta(minutes=minutes)).replace(microsecond=0)
+        meta["run_at"] = new_run_at.isoformat()
+        meta["schedule_expr"] = f"at:{meta['run_at']}"
+        meta["paused"] = False
+        self.store.update_task(job_id, {
+            "status": "scheduled",
+            "metadata_json": json.dumps(meta),
+        })
+        logger.info(f"Snoozed reminder job {job_id} for {minutes} minutes")
+        return True
+
     def list_jobs(self) -> List[Dict[str, Any]]:
         """Returns all active and paused scheduled jobs from LanceDB."""
         all_tasks = self.store.list_tasks(statuses=["scheduled", "scheduled_paused"])
@@ -299,6 +434,12 @@ class CronScheduler:
                 f"Executing scheduled job: {goal}",
                 metadata={"job_id": job_id, "run_id": run_id},
             )
+
+            # Lightweight briefing jobs run fully in-process (no SwarmEngine,
+            # no timeout needed) — see aja.assistant.briefing.register_briefing_jobs.
+            if self._read_job_meta(job_id).get("briefing"):
+                await self._execute_briefing_job(job_id, goal)
+                return
 
             from aja.orchestration.swarm import SwarmEngine
             from aja.config import CONFIG
@@ -380,6 +521,52 @@ class CronScheduler:
                         self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
                 except Exception:
                     logger.exception("Failed to clear active scheduler metadata for %s", job_id)
+
+    def _read_job_meta(self, job_id: str) -> Dict[str, Any]:
+        """Safely reads a job's persistent metadata dict ({} on any failure)."""
+        try:
+            return json.loads(self.store.get_task(job_id).get("metadata_json") or "{}")
+        except Exception:
+            logger.warning("Could not read metadata for scheduled job %s", job_id)
+            return {}
+
+    async def _execute_briefing_job(self, job_id: str, goal: str) -> None:
+        """Runs an in-process briefing job: compose + publish on the bus.
+
+        Deliberately avoids SwarmEngine — briefings are pure local composition.
+        """
+        logger.info(f"Executing in-process briefing job {job_id}: '{goal}'")
+        try:
+            from aja.assistant.briefing import send_briefing
+
+            send_briefing()
+            self._emit_event(
+                "SCHEDULER_JOB_SUCCESS",
+                f"Briefing published: {goal}",
+                metadata={"job_id": job_id},
+            )
+        except Exception as e:
+            logger.exception(f"Briefing job '{goal}' failed: {e}")
+            self._emit_event(
+                "SCHEDULER_JOB_ERROR",
+                f"Briefing job error: {e}",
+                level="error",
+                metadata={"job_id": job_id},
+            )
+        finally:
+            self._clear_run_metadata(job_id)
+
+    def _clear_run_metadata(self, job_id: str) -> None:
+        """Clears active run/trace bookkeeping after an in-process job run."""
+        try:
+            job = self.store.get_task(job_id)
+            if job and job.get("metadata_json"):
+                meta = json.loads(job["metadata_json"])
+                meta.pop("active_run_id", None)
+                meta.pop("active_trace_id", None)
+                self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
+        except Exception:
+            logger.exception("Failed to clear active scheduler metadata for %s", job_id)
 
     async def _run_research_mission(self, engine, goal: str) -> Optional[str]:
         """Runs a research mission capturing its report via an output contract.
@@ -466,20 +653,46 @@ class CronScheduler:
                     last_run_tick = meta.get("last_run_tick", 0)
                     
                     is_due = False
-                    
-                    # 1. Try simple duration
-                    dur_secs = parse_duration_to_seconds(expr)
-                    if dur_secs is not None:
-                        dur_ticks = int(dur_secs)
-                        if self._tick - last_run_tick >= dur_ticks:
-                            is_due = True
+                    disable_after_fire = False
+
+                    if meta.get("one_shot"):
+                        # One-shot jobs bypass cron matching: fire when now >= run_at.
+                        try:
+                            run_dt = datetime.fromisoformat(meta.get("run_at") or "")
+                        except (TypeError, ValueError):
+                            logger.error(
+                                f"One-shot job {task['task_id']} has invalid run_at "
+                                f"{meta.get('run_at')!r}; disabling."
+                            )
+                            self.store.update_task(task["task_id"], {"status": "disabled"})
+                            continue
+                        if datetime.now() < run_dt:
+                            continue
+                        job_id = task["task_id"]
+                        if meta.get("reminder"):
+                            self._fire_reminder(job_id, task["context"], meta)
+                            cleanup = meta.get("cleanup_after_fire", True)
+                            self.store.update_task(
+                                task["task_id"],
+                                {"status": "archived" if cleanup else "disabled"},
+                            )
+                            continue
+                        is_due = True
+                        disable_after_fire = True
                     else:
-                        # 2. Try 5-field cron check
-                        # Check minute boundary (we tick every second, so match once per minute boundary)
-                        # We only match if standard cron matches and we haven't run in the last 59 seconds
-                        if match_cron_expr(expr, now_dt):
-                            if self._tick - last_run_tick >= 59:
+                        # 1. Try simple duration
+                        dur_secs = parse_duration_to_seconds(expr)
+                        if dur_secs is not None:
+                            dur_ticks = int(dur_secs)
+                            if self._tick - last_run_tick >= dur_ticks:
                                 is_due = True
+                        else:
+                            # 2. Try 5-field cron check
+                            # Check minute boundary (we tick every second, so match once per minute boundary)
+                            # We only match if standard cron matches and we haven't run in the last 59 seconds
+                            if match_cron_expr(expr, now_dt):
+                                if self._tick - last_run_tick >= 59:
+                                    is_due = True
                                 
                     if is_due:
                         job_id = task["task_id"]
@@ -502,9 +715,10 @@ class CronScheduler:
                         meta["last_run_tick"] = self._tick
                         meta["active_run_id"] = run_id
                         meta["active_trace_id"] = trace_id
-                        self.store.update_task(task["task_id"], {
-                            "metadata_json": json.dumps(meta)
-                        })
+                        updates = {"metadata_json": json.dumps(meta)}
+                        if disable_after_fire:
+                            updates["status"] = "disabled"
+                        self.store.update_task(task["task_id"], updates)
 
                         self._running_jobs.add(job_id)
                         self._emit_event(
