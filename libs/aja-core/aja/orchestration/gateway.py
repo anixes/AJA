@@ -227,6 +227,13 @@ class LLMGateway:
             self._session_loop = loop
         return self._session
 
+    @staticmethod
+    def _normalize_prompt_to_messages(prompt: Any) -> List[Dict[str, str]]:
+        """Converts string or list-of-dicts prompt into standard messages list."""
+        if isinstance(prompt, list):
+            return prompt
+        return [{"role": "user", "content": prompt}]
+
     def _get_openai_client(self) -> AsyncOpenAI:
         """Return a loop-aware reusable AsyncOpenAI client."""
         try:
@@ -300,6 +307,37 @@ class LLMGateway:
         ):
             model = "gpt-4o-mini"
 
+        # ── Provider Adapter Path (Phase 9 architecture) ──────────────────
+        # Resolve the registered adapter and delegate. Falls through to the
+        # legacy path only when no adapter covers this provider.
+        try:
+            from aja.orchestration.providers import get_adapter_class
+
+            adapter_cls = get_adapter_class(self.provider)
+            if adapter_cls is not None:
+                adapter = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
+                llm_resp = await adapter.chat(
+                    model=model,
+                    messages=self._normalize_prompt_to_messages(prompt),
+                    system=system,
+                    tools=tools,
+                    temperature=temperature,
+                    extra_body=extra_body,
+                    retries=retries,
+                )
+                if tools is not None:
+                    return {
+                        "content": llm_resp.content,
+                        "tool_calls": [
+                            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                            for tc in llm_resp.tool_calls
+                        ],
+                    }
+                return llm_resp.content or ""
+        except Exception as adapter_err:
+            logger.debug("[Gateway] Adapter path failed (%s), falling back to legacy.", adapter_err)
+
+        # ── Legacy Path ───────────────────────────────────────────────────
         for attempt in range(1, retries + 1):
             try:
                 if self.provider == "google":
