@@ -504,10 +504,13 @@ class SwarmEngine:
                 env.setdefault(k, v)
 
         worker_cmd = f'"{PYTHON}" -m aja.agents.worker "{baton_path}"'
+        # Multi-turn LLM workers (planning + tool calls + web fetches) routinely
+        # exceed 180s; default raised and env-overridable.
+        worker_timeout = int(os.getenv("AJA_WORKER_TIMEOUT_S", "600"))
         process = await get_default_execution_manager().run(
             ExecutionRequest(
                 command=worker_cmd,
-                timeout=180,
+                timeout=worker_timeout,
                 workspace_mode="direct",
                 env=env,
                 metadata={
