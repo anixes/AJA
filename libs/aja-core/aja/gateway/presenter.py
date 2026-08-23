@@ -39,10 +39,11 @@ class AJAPresenter(NullPresenter):
         "INSTRUCTIONS (CRITICAL):\n"
         "1. ALWAYS output your reasoning/thought process before taking any action.\n"
         "2. PREFER to use the available structured JSON tools (e.g. read_file, multi_replace, grep_search) for all file operations. They are safer and more precise.\n"
-        "3. IF NO SUITABLE TOOL EXISTS (e.g. running tests, installing packages), suggest standard shell/terminal commands inside ```bash or ```sh blocks to run next.\n"
-        "4. If you call a JSON tool or suggest a bash command, it will be executed immediately, and the results (stdout, stderr, tool output) will be fed back to you.\n"
-        "5. If you have completed the task or no further commands are needed, write your final response/synthesis and do not output any more commands or tool calls.\n"
-        "6. NEVER output raw forbidden words or reference deprecated components."
+        "3. FOR WEB ACCESS: ALWAYS use the search_web and fetch_url JSON tools instead of curl/wget/Invoke-WebRequest — network shell commands require operator approval and will be denied in unattended runs.\n"
+        "4. IF NO SUITABLE TOOL EXISTS (e.g. running tests, installing packages), suggest standard shell/terminal commands inside ```bash or ```sh blocks to run next.\n"
+        "5. If you call a JSON tool or suggest a bash command, it will be executed immediately, and the results (stdout, stderr, tool output) will be fed back to you.\n"
+        "6. If you have completed the task or no further commands are needed, write your final response/synthesis and do not output any more commands or tool calls.\n"
+        "7. NEVER output raw forbidden words or reference deprecated components."
     )
 
     def __init__(self):

@@ -7,7 +7,7 @@ class TerritoryConfig(BaseModel):
     auto_heal: bool = False
 
 class ExecutionPolicy(BaseModel):
-    max_timeout: float = Field(default=300.0, description="Maximum execution timeout in seconds")
+    max_timeout: float = Field(default=900.0, description="Maximum execution timeout in seconds (multi-turn LLM workers need headroom)")
     max_memory: str = Field(default="1024m", description="Maximum memory ceiling (e.g. '1024m', '2g')")
     max_cpus: float = Field(default=2.0, description="Maximum CPU ceiling (e.g. 2.0 for 2 cores)")
     allow_network_default: bool = Field(default=False, description="Default network access constraint")
