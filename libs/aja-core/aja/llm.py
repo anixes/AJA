@@ -35,6 +35,53 @@ def get_gateway():
         _gateway, _ = get_gateway_for_model(model)
     return _gateway
 
+def resolve_provider_model(model_str, operating_mode, local_model_fallback, cloud_model_fallback):
+    """
+    Pure model-routing resolution: 'provider:model' parsing + operating-mode
+    override. Returns (provider, model_name).
+
+    Modes:
+      offline  — cloud providers redirect to the local fallback
+      hybrid   — explicit selections are honored as-is (dual-model: e.g.
+                 planner=cloud + worker=local)
+      online   — local llama_cpp attempts redirect to the cloud fallback
+    """
+    provider = "openrouter"  # Default
+    model_name = model_str
+
+    if ":" in model_str:
+        parts = model_str.split(":", 1)
+        provider = parts[0]
+        model_name = parts[1]
+    else:
+        # Smart detection fallback
+        if "gemini" in model_str.lower():
+            provider = "google"
+        elif "ollama" in model_str.lower():
+            provider = "ollama"
+        elif "gemma" in model_str.lower() or "llama" in model_str.lower() or "qwen" in model_str.lower() or "mistral" in model_str.lower():
+            provider = "llama_cpp"
+        elif "copilot" in model_str.lower():
+            provider = "copilot"
+            if model_name.lower() in ("copilot", ""):
+                model_name = "gpt-4o"
+
+    # Apply Operating Mode Override
+    if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+        print(f"[LLM] OFFLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> llama_cpp:{local_model_fallback}")
+        provider = "llama_cpp"
+        model_name = local_model_fallback
+    elif operating_mode == "hybrid":
+        # Hybrid: both local and cloud are allowed; explicit selections win.
+        pass
+    elif operating_mode == "online" and provider == "llama_cpp":
+        print(f"[LLM] ONLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> google:{cloud_model_fallback}")
+        provider = "google"
+        model_name = cloud_model_fallback
+
+    return provider, model_name
+
+
 def get_gateway_for_model(model_str):
     """
     Returns a gateway instance configured for the specific model.
@@ -65,7 +112,7 @@ def get_gateway_for_model(model_str):
                             local_model_fallback = m_name
                     elif worker_model not in ["google", "openai", "anthropic", "openrouter", "copilot"]:
                         local_model_fallback = worker_model
-                        
+
                 planner_model = models_cfg.get("planner", "")
                 if planner_model:
                     if ":" in planner_model:
@@ -79,38 +126,9 @@ def get_gateway_for_model(model_str):
     except Exception:
         pass
 
-    provider = "openrouter" # Default
-    model_name = model_str
-
-    if ":" in model_str:
-        parts = model_str.split(":", 1)
-        provider = parts[0]
-        model_name = parts[1]
-    else:
-        # Smart detection fallback
-        if "gemini" in model_str.lower():
-            provider = "google"
-        elif "ollama" in model_str.lower():
-            provider = "ollama"
-        elif "gemma" in model_str.lower() or "llama" in model_str.lower() or "qwen" in model_str.lower() or "mistral" in model_str.lower():
-            provider = "llama_cpp"
-        elif "copilot" in model_str.lower():
-            provider = "copilot"
-            if model_name.lower() in ("copilot", ""):
-                model_name = "gpt-4o"
-
-    # 2. Apply Operating Mode Override
-    if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
-        print(f"[LLM] OFFLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> llama_cpp:{local_model_fallback}")
-        provider = "llama_cpp"
-        model_name = local_model_fallback
-    elif operating_mode == "hybrid":
-        # In hybrid mode, both local and cloud are allowed.
-        pass
-    elif operating_mode == "online" and provider == "llama_cpp":
-        print(f"[LLM] ONLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> google:{cloud_model_fallback}")
-        provider = "google"
-        model_name = cloud_model_fallback
+    provider, model_name = resolve_provider_model(
+        model_str, operating_mode, local_model_fallback, cloud_model_fallback
+    )
 
     # Get API key from environment
     api_key = os.getenv(f"{provider.upper()}_API_KEY", "")

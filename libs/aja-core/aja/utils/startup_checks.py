@@ -117,6 +117,37 @@ def check_model_api_keys(config: Any = None) -> List[CheckResult]:
     for role in MODEL_ROLES:
         model = _resolve_model(role, role_envs[role], config)
         provider = _parse_provider(model)
+
+        # Dual-model misconfiguration hint: a local (llama_cpp/ollama) role
+        # model while operating_mode="online" means the gateway will silently
+        # redirect it to the cloud fallback — the operator almost certainly
+        # wants operating_mode="hybrid" instead.
+        if provider in ("llama_cpp", "ollama"):
+            mode = "online"
+            try:
+                mode = getattr(config.swarm_settings, "operating_mode", mode) if config else mode
+            except Exception:
+                pass
+            if not config:
+                try:
+                    from aja.config import CONFIG as _cfg
+
+                    mode = getattr(_cfg.swarm_settings, "operating_mode", mode)
+                except Exception:
+                    pass
+            if mode == "online":
+                results.append(
+                    CheckResult(
+                        name=f"Model Mode ({role})",
+                        severity="warning",
+                        detail=(
+                            f"{role} model '{model}' is local, but operating_mode='online' "
+                            f"will redirect it to the cloud fallback. Set "
+                            f"swarm_settings.operating_mode='hybrid' to honor local models."
+                        ),
+                    )
+                )
+
         if provider is None:
             results.append(
                 CheckResult(
