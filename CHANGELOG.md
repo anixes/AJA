@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 8 — Columnar Batons v2 & Rust Modernization
+- **Columnar baton schema v2** (`aja/runtime/baton_state.py`): history as Arrow list columns (`hist_role/hist_content/hist_ts`) + `schema_version` discriminator; `ColumnarBatonState` lazy reader (O(1) len, per-turn decode, streaming iteration, opt-in materialization); parse-free pickup — **18ms cold at 10,000 turns (v1: 35.5ms)**; permanent v1 fallback reader; `BatonCorruptionError` replaces silent `{}`; `AJA_BATON_SCHEMA` rollout flag.
+- **Rust modernization** (`packages/aja-native`): pyo3 0.21→0.29 (Bound API), true GIL-free tokenizer via `py.detach`, panic-free error handling (`PyIOError`/`PyValueError` differentiation), typed vendored-blob SHA256 verification at init, tiktoken-rs 0.12, `[profile.release]` tuning, license/publish metadata; dead export removed, mission-format exports deprecated.
+- **Contract/benchmark suites**: cross-format matrix (v1↔v2 reads, truncation, fleet-loop-on-v2, cache≡disk) + pickup latency benchmarks at 10/100/1k/10k turns.
+
 #### Phase 7 — Performance Baselines, Keyring Vault & Discord Depth
 - **Performance measurement layer**: benchmark suite (`tests/python/benchmarks/`, marker `benchmark`, xdist-safe) covering classify_command latency, embedding warm latency, LanceDB round-trips, journal emit throughput, registry dispatch; mission profiler (`scripts/profile_mission.py`); baseline numbers in `docs/operator/PERFORMANCE.md` (classify ~1.3ms/call, MiniLM warm ~10ms, LanceDB round-trip ~34ms).
 - **Copilot token → OS keyring**: resolution order keyring → env → `.env` → gh CLI; dual-write on login (keyring + ACL'd `.env` fallback); `migrate_token_to_keyring()` helper; exception-wrapped for headless environments. `keyring>=25` added to core deps.

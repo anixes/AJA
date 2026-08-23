@@ -6,6 +6,7 @@ import asyncio
 import logging
 import secrets
 import re
+import string
 import time
 import threading
 import contextlib
@@ -111,12 +112,15 @@ def write_baton_ipc(path: Path, baton_data: Dict[str, Any]) -> None:
         raise RuntimeError(f"Failed to write worker baton IPC state: {path}") from e
 
 
-def read_baton_ipc(path: Path) -> Dict[str, Any]:
+def read_baton_ipc(path: Path, use_native: bool = True) -> Dict[str, Any]:
     """
     Read a worker baton through the runtime-owned native IPC boundary.
+
+    Pass ``use_native=False`` to force the pure-pyarrow recovery path
+    (used by agents/worker.py when the native reader fails or panics).
     """
     try:
-        if aja_native and hasattr(aja_native, "read_baton_ipc"):
+        if use_native and aja_native and hasattr(aja_native, "read_baton_ipc"):
             return WorkerBatonPayload.from_json(aja_native.read_baton_ipc(str(path))).data
         import pyarrow as pa
         with pa.memory_map(str(path), mode="r") as source:
@@ -156,8 +160,10 @@ class BatonManager(HandoverManager):
     @durable_activity("baton.capture")
     def capture(self, objective: str, orchestrator_state: Dict[str, Any], trace_id: Optional[str] = None) -> str:
         """
-        Serializes mission state into a cutting-edge Apache Arrow Table via Rust Core.
-        This is the 'Complex Rust Logic' that ensures maximum performance.
+        Serializes mission state into an Apache Arrow baton file.
+
+        Writes Columnar Baton Schema v2 by default (lazy per-turn list columns);
+        set AJA_BATON_SCHEMA=1 to force the legacy single-JSON-cell layout.
         """
         run_id = orchestrator_state.get("run_id")
         if run_id:
@@ -171,27 +177,24 @@ class BatonManager(HandoverManager):
         # Meta-data for the baton (small JSON)
         baton_meta = {"code": code, "timestamp": time.time(), "ttl": 3600}
 
-        # ARROW TABLE SERIALIZATION (Handled by Rust Core)
+        # ARROW TABLE SERIALIZATION (pyarrow-only mission path)
         arrow_path = baton_path.with_suffix(".arrow")
 
         # Trace propagation: inject the active trace_id into baton metadata
         from aja.observability.telemetry import get_trace_id
         metadata = dict(orchestrator_state.get("metadata", {}))
         metadata["trace_id"] = trace_id or get_trace_id()
-        payload = MissionBatonPayload.from_state(
-            objective,
-            {
-                **orchestrator_state,
-                "metadata": metadata,
-            },
-        )
+        state = {
+            **orchestrator_state,
+            "objective": objective,
+            "metadata": metadata,
+        }
 
-        # Call the high-performance Rust function (with PyArrow fallback)
+        schema_mode = (os.getenv("AJA_BATON_SCHEMA", "2") or "2").strip()
         try:
-            if aja_native and hasattr(aja_native, "write_baton"):
-                aja_native.write_baton(str(arrow_path), *payload.to_native_args())
-            else:
-                import pyarrow as pa
+            import pyarrow as pa
+            if schema_mode == "1":
+                payload = MissionBatonPayload.from_state(objective, state)
                 schema = pa.schema([
                     ("objective", pa.string()),
                     ("run_id", pa.string()),
@@ -207,34 +210,24 @@ class BatonManager(HandoverManager):
                 with pa.OSFile(str(arrow_path), "wb") as sink:
                     with pa.ipc.new_file(sink, schema) as writer:
                         writer.write_batch(batch)
+
+                sink_buf = pa.BufferOutputStream()
+                with pa.ipc.new_file(sink_buf, schema) as writer:
+                    writer.write_batch(batch)
+                buffer = sink_buf.getvalue()
+            else:
+                from aja.runtime.baton_state import build_baton_buffer, write_baton_v2
+                write_baton_v2(arrow_path, state)
+                buffer = build_baton_buffer(state)
         except Exception as e:
             logger.exception("Failed to write baton Arrow state to %s", arrow_path)
             raise RuntimeError(f"Failed to write baton Arrow state: {arrow_path}") from e
 
-        # Optimize Baton: Serialize to a pyarrow.Buffer and store in RAM cache
+        # Optimize Baton: store serialized IPC buffer in RAM cache
         try:
-            import pyarrow as pa
-            schema = pa.schema([
-                ("objective", pa.string()),
-                ("run_id", pa.string()),
-                ("history_json", pa.string()),
-                ("metadata_json", pa.string()),
-            ])
-            batch = pa.RecordBatch.from_arrays([
-                pa.array([objective], type=pa.string()),
-                pa.array([payload.run_id], type=pa.string()),
-                pa.array([json.dumps(payload.history)], type=pa.string()),
-                pa.array([json.dumps(payload.metadata)], type=pa.string()),
-            ], schema=schema)
-
-            sink = pa.BufferOutputStream()
-            with pa.ipc.new_file(sink, schema) as writer:
-                writer.write_batch(batch)
-            buffer = sink.getvalue()
-
             _cache_baton(code, buffer)
-        except Exception as pyarrow_err:
-            logger.warning("Failed in-memory Arrow serialization: %s", pyarrow_err)
+        except Exception as cache_err:
+            logger.warning("Failed in-memory Arrow caching: %s", cache_err)
 
         baton_meta["arrow_ref"] = str(arrow_path)
 
@@ -244,89 +237,68 @@ class BatonManager(HandoverManager):
         return code
 
     @durable_activity("baton.pickup")
-    def pickup(self, code: str, mutate_global_trace: bool = True) -> Optional[Dict[str, Any]]:
+    def pickup(self, code: str, mutate_global_trace: bool = True) -> Optional[Any]:
         """
-        Picks up a baton and 'thaws' the Arrow Table back into a state via memory-mapping.
-        Leverages native memory mapping for extreme zero-copy read speed.
+        Picks up a baton and 'thaws' the Arrow Table back into a state.
+
+        v2 batons return a lazy ColumnarBatonState (dict-index compatible);
+        v1 batons return a LegacyJSONState (a plain dict in the exact legacy
+        pickup shape). Both expose ["objective"], ["metadata"]["trace_id"], etc.
         """
         _validate_code(code)
 
         # Check in-memory baton cache first for sub-millisecond zero-copy retrieval
         buffer = _get_cached_baton(code)
+        state_obj = None
 
         if buffer is not None:
             try:
-                import pyarrow as pa
-                state = {}
-                with pa.BufferReader(buffer) as source:
-                    reader = pa.ipc.open_file(source)
-                    batch = reader.read_all().to_batches()[0]
-                    payload = MissionBatonPayload(
-                        objective=batch.column(0)[0].as_py(),
-                        run_id=batch.column(1)[0].as_py(),
-                        history=json.loads(batch.column(2)[0].as_py()),
-                        metadata=json.loads(batch.column(3)[0].as_py()),
-                    )
-                    state = payload.to_state()
-
-                # Thaw and restore trace_id from the loaded metadata
-                if "metadata" in state:
-                    trace_id = state["metadata"].get("trace_id")
-                    if trace_id and mutate_global_trace:
-                        from aja.observability.telemetry import set_trace_id
-                        set_trace_id(trace_id)
-
-                return state
+                from aja.runtime.baton_state import state_from_buffer
+                state_obj = state_from_buffer(buffer)
             except Exception as in_mem_err:
                 logger.warning("Failed in-memory baton read for code %s: %s", code, in_mem_err)
 
-        baton_path = self.baton_dir / f"baton_{code}.json"
-        if not baton_path.exists():
-            return None
-
-        with baton_path.open("r", encoding="utf-8") as f:
-            meta = json.load(f)
-
-        state = {}
-        # ARROW TABLE DESERIALIZATION (Using memory-mapped PyArrow or falling back to Rust Core)
-        if "arrow_ref" in meta:
-            arrow_path = Path(meta["arrow_ref"]).resolve()
-            try:
-                arrow_path.relative_to(self.baton_dir.resolve())
-            except ValueError:
-                logger.error("Rejected baton %s: arrow_ref %s escapes baton directory", code, arrow_path)
+        if state_obj is None:
+            baton_path = self.baton_dir / f"baton_{code}.json"
+            if not baton_path.exists():
                 return None
-            if arrow_path.exists():
-                try:
-                    import pyarrow as pa
-                    with pa.memory_map(str(arrow_path), mode="r") as source:
-                        reader = pa.ipc.open_file(source)
-                        batch = reader.read_all().to_batches()[0]
-                        payload = MissionBatonPayload(
-                            objective=batch.column(0)[0].as_py(),
-                            run_id=batch.column(1)[0].as_py(),
-                            history=json.loads(batch.column(2)[0].as_py()),
-                            metadata=json.loads(batch.column(3)[0].as_py()),
-                        )
-                        state = payload.to_state()
-                except Exception as mmap_err:
-                    logger.warning("Failed zero-copy memory-mapped read, falling back to standard read: %s", mmap_err)
-                    try:
-                        if aja_native and hasattr(aja_native, "read_baton"):
-                            rust_state = aja_native.read_baton(str(arrow_path))
-                            state = MissionBatonPayload.from_native_dict(rust_state).to_state()
-                    except Exception as e:
-                        logger.exception("Failed to read baton Arrow state from %s", arrow_path)
-                        raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
 
-        # Thaw and restore trace_id from the loaded metadata
-        if state and "metadata" in state:
-            trace_id = state["metadata"].get("trace_id")
+            with baton_path.open("r", encoding="utf-8") as f:
+                meta = json.load(f)
+
+            # ARROW TABLE DESERIALIZATION (memory-mapped pyarrow read)
+            if "arrow_ref" in meta:
+                arrow_path = Path(meta["arrow_ref"]).resolve()
+                try:
+                    arrow_path.relative_to(self.baton_dir.resolve())
+                except ValueError:
+                    logger.error("Rejected baton %s: arrow_ref %s escapes baton directory", code, arrow_path)
+                    return None
+                if arrow_path.exists():
+                    from aja.runtime.baton_state import BatonCorruptionError, read_baton
+                    try:
+                        state_obj = read_baton(arrow_path)
+                    except BatonCorruptionError:
+                        raise
+                    except Exception as mmap_err:
+                        logger.warning(
+                            "Failed zero-copy memory-mapped read, falling back to standard read: %s",
+                            mmap_err,
+                        )
+                        try:
+                            state_obj = read_baton(arrow_path, mmap=False)
+                        except BatonCorruptionError as e:
+                            logger.exception("Failed to read baton Arrow state from %s", arrow_path)
+                            raise RuntimeError(f"Failed to read baton Arrow state: {arrow_path}") from e
+
+        if state_obj is not None:
+            # Thaw and restore trace_id from the loaded metadata
+            trace_id = state_obj.metadata.get("trace_id")
             if trace_id and mutate_global_trace:
                 from aja.observability.telemetry import set_trace_id
                 set_trace_id(trace_id)
 
-        return state
+        return state_obj
 
     @contextlib.contextmanager
     def pickup_scope(self, code: str):
@@ -433,7 +405,11 @@ class BatonManager(HandoverManager):
         baton_path = self.baton_dir / f"baton_{code}.json"
         arrow_path = self.baton_dir / f"baton_{code}.arrow"
         
-        # Save local files
+        # Save local files. Rewrite arrow_ref to THIS host's copy: the sender's
+        # absolute path escapes our baton_dir and would be rejected by the
+        # pickup boundary check once the RAM cache entry expires.
+        meta = dict(meta)
+        meta["arrow_ref"] = str(arrow_path)
         with open(baton_path, "w", encoding="utf-8") as f:
             json.dump(meta, f)
         with open(arrow_path, "wb") as f:

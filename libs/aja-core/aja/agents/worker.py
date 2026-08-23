@@ -45,8 +45,17 @@ async def work(baton_path: str):
         print(f"Error: Baton file {baton_path} not found.")
         return
 
-    if aja_native and str(path).endswith(".arrow"):
-        baton = json.loads(aja_native.read_baton_ipc(str(path)))
+    if str(path).endswith(".arrow"):
+        try:
+            baton = json.loads(aja_native.read_baton_ipc(str(path)))
+        except BaseException as exc:
+            # pyo3 panics surface as PanicException (a BaseException, not
+            # Exception) — re-raise only genuine interrupts, then recover via
+            # the pure-pyarrow reader (native disabled to avoid re-panicking).
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+            from aja.runtime.handover import read_baton_ipc
+            baton = read_baton_ipc(path, use_native=False)
     else:
         baton = json.loads(path.read_text(encoding="utf-8"))
     print(f"Worker {baton['id']} started. Task: {baton['task']}")

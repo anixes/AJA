@@ -67,3 +67,23 @@ full 8-command compound batch; typical single commands classify in well under 2 
    bound at roughly 100 chunks/s/core with the real model vs ~200k/s mocked.
 4. Registry dispatch overhead is negligible (<10 µs); any tool-call latency lives in the
    tool implementations, not the dispatcher.
+
+## Baton v1 vs v2 (Columnar Schema, 2026-08-23)
+
+Capture and cold-cache pickup latency for synthetic mission histories (~200-char turns,
+`AJA_BATON_SCHEMA=1` vs default v2). Run via
+`py -3.12 -m pytest tests/python/benchmarks/test_baton_scales.py -m benchmark -s`.
+
+| N turns | capture v1 | capture v2 | pickup v1 (full json.loads) | pickup v2 (lazy columnar) |
+|---|---|---|---|---|
+| 10 | 2.0 ms | 2.0 ms | 9.3 ms | 14.6 ms |
+| 100 | 2.4 ms | 3.0 ms | 16.9 ms | 15.6 ms |
+| 1000 | 3.5 ms | 6.7 ms | 17.1 ms | 15.9 ms |
+| 10000 | 16.8 ms | 46.9 ms | 35.5 ms | **18.2 ms** |
+
+Lazy random/slice turn access at 10k turns (`turn(0)`/`turn(-1)`/10-turn slice): ~96–112 ms.
+
+Analysis: v2 pays ~2–3× capture cost building the columnar lists but breaks even on pickup
+by N≈100 and wins ~2× at 10k turns (18 ms, well under the 250 ms ceiling), while `to_state()`
+stays byte-identical to the legacy shape — a good trade for long missions; small histories are
+noise-dominated (pickup floor ≈ 9–16 ms is mmap/IPC open cost).
