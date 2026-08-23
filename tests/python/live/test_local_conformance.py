@@ -120,11 +120,13 @@ def test_local_tool_call_roundtrip(local_model):
             },
         },
     }]
-    res = gw.chat(
+    import asyncio
+
+    res = asyncio.run(gw.chat(
         model=local_model,
         prompt="What is 21 + 21? Use the calculator tool.",
         tools=tools,
-    )
+    ))
     # Conformant outcome: either a tool_call with numeric args, or explicit
     # text answer (small-model degradation is recorded, not failed blindly).
     if isinstance(res, dict) and res.get("tool_calls"):
@@ -144,10 +146,15 @@ def test_local_4xx_fast_fail(local_model):
 
     gw = LLMGateway(provider="llama_cpp", api_key="no-key-needed", base_url=LLAMA_URL)
     res = None
-    try:
-        res = gw.chat(model="not-a-real-model-xyz", prompt="hi")
-    except Exception:
-        pass  # raised fast = also acceptable
+    import asyncio
+
+    async def _bad_call():
+        try:
+            return await gw.chat(model="not-a-real-model-xyz", prompt="hi")
+        except Exception as e:
+            return f"raised:{type(e).__name__}"
+
+    res = asyncio.run(_bad_call())
     elapsed = time.monotonic() - t0
     assert res is None or res == "" or True
     assert elapsed < 60, f"Bad-model request took {elapsed:.0f}s — retry loop not respecting deterministic failures"
