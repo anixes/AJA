@@ -16,7 +16,7 @@
       "worker": "copilot:gpt-4o-mini",
       "critic": "copilot:gpt-4o-mini"
     },
-    "operating_mode": "online",
+    "operating_mode": "hybrid",
     "allow_out_of_bounds_paths": false
   },
   "mcp_servers": [
@@ -25,7 +25,11 @@
       "transport": "stdio",
       "enabled": true,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sqlite", ".aja/aja.db"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        ".aja/aja.db"
+      ],
       "permission_scope": "mcp.sqlite"
     },
     {
@@ -33,7 +37,10 @@
       "transport": "stdio",
       "enabled": true,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
       "permission_scope": "mcp.memory"
     },
     {
@@ -41,7 +48,10 @@
       "transport": "stdio",
       "enabled": false,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres"
+      ],
       "permission_scope": "mcp.postgres"
     },
     {
@@ -49,7 +59,10 @@
       "transport": "stdio",
       "enabled": false,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-gdrive"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-gdrive"
+      ],
       "permission_scope": "mcp.gdrive"
     },
     {
@@ -57,7 +70,10 @@
       "transport": "stdio",
       "enabled": false,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
       "permission_scope": "mcp.github"
     }
   ]
