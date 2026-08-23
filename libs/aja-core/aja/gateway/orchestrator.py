@@ -289,10 +289,18 @@ class UnifiedGateway:
 
         summary_text = f"[AJA COMPRESSION: {len(middle)} turns offloaded to LanceDB Semantic Store]"
 
-        # Offload middle to VectorMemory
+        # Offload middle to VectorMemory with REAL embeddings so offloaded
+        # turns remain semantically retrievable later (was: dummy zero vector).
         for turn in middle:
+            try:
+                from aja.memory.territory import get_text_embedding
+
+                vec = get_text_embedding(str(turn.get("content", "")))
+            except Exception as e:
+                logger.warning("Embedding failed during trajectory offload: %s", e)
+                vec = [0.0] * 384
             self.vector_memory.add(
-                turn["content"], vector=[0.0] * 384, metadata={"role": turn["role"]}
+                turn["content"], vector=vec, metadata={"role": turn.get("role", "user")}
             )
 
         return head + [{"role": "system", "content": summary_text}] + tail

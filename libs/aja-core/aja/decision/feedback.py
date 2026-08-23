@@ -50,8 +50,13 @@ def log_decision_outcome(objective: str, decision_type: str, confidence: float,
         table = _manager.db.open_table("decision_logs")
         obj_hash = get_objective_hash(objective)
         tags = extract_tags(objective)
-        # Zero vector; a real impl would call an embedding model here
-        vector = [0.0] * 384
+        # Real embedding so past-decision retrieval is semantic, not arbitrary.
+        try:
+            from aja.memory.territory import get_text_embedding
+
+            vector = get_text_embedding(objective)
+        except Exception:
+            vector = [0.0] * 384
         table.add([{
             "objective_hash": obj_hash,
             "decision_type": decision_type,

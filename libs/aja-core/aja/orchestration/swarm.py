@@ -345,13 +345,14 @@ class SwarmEngine:
         
         # ── Power 4: Deep Territory RAG ──
         try:
+            from aja.memory.territory import get_text_embedding
             from aja.runtime.lance_stores import LanceRuntimeStore
             mem = LanceRuntimeStore()
-            # Generate dummy query vector (should be real if we had a local embedder)
-            query_vec = [0.0] * 384 
-            # In a real run, we'd use self.gateway.embed(objective)
+            # Real semantic query vector (falls back to deterministic
+            # placeholder when the embedder is unavailable/mocked).
+            query_vec = get_text_embedding(objective)
             knowledge = mem.query_territory(query_vec, limit=5)
-            rag_context = "\n".join([f"File: {k['path']}\nContent: {k['content']}" for k in knowledge])
+            rag_context = "\n".join([f"File: {k['path']}\nContent: {k['content']}" for k in knowledge]) or "No additional codebase context available."
         except Exception as e:
             logger.warning("RAG Lookup failed: %s", e)
             rag_context = "No additional codebase context available."

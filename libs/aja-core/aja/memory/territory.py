@@ -12,9 +12,14 @@ _embedding_model = None
 
 
 def get_embedding_model():
-    """Lazy-loads the semantic embedding model."""
+    """Lazy-loads the semantic embedding model (mock-aware for test suites)."""
     global _embedding_model
     if _embedding_model is None:
+        import os
+
+        # Test suites force deterministic placeholder vectors for speed.
+        if os.environ.get("AJA_MOCK_EMBEDDINGS") == "1":
+            return None
         try:
             from sentence_transformers import SentenceTransformer
 
