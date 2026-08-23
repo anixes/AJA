@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+#### Phase 13 - Chat Continuity + Quickstart
+- Semantic recall (gateway/recall.py): embeds user query -> VectorMemory top-k similarity-scored past exchanges + time-filtered journal scan (yesterday/earlier); formatted as markdown system-context block injected into BOTH gateway and CLI chat surfaces; offloaded turns with real embeddings retrievable for the first time.
+- Quickstart scripts (scripts/quickstart.sh + .ps1): interactive clone-to-chat in ~10 minutes (Python gate -> venv -> install -> .env creation with BotFather/userinfobot prompts -> doctor validation -> serve); idempotent re-runs. README rewritten around them; .env.example modernized.
+
 #### Phase 12 - 24/7 VPS Deployment Kit
 - aja serve production entrypoint: single-process composition (gateway + autonomy + CronScheduler tick) with graceful SIGTERM/SIGINT shutdown; Dockerfile CMD updated.
 - Lightweight health probe (aja healthcheck --quick) replacing heavyweight doctor as the container healthcheck.

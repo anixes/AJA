@@ -89,59 +89,50 @@ python -m aja doctor
 
 ---
 
-## Quickstart
+## Quick Start
 
-### 1. Initialize the Runtime
-Initialize the runtime environment, which provisions the `AJA_DATA_DIR` and necessary LanceDB vector stores.
+Clone -> install -> chat in under 10 minutes.
+
+### One-liners
+
+**Linux / macOS:**
+```bash
+git clone https://github.com/your-org/aja.git && cd aja && bash scripts/quickstart.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/your-org/aja.git; cd aja; .\scripts\quickstart.ps1
+```
+
+The script creates a `.venv`, installs AJA (`pip install -e ".[telegram]"`), walks you through your Telegram bot token and user allowlist (written to `.env`), runs `aja doctor` to validate everything, and prints next steps.
+
+### Prerequisites
+
+* **Python 3.11+** - [python.org/downloads](https://www.python.org/downloads/)
+* **A Telegram bot token** - create a bot with [@BotFather](https://t.me/BotFather)
+* **Your Telegram user id** - message [@userinfobot](https://t.me/userinfobot); required for the security allowlist (without it, the gateway fail-safe denies all remote users)
+
+### What You Get
+
+* **Chat from anywhere** - `aja serve` connects the full agent runtime to your private Telegram bot, restricted to your user id.
+* **Autonomous missions** - self-directed sysadmin, web research, and coding tasks executed on your machine with replay-safe durability.
+* **Safety by default** - `CommandGuard` catastrophic-command denial, permission scopes, and workspace sandboxing validated by `aja doctor`.
+* **Persistent memory** - bi-temporal knowledge graph + episodic vector memory that survives restarts.
+
+Prefer manual setup? Run the interactive configuration wizard:
 
 ```bash
 python -m aja setup
 ```
-```text
-$ python -m aja setup
-===========================================================
-               AJA INTERACTIVE SETUP WIZARD                
-===========================================================
-[✔] Verified Python 3.12.10 environment.
-[✔] Verified PyO3 native extensions (aja_native).
-[✔] Mapped default storage path: C:\Users\<Username>\AppData\Local\<Organization>\AJA
-[?] Enter default LLM Provider [default: openai]:
-[?] Enter default Planner Model [default: gpt-4o]:
-[?] Enter default Worker Model [default: claude-haiku-4.5]:
-[✔] Initialized database table 'aja_missions' inside LanceDB.
-[✔] Initialized database table 'aja_tasks' inside LanceDB.
-===========================================================
-               AJA CONFIGURED SUCCESSFULLY                 
-===========================================================
-```
 
-### 2. Run a Simulated Workflow
-Run a dry-run simulation to audit potential shell executions against safety blocks without mutating local files.
+Then run a dry-run simulation to audit potential shell executions against safety blocks without mutating local files:
 
 ```bash
 python -m aja run "Perform repository analysis" --dry-run
 ```
-```text
-┌──────────────────────── AJA Live HTN Plan Tree DAG ────────────────────────┐
-│  ▼ Root Mission: Debug GPU memory leak                                     │
-│    ├── ▼ Method: Profile CUDA memory allocation                            │
-│    │     ├── [x] Run stress test with monitoring                           │
-│    │     └── [/] Parse memory dump files                                   │
-│    └── ├── ▼ Method: Analyze leak pattern                                   │
-│    │     └── [ ] Locate reference cycle                                    │
-│    └── └── [ ] Refactor PyTorch model cleanup code                         │
-├────────────────────────────────────────────────────────────────────────────┤
-│  Timeline Stream:                                                          │
-│  [19:15:10] TOOL_CALLED: run_shell_command (python stress_test.py)         │
-│  [19:15:12] PROCESS_SPAWNED: PID 20438                                     │
-│  [19:15:13] METRICS: GPU memory utilization peaked at 92.4%                │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Metrics: Duration: 0:02:13 | CPU: 12.4% | Memory: 4.2GB | Active Trace: 99 │
-└─────────────────────────────────────── [s] Toggle Skin | [q] Quit ─────────┘
-```
 
-### 3. Inspect Replay History
-View the deterministic execution timeline for past sessions.
+And inspect replay history - the deterministic execution timeline for past sessions:
 
 ```bash
 python -m aja exec list

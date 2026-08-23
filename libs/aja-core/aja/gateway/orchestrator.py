@@ -472,6 +472,21 @@ class UnifiedGateway:
         reg = get_workspace_registry()
         content_stripped = content.strip()
 
+        # Recall injection: semantic (+temporal on time keywords) context block
+        recall_context = ""
+        try:
+            from aja.gateway.recall import semantic_recall, time_recall, format_recall_context
+
+            sem = semantic_recall(content_stripped, vector_memory=self.vector_memory)
+            tmp = (
+                time_recall(24)
+                if any(w in content_stripped.lower() for w in ("yesterday", "earlier", "last week"))
+                else []
+            )
+            recall_context = format_recall_context(sem, tmp)
+        except Exception:
+            pass
+
         # Handle Multi-Workspace Telegram Commands
         if content_stripped.lower() in ("/workspaces", "/ws", "/projects"):
             workspaces = reg.list_all()
@@ -660,7 +675,10 @@ class UnifiedGateway:
             response = status_report
         else:
             # Simple Chat Reasoning
-            response = await self.chat(content_stripped, chat_history=session["history"], image_url=image_url)
+            chat_history = session["history"]
+            if recall_context:
+                chat_history = [{"role": "system", "content": recall_context}] + chat_history
+            response = await self.chat(content_stripped, chat_history=chat_history, image_url=image_url)
 
         # 4. AJA Response
         await self.telegram_adapter.send_message(chat_id, response)

@@ -270,6 +270,27 @@ class DirectSession:
         self.session_history.append({"role": "user", "content": processed_objective})
         self._mirror("user", processed_objective)
 
+        # Recall injection: prepend recalled context as a system message for this turn
+        recall_msg = None
+        try:
+            from aja.gateway.recall import semantic_recall, time_recall, format_recall_context
+
+            sem = semantic_recall(
+                processed_objective,
+                vector_memory=getattr(self.engine, "vector_memory", None),
+            )
+            tmp = (
+                time_recall(24)
+                if any(w in processed_objective.lower() for w in ("yesterday", "earlier", "last week"))
+                else []
+            )
+            recall_context = format_recall_context(sem, tmp)
+            if recall_context:
+                recall_msg = {"role": "system", "content": recall_context}
+                self.session_history.insert(0, recall_msg)
+        except Exception:
+            pass
+
         # Run the tool-calling loop — execute_direct mutates session_history in-place
         try:
             await self.engine.execute_direct(
@@ -279,6 +300,12 @@ class DirectSession:
             )
         except Exception as e:
             console.print(f"[bold red]✘ Session error: {e}[/bold red]")
+        finally:
+            if recall_msg is not None:
+                try:
+                    self.session_history.remove(recall_msg)
+                except ValueError:
+                    pass
 
         # Mirror last assistant turn(s) added by execute_direct
         for msg in reversed(self.session_history):
