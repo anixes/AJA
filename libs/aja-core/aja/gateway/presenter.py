@@ -1,5 +1,30 @@
 """Client-facing presentation helpers for orchestration surfaces."""
 
+import os
+
+
+def _neutral_prompts_requested() -> bool:
+    """True when the operator asked for the neutral (non-persona) system prompt.
+
+    Honors both the AJA_NEUTRAL_PROMPTS env var and the
+    swarm_settings.neutral_prompts config field.
+    """
+    if os.getenv("AJA_NEUTRAL_PROMPTS", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    try:
+        from aja.config import CONFIG
+
+        return bool(getattr(getattr(CONFIG, "swarm_settings", None), "neutral_prompts", False))
+    except Exception:
+        return False
+
+
+NEUTRAL_SYSTEM_PROMPT = (
+    "You are an AI agent operating a terminal environment. Suggest shell commands "
+    "in fenced bash or sh blocks only when execution is needed, or call available "
+    "JSON tools for precise file edits. Be concise and factual. Stop when the task is done."
+)
+
 
 class NullPresenter:
     """No-op presenter for runtime execution without client wording."""
@@ -26,9 +51,17 @@ class NullPresenter:
 
 
 class AJAPresenter(NullPresenter):
-    """AJA persona and console rendering for first-party client workflows."""
+    """AJA persona and console rendering for first-party client workflows.
 
-    direct_system_prompt = (
+    Set AJA_NEUTRAL_PROMPTS=1 (or swarm_settings.neutral_prompts=true) to
+    swap the persona system prompt for the neutral operator variant — for
+    benchmark/eval/benchmark-adjacent usage where persona text would pollute
+    model-behavior comparisons.
+    """
+
+    @staticmethod
+    def _persona_system_prompt() -> str:
+        return (
         "You are AJA (Assistant of Joint Agents), an elite AI assistant, personal secretary, "
         "and operator operating directly in-process on the user's terminal.\n"
         "You have direct execution access to local filesystem and shell commands.\n"
@@ -45,6 +78,12 @@ class AJAPresenter(NullPresenter):
         "6. If you have completed the task or no further commands are needed, write your final response/synthesis and do not output any more commands or tool calls.\n"
         "7. NEVER output raw forbidden words or reference deprecated components."
     )
+
+    @property
+    def direct_system_prompt(self) -> str:
+        if _neutral_prompts_requested():
+            return NEUTRAL_SYSTEM_PROMPT
+        return self._persona_system_prompt()
 
     def __init__(self):
         from aja.interface.modern import console

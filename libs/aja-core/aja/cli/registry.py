@@ -123,6 +123,36 @@ class CommandRegistry:
 
             cmd_rebuild_projections()
 
+        elif cmd == "eval":
+            from aja.cli.commands.eval_cmd import cmd_eval
+
+            mode = next(
+                (
+                    a.split("=", 1)[1]
+                    for a in args[1:]
+                    if a.startswith("--mode=")
+                ),
+                None,
+            )
+            case = next(
+                (a for a in args[1:] if not a.startswith("--")),
+                None,
+            )
+            mission_id = next(
+                (a.split("=", 1)[1] for a in args[1:] if a.startswith("--mission=")),
+                None,
+            )
+            baseline = next(
+                (a.split("=", 1)[1] for a in args[1:] if a.startswith("--baseline=")),
+                None,
+            )
+            if baseline:
+                cmd_eval(mode="gate", baseline=baseline)
+            elif mode == "list" or not case:
+                cmd_eval(mode="list")
+            else:
+                cmd_eval(mode="run", case=case, mission_id=mission_id)
+
         else:
             from aja.cli.commands.help_cmd import show_help
 

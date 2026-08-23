@@ -79,6 +79,7 @@ markers = [
     "e2e: real-LLM end-to-end tests (deselect with '-m not e2e')",
     "live_web: tests that hit real web services (deselect with '-m \"not live_web\"')",
     "benchmark: Performance baseline measurements (deselect with '-m \"not benchmark\"')",
+    "live_providers: live per-provider LLM conformance tests hitting real APIs (deselect with '-m \"not live_providers\"')",
     "unit: Fast unit tests without disk or network bottlenecks",
     "integration: Subsystem integration and durable workflow tests",
     "planning: Task decomposition and DAG planning tests",

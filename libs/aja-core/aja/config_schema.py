@@ -55,6 +55,10 @@ class SwarmSettings(BaseModel):
     allow_out_of_bounds_paths: bool = False
     sandbox_mode: Literal["local", "docker"] = "local"
     auto_proceed_local: bool = False
+    neutral_prompts: bool = Field(
+        default=False,
+        description="Swap the AJA persona system prompt for a neutral operator variant (evals/benchmarks).",
+    )
     context_limit_tokens: Optional[int] = Field(
         default=None,
         ge=1024,

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 9 — LLM Harness Grade-Up
+- **Replay-based evaluation framework** (`aja/evals/`): `EvalCase` rubric scoring against journaled missions (unexpected TOOL_FAILED caps at 0.5), regression-gate mode vs stored baselines, `aja eval` CLI.
+- **Structured output** (`aja/llm_structured.py`): forced synthetic-tool strategy + JSON-extraction fallback + repair round-trip; planner bracket-slicing replaced; `execute_direct(output_contract=...)` validates final synthesis.
+- **Neutral-prompt mode**: `AJA_NEUTRAL_PROMPTS=1` / `swarm_settings.neutral_prompts` swaps the secretary persona for a neutral operator prompt (evals/benchmarks).
+- **Provider conformance suite** (`tests/python/live/`, marker `live_providers`): per-provider basic/streaming/tool-call/4xx checks, auto-skipping unconfigured keys. Copilot passes all live.
+- **Library-grade loop decoupling**: `run_direct_loop(...)` in `orchestration/direct_loop.py` — stdlib-only module scope, injectable gateway/registry/executor/hooks; subprocess-proven isolation (zero LanceDB/config/bridge imports). `SwarmEngine.execute_direct` remains a thin adapter.
+
 #### Phase 8 — Columnar Batons v2 & Rust Modernization
 - **Columnar baton schema v2** (`aja/runtime/baton_state.py`): history as Arrow list columns (`hist_role/hist_content/hist_ts`) + `schema_version` discriminator; `ColumnarBatonState` lazy reader (O(1) len, per-turn decode, streaming iteration, opt-in materialization); parse-free pickup — **18ms cold at 10,000 turns (v1: 35.5ms)**; permanent v1 fallback reader; `BatonCorruptionError` replaces silent `{}`; `AJA_BATON_SCHEMA` rollout flag.
 - **Rust modernization** (`packages/aja-native`): pyo3 0.21→0.29 (Bound API), true GIL-free tokenizer via `py.detach`, panic-free error handling (`PyIOError`/`PyValueError` differentiation), typed vendored-blob SHA256 verification at init, tiktoken-rs 0.12, `[profile.release]` tuning, license/publish metadata; dead export removed, mission-format exports deprecated.

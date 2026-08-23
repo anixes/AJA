@@ -9,6 +9,7 @@ N = 10 / 100 / 1000 / 10000 turns (~200-char content each). xdist-safe: unique
 per-test baton subdirectories on top of conftest's per-worker AJA_DATA_DIR.
 """
 
+import os
 import time
 import uuid
 
@@ -128,4 +129,7 @@ def test_baton_lazy_turn_access_at_scale(tmp_path, monkeypatch):
     assert first["role"] == "user"
     assert len(slice_turns) == 10
     print(f"[perf] baton lazy random/slice access @10k turns: {elapsed_ms:.3f}ms")
-    assert elapsed_ms < 250.0
+    # Under xdist, 8 workers contend for cores/GIL and inflate first-touch mmap
+    # latency; relax the ceiling the same way test_perf_baselines.py does.
+    ceiling = 250.0 if not os.environ.get("PYTEST_XDIST_WORKER") else 1000.0
+    assert elapsed_ms < ceiling

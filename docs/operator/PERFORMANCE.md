@@ -5,7 +5,7 @@ Numbers are wall-clock via `time.perf_counter`, one warmup pass excluded.
 
 ## Running the benchmarks
 
-Benchmarks carry the `benchmark` marker and are **deselected by default**:
+Benchmarks carry the `benchmark` marker and carry the enchmark marker and run by default (filter with -m 'not benchmark' to exclude):
 
 ```bash
 py -3.12 -m pytest tests/python/benchmarks -m benchmark          # only benchmarks

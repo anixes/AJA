@@ -81,7 +81,7 @@ class SwarmEngine:
         self.baton_dir = DATA_DIR / "batons"
         self.baton_dir.mkdir(parents=True, exist_ok=True)
         
-    async def execute_direct(self, objective: str, session_history: list = None, interactive: bool = True):
+    async def execute_direct(self, objective: str, session_history: list = None, interactive: bool = True, output_contract: dict = None):
         """
         Direct Tooling and In-Process Execution (Interactive Pairing Assistant).
         Executes commands synchronously in-process using ToolExecutor.
@@ -113,164 +113,34 @@ class SwarmEngine:
         # 2. Build client-specific prompt through the presenter boundary.
         system_prompt = self.presenter.direct_system_prompt
 
-        # When session_history is supplied (DirectSession multi-turn mode), we use
-        # the caller-owned list so history accumulates across turns (enabling
-        # provider-side prompt caching of the static system prefix).
-        # In single-shot mode (session_history=None), we create a fresh list.
-        if session_history is not None:
-            # The caller already appended the new user message before calling us.
-            # We use their list directly — mutation is visible to the caller.
-            history = session_history
-        else:
-            # Legacy single-shot mode: fresh ephemeral history.
-            history = [
-                {"role": "user", "content": f"Please execute this task directly: {objective}"}
-            ]
+        # Delegate the core tool-calling loop to the library-grade harness in
+        # direct_loop.py. The adapter owns all OS machinery (telemetry journal,
+        # activity context, executor/registry construction) — the loop itself
+        # constructs nothing and touches no disk.
+        from aja.orchestration.direct_loop import run_direct_loop
 
-        iteration = 0
-        max_iterations = 10  # Prevent runaway loops
-        
-        while iteration < max_iterations:
-            iteration += 1
+        outcome = await run_direct_loop(
+            objective,
+            gateway=self.gateway,
+            tools_registry=native_registry,
+            executor=executor,
+            system_prompt=system_prompt,
+            session_history=session_history,
+            output_contract=output_contract,
+            max_turns=10,  # legacy runaway-loop guard preserved
+            model=self.model,
+            provider=self.provider,
+            dry_run=self.dry_run,
+            interactive=interactive,
+            presenter=self.presenter,
+            console=console,
+        )
 
-            # Compress history before sending to LLM to stay within token budget
-            from aja.orchestration.context_window import compress_history
-            compress_history(history, model=self.model, provider=self.provider)
-
-            # Request LLM response
-            try:
-                response = await self.gateway.chat(
-                    model=self.model,
-                    prompt=history,
-                    system=system_prompt,
-                    tools=native_registry.get_schemas(interactive=interactive)
-                )
-            except Exception as e:
-                console.print(f"[red][Direct Mode] LLM Chat Error: {e}[/red]")
-                if self.dry_run:
-                    response = "I have simulated the direct task completion successfully, Sir."
-                else:
-                    raise e
-            
-            if not response:
-                console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
-                break
-                
-            if isinstance(response, dict):
-                content = response.get("content", "")
-                tool_calls = response.get("tool_calls", [])
-            else:
-                content = response
-                tool_calls = []
-
-            if content:
-                self.presenter.assistant(content)
-                history.append({"role": "assistant", "content": content})
-            elif tool_calls:
-                # No text content, but we have tool calls. Still need to append the assistant message so the API doesn't complain about role alternation.
-                # Actually, some APIs require the tool_calls to be in the assistant message, but since we are maintaining simple string history for now:
-                history.append({"role": "assistant", "content": f"[Invoking {len(tool_calls)} tool(s)]"})
-            
-            # Execute Native Tools if any
-            tools_executed = False
-            if tool_calls:
-                tools_executed = True
-                formatted_calls = []
-                for tc in tool_calls:
-                    t_name = tc.get("name")
-                    t_args_str = tc.get("arguments", "{}")
-                    try:
-                        t_args = json.loads(t_args_str) if isinstance(t_args_str, str) else t_args_str
-                    except Exception:
-                        t_args = {}
-                    formatted_calls.append({"tool": t_name, "args": t_args})
-                
-                console.print(f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s)...[/]")
-                from aja.observability.telemetry import get_trace_id
-                results = await executor.dispatch_tool_calls(
-                    tool_calls=formatted_calls,
-                    trace_id=get_trace_id(),
-                    dry_run=self.dry_run,
-                )
-                for r in results:
-                    if r.success:
-                        console.print(f"[bold green]✔ Tool '{r.tool}' succeeded[/bold green]")
-                        if r.data:
-                            from rich.markup import escape
-                            console.print(f"[dim]{escape(redact_secrets(str(r.data)))}[/dim]")
-                    else:
-                        from rich.markup import escape
-                        err_msg = r.error or getattr(r, "stderr", None) or r.data
-                        console.print(f"[bold red]✘ Tool '{r.tool}' failed: {escape(redact_secrets(str(err_msg)))}[/bold red]")
-                    
-                    from aja.orchestration.context_window import truncate_tool_result, MAX_TOOL_RESULT_CHARS
-                    raw_output = str(r.data or r.error or getattr(r, "stderr", "") or "")
-                    safe_output = truncate_tool_result(raw_output, MAX_TOOL_RESULT_CHARS)
-                    obs = f"Tool '{r.tool}' result:\n{safe_output}"
-                    history.append({"role": "user", "content": obs})
-
-            # Check for legacy bash/sh command blocks
-            commands = []
-            if "```bash" in content:
-                parts = content.split("```bash")
-                for part in parts[1:]:
-                    cmd = part.split("```")[0].strip()
-                    if cmd:
-                        commands.append(cmd)
-            elif "```sh" in content:
-                parts = content.split("```sh")
-                for part in parts[1:]:
-                    cmd = part.split("```")[0].strip()
-                    if cmd:
-                        commands.append(cmd)
-            
-            if not commands and not tools_executed:
-                # No more commands or tools suggested; direct execution has finished.
-                console.print(f"\n[bold green][+] Direct In-Process task completed successfully.[/bold green]")
-                break
-            
-            # Execute each suggested command
-            all_completed_successfully = True
-            for cmd in commands:
-                self.presenter.command(cmd)
-                
-                # Check dry-run
-                if self.dry_run:
-                    from aja.security.command_guard import classify_command
-                    classification = classify_command(cmd)
-                    console.print(f"[bold yellow][DRY-RUN AUDIT][/bold yellow] Command: '{cmd}' | Safety: {classification['decision'].upper()} (Risk: {classification['risk_level']})")
-                    sim_stdout = f"[DRY-RUN SIMULATION OUTPUT] Successfully simulated command: {cmd}"
-                    result = {
-                        "status": "success",
-                        "stdout": sim_stdout,
-                        "stderr": "",
-                        "code": 0
-                    }
-                else:
-                    # Execute in-process
-                    result = executor.execute(cmd)
-                
-                # Format output message
-                if result.get("status") == "success":
-                    console.print(f"[bold green]✔ Command succeeded with code {result.get('code', 0)}[/bold green]")
-                    if result.get("stdout"):
-                        console.print(f"[dim]{redact_secrets(result['stdout'])}[/dim]")
-                else:
-                    console.print(f"[bold red]✘ Command failed: {result.get('message', 'Unknown failure') or result.get('stderr')}[/bold red]")
-                    all_completed_successfully = False
-                
-                # Feed result back into the history
-                result_str = (
-                    f"Command executed: {cmd}\n"
-                    f"Status: {result.get('status')}\n"
-                    f"Exit Code: {result.get('code', -1)}\n"
-                    f"Stdout:\n{result.get('stdout', '')}\n"
-                    f"Stderr:\n{result.get('stderr', '') or result.get('message', '')}"
-                )
-                history.append({"role": "user", "content": result_str})
-
-            if not all_completed_successfully:
-                pass
+        # Preserve the exact legacy return contract: structured dict only when
+        # an output_contract synthesis succeeded; otherwise None.
+        if output_contract and outcome and outcome.get("status") == "completed":
+            return {"status": "completed", "result": outcome["result"]}
+        return None
         
     # --- MODE 1: BACKGROUND TERRITORY MONITORING (Swarm Controller) ---
     def load_config(self):
@@ -375,42 +245,46 @@ class SwarmEngine:
             "Return ONLY a JSON list with 'id' and 'task' keys for each sub-task."
         )
         
+        from aja.llm_structured import structured_completion, StructuredOutputError
+
+        PLAN_SCHEMA = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"id": {}, "task": {"type": "string"}},
+                "required": ["id", "task"],
+            },
+        }
+
+        plan = None
         try:
-            plan_str = await self.gateway.chat(model=self.model, prompt=planning_prompt)
+            plan = await structured_completion(
+                self.gateway,
+                planning_prompt,
+                PLAN_SCHEMA,
+                model=self.model,
+            )
+        except StructuredOutputError as e:
+            logger.warning("Structured planning returned invalid JSON (%s).", e)
         except Exception as e:
             if self.dry_run:
                 logger.warning("[DRY-RUN] LLM Planning failed or is unauthenticated (%s). Simulating a default safe plan.", e)
-                plan_str = json.dumps([
-                    {"id": 1, "task": f"Mock analysis: {objective}"}
-                ])
             else:
                 raise e
 
-        if not plan_str:
+        if not plan:
             if self.dry_run:
-                logger.info("[DRY-RUN] LLM returned empty plan. Simulating a default safe plan.")
-                plan_str = json.dumps([
+                logger.info("[DRY-RUN] Structured planning unavailable. Simulating a default safe plan.")
+                plan = [
                     {"id": 1, "task": f"Mock analysis: {objective}"}
-                ])
+                ]
             else:
-                plan_str = ""
-        
+                logger.warning("Planning failed. Defaulting to single-step execution.")
+                plan = [{"id": 1, "task": objective}]
+
         # ── Power 2: Autonomous Tool Loop ──
         if self.dry_run:
             logger.info("[DRY-RUN] Simulating tool planning and verification. No physical system changes will be made.")
-
-        try:
-            plan_str = plan_str.strip().replace("```json", "").replace("```", "")
-            # Find the JSON part if there was extra text
-            start = plan_str.find("[")
-            end = plan_str.rfind("]") + 1
-            if start != -1 and end != -1:
-                plan = json.loads(plan_str[start:end])
-            else:
-                plan = []
-        except Exception:
-            logger.warning("Planning failed. Defaulting to single-step execution.")
-            plan = [{"id": 1, "task": objective}]
 
         import hashlib
         if not run_id:
