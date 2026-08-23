@@ -40,6 +40,11 @@ class PermissionPolicy:
                 "shell.exec.dangerous": "ask",
                 "python.*": "allow",
                 "mcp.*": "ask",
+                # Web research tools (Phase 6): read-only network operations,
+                # allowed by default so autonomous research missions work
+                # unattended. fetch_url/search_url perform GETs only.
+                "web.read": "allow",
+                "web.search": "allow",
                 "browser.read": "allow",
                 "browser.navigate": "ask",
                 "browser.interact": "ask",

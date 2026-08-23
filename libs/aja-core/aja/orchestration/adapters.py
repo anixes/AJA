@@ -312,13 +312,48 @@ class NativeWorkerAdapter(BaseAdapter):
         self._create_branch(branch_name, workspace_dir)
         
         try:
-            await engine.execute_direct(task)
-            
+            # Capture the worker's actual answer via a light output contract
+            # so read-only missions (research/fetch) still produce verifiable
+            # output. Weak local models that cannot emit valid JSON fall back
+            # to a plain synthesis instead of failing.
+            from aja.llm_structured import StructuredOutputError
+
+            answer = None
+            try:
+                res = await engine.execute_direct(
+                    task,
+                    output_contract={
+                        "type": "object",
+                        "required": ["summary"],
+                        "properties": {"summary": {"type": "string"}},
+                    },
+                )
+                if isinstance(res, dict):
+                    answer = res.get("result", {}).get("summary")
+            except (StructuredOutputError, Exception):
+                answer = None
+
+            if not answer:
+                await engine.execute_direct(task)
+
+            diff = self._get_diff(workspace_dir)
+            # Tests validate CODE changes and are OPT-IN for native workers:
+            # live workspaces are often the repo root itself, where blind
+            # pytest runs pick up unrelated dirty state and fail read-only
+            # research missions. Enable with AJA_WORKER_RUN_TESTS=1.
+            import os as _os
+            tests = self._run_tests(workspace_dir) if _os.getenv("AJA_WORKER_RUN_TESTS", "") == "1" else ""
+
+            output = (
+                f"Task completed. Answer: {answer}"
+                if answer
+                else f"Native worker successfully executed task: {task}"
+            )
             return {
                 "status": "completed",
-                "output": f"Native worker successfully executed task: {task}",
-                "diff": self._get_diff(workspace_dir),
-                "tests": self._run_tests(workspace_dir),
+                "output": output,
+                "diff": diff,
+                "tests": tests,
                 "rollback_path": f"git checkout main && git branch -D {branch_name}",
             }
         except Exception as e:

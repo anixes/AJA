@@ -23,6 +23,10 @@ class PermissionPolicyConfig(BaseModel):
             "shell.exec.dangerous": "ask",
             "python.*": "allow",
             "mcp.*": "ask",
+            # Web research tools (Phase 6): read-only GETs, allowed by default
+            # so autonomous research missions run unattended.
+            "web.read": "allow",
+            "web.search": "allow",
             "browser.read": "allow",
             "browser.navigate": "ask",
             "browser.interact": "ask",
