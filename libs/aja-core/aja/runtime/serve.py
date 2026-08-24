@@ -15,6 +15,7 @@ child down gracefully.
 import asyncio
 import logging
 import signal
+from pathlib import Path
 from typing import Optional, Set
 
 from aja.gateway.server import run_gateway
@@ -91,6 +92,65 @@ async def serve(host_stop_event: Optional[asyncio.Event] = None) -> None:
         logger.warning("Briefing job registration skipped: %s", exc)
     scheduler.start()
 
+    # File watcher service (optional — requires watchdog + config rules)
+    file_watcher = None
+    try:
+        from aja.config import CONFIG
+
+        fw_rules = getattr(getattr(CONFIG, "file_watchers", None), "rules", [])
+        if fw_rules:
+            from aja.core.conversation import ConversationCore
+            from aja.llm import get_gateway_for_model
+            from aja.orchestration.tools.executor import ToolExecutor
+            from aja.orchestration.tools.native import NativeToolRegistry
+            from aja.automation.file_watcher import FileWatcherService, FileWatcherRule
+
+            gw, _ = get_gateway_for_model("copilot")
+            core = ConversationCore(
+                gateway=gw,
+                tools_registry=NativeToolRegistry(),
+                executor=ToolExecutor(),
+            )
+            rules = [
+                FileWatcherRule(
+                    path=r.path,
+                    patterns=r.patterns,
+                    goal=r.goal,
+                    recursive=r.recursive,
+                    debounce_seconds=r.debounce_seconds,
+                    enabled=r.enabled,
+                )
+                for r in fw_rules
+            ]
+            file_watcher = FileWatcherService(rules=rules, core=core)
+            file_watcher.start()
+            logger.info("File watcher service started with %d rules.", len(rules))
+    except Exception as exc:
+        logger.warning("File watcher startup skipped: %s", exc)
+
+    # Register workflow schedules from ~/.aja/workflows/
+    try:
+        import platformdirs
+
+        workflows_dir = Path(
+            platformdirs.user_data_dir("AJA", "Anixes")
+        ) / "workflows"
+        if workflows_dir.is_dir():
+            from aja.automation.workflow import load_workflows
+            from aja.automation.context import WorkflowContext
+
+            workflows = load_workflows(workflows_dir)
+            for wf in workflows:
+                if wf.schedule:
+                    scheduler.add_job(
+                        goal=f"[workflow] {wf.name}: {wf.description}",
+                        schedule_expr=wf.schedule,
+                        workflow_name=wf.name,
+                    )
+                    logger.info("Registered workflow schedule: %s (%s)", wf.name, wf.schedule)
+    except Exception as exc:
+        logger.warning("Workflow schedule registration skipped: %s", exc)
+
     stop_waiter = asyncio.create_task(stop_event.wait(), name="aja-serve-stop-waiter")
     children: Set[asyncio.Task] = {gateway_task, autonomy_task}
 
@@ -103,6 +163,8 @@ async def serve(host_stop_event: Optional[asyncio.Event] = None) -> None:
     finally:
         restore_signals()
         stop_waiter.cancel()
+        if file_watcher is not None:
+            file_watcher.stop()
         for task in children:
             if not task.done():
                 task.cancel()

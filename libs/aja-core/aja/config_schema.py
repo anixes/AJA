@@ -130,6 +130,19 @@ class GoogleCalendarSettings(BaseModel):
     )
 
 
+class FileWatcherRule(BaseModel):
+    path: str = Field(description="Directory to watch for file changes.")
+    patterns: List[str] = Field(default_factory=lambda: ["*"], description="Glob patterns to match filenames.")
+    goal: str = Field(description="Objective to fire on trigger; {changed_files} placeholder is replaced with changed paths.")
+    recursive: bool = Field(default=True, description="Watch subdirectories recursively.")
+    debounce_seconds: float = Field(default=2.0, ge=0.1, description="Seconds to wait after last event before firing.")
+    enabled: bool = Field(default=True)
+
+
+class FileWatcherSettings(BaseModel):
+    rules: List[FileWatcherRule] = Field(default_factory=list)
+
+
 class AJAConfig(BaseModel):
     project_name: str = "AJA"
     territories: List[TerritoryConfig] = Field(default_factory=list)
@@ -139,3 +152,4 @@ class AJAConfig(BaseModel):
     gateway_auth: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)
     google_calendar: Optional[GoogleCalendarSettings] = None
+    file_watchers: Optional[FileWatcherSettings] = None
