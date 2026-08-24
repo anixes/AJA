@@ -24,7 +24,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from aja.api.routes import attach_route_groups
 from aja.api.services.command_policy import (
@@ -2549,6 +2549,61 @@ async def update_config(request: Request):
 
     save_config(cfg)
     return {"ok": True, "message": "Configuration saved."}
+
+
+TRIGGER_RATE_LIMIT = 10
+TRIGGER_WINDOW_S = 60.0
+_trigger_counters: dict[str, list[float]] = {}
+
+
+def check_trigger_rate_limit(source: str, now: float | None = None) -> bool:
+    """Sliding-window rate limiter: max 10 triggers/minute per source."""
+    now = time.time() if now is None else now
+    window = _trigger_counters.setdefault(source, [])
+    window[:] = [ts for ts in window if now - ts < TRIGGER_WINDOW_S]
+    if len(window) >= TRIGGER_RATE_LIMIT:
+        return False
+    window.append(now)
+    return True
+
+
+@app.post("/api/v1/trigger", dependencies=[Depends(verify_token)])
+async def trigger_mission(request: Request):
+    """
+    Accepts POST with JSON body {"goal": "...", "source": "..."}.
+    Creates a mission immediately. Auth via existing Bearer token.
+    Rate limited per source tag (max 10/minute).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body.")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object.")
+
+    goal = str(body.get("goal") or "").strip()
+    if not goal:
+        raise HTTPException(status_code=422, detail="Missing or empty 'goal' field.")
+
+    client_host = request.client.host if request.client else "unknown"
+    source = str(body.get("source") or client_host)
+    if not check_trigger_rate_limit(source):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded: max 10 triggers per minute per source.",
+        )
+
+    try:
+        result = await asyncio.to_thread(get_aja_memory().create_mission, goal)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create mission: {exc}"
+        ) from exc
+
+    return JSONResponse(
+        status_code=202,
+        content={"mission_id": result.get("mission_id"), "status": "dispatched"},
+    )
 
 
 async def telegram_polling_loop():
