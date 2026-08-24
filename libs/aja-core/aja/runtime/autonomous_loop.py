@@ -30,6 +30,16 @@ async def _stoppable_sleep(seconds: float, stop_event) -> None:
 
 
 async def main_loop(stop_event=None):
+    from aja.runtime.single_instance import acquire_lock, release_lock
+
+    lock = acquire_lock("worker")
+    if lock is None:
+        print(
+            "[!] Autonomous worker already running — refusing to start a "
+            "duplicate instance (heartbeat churn + double mission intake)."
+        )
+        return
+
     print("[*] Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
     memory = LanceRuntimeStore()
     worker_id = "local-terminal-worker"
@@ -102,6 +112,8 @@ async def main_loop(stop_event=None):
                 backoff = min(30, BASE_SLEEP * (2 ** consecutive_errors))
                 print(f"[!] Error in autonomous loop (#{consecutive_errors}): {e}. Backing off {backoff}s.")
                 await _stoppable_sleep(backoff, stop_event)
+
+    release_lock(lock)
 
 
 if __name__ == "__main__":

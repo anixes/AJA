@@ -242,7 +242,15 @@ class UnifiedGateway:
                     tool_results.append(f"[{fn_name} output]: {res}")
 
         # Auto-tool fallback for real-time time/date requests if SLM omitted tool_call
-        user_last_text = messages[-1].get("content", "").lower() if messages else ""
+        last_content = messages[-1].get("content", "") if messages else ""
+        if isinstance(last_content, list):
+            # Multimodal payload: extract the text parts only.
+            last_content = " ".join(
+                str(p.get("text", ""))
+                for p in last_content
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        user_last_text = str(last_content).lower() if messages else ""
         if not tool_results and any(kw in user_last_text for kw in ("time", "date", "clock", "today", "day is it")):
             local_now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M:%S %p %Z (UTC %z)")
             logger.info("[AJA Chat] Real-time time query detected. Injecting system clock observation: %s", local_now)

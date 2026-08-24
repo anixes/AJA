@@ -22,7 +22,7 @@ class RuntimeApprovalStore(Protocol):
 
 
 class RuntimeWorkerStore(Protocol):
-    def publish_heartbeat(self, worker_id: str, name: str = "AJA Worker") -> Dict[str, Any]:
+    def publish_heartbeat(self, worker_id: str, status: str = "ONLINE", name: str = "AJA Worker") -> Dict[str, Any]:
         ...
 
     def list_workers(self, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:

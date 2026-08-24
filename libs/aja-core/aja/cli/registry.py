@@ -56,20 +56,27 @@ def _launch_repl():
     worker_proc = None
 
     if token:
+        from aja.runtime.single_instance import is_running
+
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
 
-        gateway_proc = subprocess.Popen(
-            [sys.executable, "-m", "aja.gateway.server"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
-        )
-        worker_proc = subprocess.Popen(
-            [sys.executable, "-m", "aja.runtime.autonomous_loop"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
-        )
+        if not is_running("gateway"):
+            gateway_proc = subprocess.Popen(
+                [sys.executable, "-m", "aja.gateway.server"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        else:
+            print("[*] AJA Gateway already running — attaching without spawning a duplicate.")
+
+        if not is_running("worker"):
+            worker_proc = subprocess.Popen(
+                [sys.executable, "-m", "aja.runtime.autonomous_loop"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
 
     try:
         from aja.interface.repl import TerminalREPL

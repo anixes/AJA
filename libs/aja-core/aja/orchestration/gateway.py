@@ -350,7 +350,7 @@ class LLMGateway:
                     if model and model.startswith("copilot:"):
                         model = model[8:]
 
-                    m_lower = model.lower()
+                    m_lower = (model or "").lower()
                     if "/" in m_lower:
                         m_lower = m_lower.rsplit("/", 1)[-1]
                     if (
@@ -361,6 +361,19 @@ class LLMGateway:
                         use_responses = True
                     # Claude 3.5 Sonnet needs the responses API for Copilot currently.
                     if "claude" in m_lower:
+                        use_responses = True
+
+                    # Images are only accepted by the Responses API path —
+                    # chat-completions rejects them with "image media type
+                    # not supported" regardless of model.
+                    if isinstance(prompt, list) and any(
+                        isinstance(m.get("content"), list)
+                        and any(
+                            isinstance(p, dict) and p.get("type") == "image_url"
+                            for p in m["content"]
+                        )
+                        for m in prompt
+                    ):
                         use_responses = True
 
                 if self.provider == "copilot" and use_responses:

@@ -27,8 +27,8 @@ class LanceRuntimeStore:
     def update_approval(self, approval_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         return self.memory.update_approval(approval_id, updates)
 
-    def publish_heartbeat(self, worker_id: str, name: str = "AJA Worker") -> Dict[str, Any]:
-        return self.memory.publish_heartbeat(worker_id, name=name)
+    def publish_heartbeat(self, worker_id: str, status: str = "ONLINE", name: str = "AJA Worker") -> Dict[str, Any]:
+        return self.memory.publish_heartbeat(worker_id, status=status, name=name)
 
     def list_workers(self, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         return self.memory.list_workers(status=status, limit=limit)
