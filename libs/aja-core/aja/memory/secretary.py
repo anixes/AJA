@@ -75,6 +75,7 @@ COMMUNICATIONS_SCHEMA = pa.schema(
         ("channel", pa.string()),
         ("delivery_status", pa.string()),
         ("approval_status", pa.string()),
+        ("rejection_reason", pa.string()),
         ("created_at", pa.string()),
         ("updated_at", pa.string()),
     ]
@@ -121,6 +122,8 @@ WORKERS_SCHEMA = pa.schema(
         ("approval_risk_level", pa.string()),
         ("historical_success_rate", pa.float64()),
         ("total_tasks_executed", pa.int32()),
+        ("success_count", pa.int32()),
+        ("fail_count", pa.int32()),
         ("primary_strengths_json", pa.string()),
         ("recent_failures_json", pa.string()),
     ]
@@ -217,17 +220,6 @@ class AJAMemory:
         # 4. Workers/Swarm State
         if "aja_workers" not in existing:
             self.db.create_table("aja_workers", schema=WORKERS_SCHEMA)
-        else:
-            # Schema evolution: backfill registry columns added after first release.
-            try:
-                table = self.db.open_table("aja_workers")
-                existing_cols = {f.name for f in table.schema}
-                missing = [f for f in WORKERS_SCHEMA if f.name not in existing_cols]
-                if missing:
-                    table.add_columns(pa.schema([pa.field(f.name, f.type) for f in missing]))
-                    logger.info("Migrated aja_workers schema: added %s", [f.name for f in missing])
-            except Exception as e:
-                logger.warning("aja_workers schema migration check failed: %s", e)
 
         # 9. Worker execution history
         if "aja_worker_executions" not in existing:
@@ -256,6 +248,24 @@ class AJAMemory:
         if "aja_chat_history" not in existing:
             self.db.create_table("aja_chat_history", schema=CHAT_HISTORY_SCHEMA)
 
+        # Schema evolution: backfill columns added after first release on
+        # pre-existing tables (best-effort; never blocks startup).
+        for tbl_name, schema in (
+            ("aja_workers", WORKERS_SCHEMA),
+            ("aja_communications", COMMUNICATIONS_SCHEMA),
+        ):
+            if tbl_name not in existing:
+                continue
+            try:
+                table = self.db.open_table(tbl_name)
+                existing_cols = {f.name for f in table.schema}
+                missing = [f for f in schema if f.name not in existing_cols]
+                if missing:
+                    table.add_columns(pa.schema([pa.field(f.name, f.type) for f in missing]))
+                    logger.info("Migrated %s schema: added %s", tbl_name, [f.name for f in missing])
+            except Exception as e:
+                logger.warning("%s schema migration check failed: %s", tbl_name, e)
+
     # --- Worker Management (Heartbeats) ---
     
     def publish_heartbeat(self, worker_id: str, status: str = "ONLINE", name: str = "unknown"):
@@ -267,21 +277,67 @@ class AJAMemory:
         # Cross-process-safe upsert keyed on worker_id. merge_insert performs
         # the existence check and insert atomically server-side, avoiding the
         # duplicate-worker race of a read-then-add sequence.
+        #
+        # when_matched_update_all() NULLs any schema column absent from the
+        # input row, which would wipe worker profile fields (model, reliability,
+        # strengths, ...) on every heartbeat. So we materialize a FULL row:
+        # heartbeat columns from this process, all other columns carried over
+        # from the existing row (or defaults for first-time workers).
         try:
+            existing = (
+                table.search()
+                .where(f"worker_id = {sanitize_value(worker_id)}")
+                .limit(1)
+                .to_list()
+            )
+            row: Dict[str, Any] = {
+                "worker_id": worker_id,
+                "hostname": socket.gethostname(),
+                "pid": int(os.getpid()),
+                "last_heartbeat": now,
+                "status": status,
+                "name": name,
+            }
+            if existing:
+                prev = existing[0]
+                for field in WORKERS_SCHEMA.names:
+                    if field not in row:
+                        row[field] = prev.get(field)
+            else:
+                row.update(self._default_worker_fields(now))
             table.merge_insert(
                 on="worker_id",
-            ).when_matched_update_all().when_not_matched_insert_all().execute(
-                [{
-                    "worker_id": worker_id,
-                    "hostname": socket.gethostname(),
-                    "pid": os.getpid(),
-                    "last_heartbeat": now,
-                    "status": status,
-                    "name": name,
-                }]
-            )
+            ).when_matched_update_all().when_not_matched_insert_all().execute([row])
         except Exception as e:
             logger.error(f"Heartbeat publish failed for {worker_id}: {e}")
+
+    @staticmethod
+    def _default_worker_fields(now: str) -> Dict[str, Any]:
+        """Full-column defaults for a brand-new worker row (merge-insert path)."""
+        return {
+            "availability_status": "active",
+            "created_at": now,
+            "updated_at": now,
+            "worker_name": "",
+            "worker_type": "",
+            "description": "",
+            "model": "",
+            "preferred_task_types_json": "[]",
+            "blocked_task_types_json": "[]",
+            "supports_tests": False,
+            "supports_git_operations": False,
+            "supports_deployment": False,
+            "reliability_score": 0.5,
+            "execution_speed": "medium",
+            "cost_profile": "subscription",
+            "approval_risk_level": "medium",
+            "historical_success_rate": 0.0,
+            "total_tasks_executed": 0,
+            "success_count": 0,
+            "fail_count": 0,
+            "primary_strengths_json": "[]",
+            "recent_failures_json": "[]",
+        }
 
     def get_active_workers(self, timeout_seconds: int = 30):
         table = self.db.open_table("aja_workers")
@@ -506,6 +562,7 @@ class AJAMemory:
         "supports_tests", "supports_git_operations", "supports_deployment",
         "reliability_score", "execution_speed", "cost_profile",
         "approval_risk_level", "historical_success_rate", "total_tasks_executed",
+        "success_count", "fail_count",
     }
 
     @staticmethod
@@ -568,9 +625,12 @@ class AJAMemory:
             "availability_status": data.get("availability_status", "active"),
             "created_at": now,
             "updated_at": now,
+            "worker_name": data.get("worker_name") or "",
             "reliability_score": data.get("reliability_score", 0.5),
             "historical_success_rate": data.get("historical_success_rate", 0.0),
             "total_tasks_executed": data.get("total_tasks_executed", 0),
+            "success_count": int(data.get("success_count") or 0),
+            "fail_count": int(data.get("fail_count") or 0),
             "execution_speed": data.get("execution_speed", "medium"),
             "cost_profile": data.get("cost_profile", "subscription"),
             "approval_risk_level": data.get("approval_risk_level", "medium"),
@@ -656,14 +716,26 @@ class AJAMemory:
             "created_at": utc_now(),
         }
         table.add([row])
-        # Fold outcome into the worker's track record
+        # Fold outcome into the worker's track record using integer counters.
+        # Accumulating a float percentage across updates drifts via rounding;
+        # exact counts are drift-free and the display rate is derived from them.
         worker = self.get_worker(row["worker_id"])
         if worker:
-            total = int(worker.get("total_tasks_executed") or 0) + 1
-            rate = float(worker.get("historical_success_rate") or 0.0)
-            success_count = round(rate / 100.0 * max(1, total - 1)) + (1 if row["success"] else 0)
-            new_rate = (success_count / total) * 100.0 if total else 0.0
-            updates = {"total_tasks_executed": total, "historical_success_rate": new_rate}
+            success_count = int(worker.get("success_count") or 0)
+            fail_count = int(worker.get("fail_count") or 0)
+            if row["success"]:
+                success_count += 1
+            else:
+                fail_count += 1
+            total = success_count + fail_count
+            updates: Dict[str, Any] = {
+                "total_tasks_executed": total,
+                "success_count": success_count,
+                "fail_count": fail_count,
+                "historical_success_rate": (
+                    round(100.0 * success_count / total, 2) if total else 0.0
+                ),
+            }
             if not row["success"]:
                 failures = list(worker.get("recent_failures") or [])
                 failures.insert(0, {"log_id": log_id, "error": row["error"], "at": row["created_at"]})
@@ -776,9 +848,14 @@ class AJAMemory:
     def mark_communication_sent(
         self, message_id: str, note: str = ""
     ) -> Dict[str, Any]:
-        return self.update_communication(
-            message_id, {"delivery_status": "sent", "content": note}
-        )
+        # Prepend the delivery note instead of overwriting `content`, which
+        # would destroy the original message body.
+        updates: Dict[str, Any] = {"delivery_status": "sent"}
+        if note:
+            existing = self.get_communication(message_id)
+            body = (existing or {}).get("content") or ""
+            updates["content"] = f"{note}\n\n{body}" if body else note
+        return self.update_communication(message_id, updates)
 
     # --- Approval Management ---
 
@@ -972,12 +1049,32 @@ class AJAMemory:
             logger.warning("cleanup_old_tasks failed: %s", e)
             return 0
 
+    @staticmethod
+    def _parse_iso_ts(value: Any) -> Optional[datetime]:
+        """Parses ISO-8601 timestamps (incl. Z suffix and epoch numbers) into
+        tz-aware UTC datetimes; returns None when unparseable."""
+        if value is None:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s.endswith(("Z", "z")):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            try:
+                dt = datetime.fromtimestamp(float(s), tz=timezone.utc)
+            except (TypeError, ValueError):
+                return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def cleanup_old_approvals(self, ttl_days: int = 30):
         """Deletes resolved/expired/rejected approvals older than ttl_days."""
         table = self.db.open_table("aja_approvals")
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=ttl_days)
-        ).isoformat()
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=ttl_days)
         terminal = {"resolved", "expired", "rejected"}
         try:
             before = table.search().to_list()
@@ -986,12 +1083,20 @@ class AJAMemory:
             for r in before:
                 rid = r.get("approval_id")
                 status = str(r.get("status", "")).lower()
-                ts = r.get("updated_at") or r.get("created_at") or ""
-                stale = status in terminal and ts and ts < cutoff
-                # Expiry timestamp alone is authoritative even without a terminal status.
-                exp = r.get("expires_at") or ""
-                if not stale and exp and str(exp) < cutoff:
-                    stale = True
+                ts = self._parse_iso_ts(r.get("updated_at") or r.get("created_at"))
+                stale = status in terminal and ts is not None and ts < cutoff_dt
+                # Expiry lives inside metadata_json.approval_expires_at; it is
+                # authoritative even without a terminal status.
+                if not stale:
+                    try:
+                        meta = json.loads(r.get("metadata_json") or "{}")
+                        if not isinstance(meta, dict):
+                            meta = {}
+                    except (TypeError, ValueError):
+                        meta = {}
+                    exp = self._parse_iso_ts(meta.get("approval_expires_at"))
+                    if exp is not None and exp < cutoff_dt:
+                        stale = True
                 if stale and rid and rid not in seen_ids:
                     victims.append(r)
                     seen_ids.add(rid)

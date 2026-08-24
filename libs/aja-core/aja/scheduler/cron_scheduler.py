@@ -5,7 +5,7 @@ import re
 import time
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from aja.observability.telemetry import TraceContextManager, get_trace_id
 from aja.runtime.events import LanceRuntimeEventSink, RuntimeEventSink
@@ -91,6 +91,11 @@ def match_cron_expr(cron_expr: str, dt: datetime) -> bool:
     """
     Checks if a 5-field cron expression matches a given datetime.
     Fields: minute, hour, day of month, month, day of week (0-6, Sunday=0 or 7)
+
+    Timezone note: callers must pass NAIVE LOCAL time (``datetime.now()``).
+    Operators specify cron times in their local wall clock, and one-shot jobs
+    already persist naive-local ``run_at`` values; matching against UTC would
+    fire recurring jobs offset by the host's UTC delta.
     """
     fields = cron_expr.strip().split()
     if len(fields) != 5:
@@ -391,6 +396,16 @@ class CronScheduler:
             return False
         if not meta.get("one_shot"):
             return False
+        if meta.get("cleanup_after_fire") and job.get("status") in (
+            "disabled",
+            "archived",
+        ):
+            # This reminder already fired and was archived/deleted; snoozing
+            # it would resurrect a job the user never re-confirmed.
+            logger.info(
+                "Refusing to snooze fired-and-cleaned-up reminder %s", job_id
+            )
+            return False
         new_run_at = (datetime.now() + timedelta(minutes=minutes)).replace(microsecond=0)
         meta["run_at"] = new_run_at.isoformat()
         meta["schedule_expr"] = f"at:{meta['run_at']}"
@@ -510,17 +525,14 @@ class CronScheduler:
             finally:
                 self._running_jobs.discard(job_id)
                 self._execution_tasks.pop(job_id, None)
-                try:
-                    job = self.store.get_task(job_id)
-                    if job and job.get("metadata_json"):
-                        meta = json.loads(job["metadata_json"])
-                        meta.pop("active_run_id", None)
-                        meta.pop("active_trace_id", None)
-                        if report:
-                            meta["last_report"] = report
-                        self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
-                except Exception:
-                    logger.exception("Failed to clear active scheduler metadata for %s", job_id)
+
+                def _finalize(meta: Dict[str, Any]) -> None:
+                    meta.pop("active_run_id", None)
+                    meta.pop("active_trace_id", None)
+                    if report:
+                        meta["last_report"] = report
+
+                self._mutate_job_meta(job_id, _finalize)
 
     def _read_job_meta(self, job_id: str) -> Dict[str, Any]:
         """Safely reads a job's persistent metadata dict ({} on any failure)."""
@@ -529,6 +541,34 @@ class CronScheduler:
         except Exception:
             logger.warning("Could not read metadata for scheduled job %s", job_id)
             return {}
+
+    def _mutate_job_meta(self, job_id: str, mutate) -> None:
+        """Read-modify-write of a job's metadata with one retry.
+
+        Guards against lost-update races with concurrent snooze/pause edits:
+        the metadata is re-read fresh on each attempt, and a failed write is
+        retried once before giving up (logged, never raised).
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                job = self.store.get_task(job_id)
+                if not job:
+                    return
+                meta = json.loads(job.get("metadata_json") or "{}")
+                mutate(meta)
+                self.store.update_task(
+                    job_id, {"metadata_json": json.dumps(meta)}
+                )
+                return
+            except Exception as e:
+                last_exc = e
+                time.sleep(0.05)
+        logger.exception(
+            "Failed to update scheduler metadata for %s after retry: %s",
+            job_id,
+            last_exc,
+        )
 
     async def _execute_briefing_job(self, job_id: str, goal: str) -> None:
         """Runs an in-process briefing job: compose + publish on the bus.
@@ -558,15 +598,13 @@ class CronScheduler:
 
     def _clear_run_metadata(self, job_id: str) -> None:
         """Clears active run/trace bookkeeping after an in-process job run."""
-        try:
-            job = self.store.get_task(job_id)
-            if job and job.get("metadata_json"):
-                meta = json.loads(job["metadata_json"])
-                meta.pop("active_run_id", None)
-                meta.pop("active_trace_id", None)
-                self.store.update_task(job_id, {"metadata_json": json.dumps(meta)})
-        except Exception:
-            logger.exception("Failed to clear active scheduler metadata for %s", job_id)
+        self._mutate_job_meta(
+            job_id,
+            lambda meta: (
+                meta.pop("active_run_id", None),
+                meta.pop("active_trace_id", None),
+            ),
+        )
 
     async def _run_research_mission(self, engine, goal: str) -> Optional[str]:
         """Runs a research mission capturing its report via an output contract.
@@ -634,11 +672,18 @@ class CronScheduler:
         while self._running:
             try:
                 self._tick += 1
-                now_dt = datetime.now(timezone.utc)
+                # Naive local time: cron expressions are operator-local and
+                # one-shot run_at values are stored naive-local (see
+                # match_cron_expr docstring).
+                now_dt = datetime.now()
                 now_ts = time.time()
                 
-                # Fetch only active scheduled tasks
-                scheduled_tasks = self.store.list_tasks(status="scheduled")
+                # Fetch only active scheduled tasks. Explicit high limit:
+                # the store default is 50, which would permanently starve
+                # job #51+ in large fleets.
+                scheduled_tasks = self.store.list_tasks(
+                    status="scheduled", limit=10000
+                )
                 
                 for task in scheduled_tasks:
                     if task.get("owner") != "scheduler":

@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
+from aja.gateway.approvals import resolve_approval
 from aja.gateway.auth import is_user_authorized
 from aja.gateway.base import BasePlatformAdapter
 from aja.messaging.envelope import Attachment, Envelope, InboundMessage, Kind, Widget
@@ -59,6 +60,15 @@ def _envelope_from_message(message) -> Optional[InboundMessage]:
     )
 
 
+def _log_bot_task_done(task: asyncio.Task) -> None:
+    """Done-callback so fire-and-forget bot task failures are never swallowed."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("[DiscordEnvelope] Bot task crashed: %s", exc)
+
+
 def _widget_to_button(widget: Widget):
     """Maps an Envelope Widget to a Discord UI button."""
     from discord import ButtonStyle
@@ -80,6 +90,7 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
         super().__init__(config or {})
         self.name = "discord"
         self._bot = None
+        self._bot_task: Optional[asyncio.Task] = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._stream_throttle: Dict[str, float] = {}
         self.metrics: Dict[str, Any] = {
@@ -130,17 +141,30 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
                 await self._queue.put(msg)
 
         self.is_running = True
-        asyncio.create_task(self._bot.start(token))
+        self._bot_task = asyncio.create_task(self._bot.start(token))
+        self._bot_task.add_done_callback(_log_bot_task_done)
         logger.info("[DiscordEnvelope] Started.")
 
     async def stop(self) -> None:
         self.is_running = False
+        await self._queue.put(None)  # sentinel: unblocks listen() consumer
+        task = getattr(self, "_bot_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning("[DiscordEnvelope] Bot task ended with error: %s", e)
         if self._bot and DISCORD_AVAILABLE:
             await self._bot.close()
 
     async def listen(self) -> AsyncIterator[Envelope]:
         while self.is_running:
             msg = await self._queue.get()
+            if msg is None:  # sentinel posted by stop()
+                break
             yield msg
 
     async def send_envelope(self, env: Envelope) -> Optional[Any]:
@@ -157,9 +181,7 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
                 view = discord.ui.View(timeout=None)
                 for w in env.widgets:
                     btn = _widget_to_button(w)
-                    async def _cb(interaction):
-                        await interaction.response.defer()
-                    btn.callback = _cb
+                    btn.callback = self._make_button_callback(w.action_id)
                     view.add_item(btn)
                 kwargs["view"] = view
             result = await channel.send(env.text or "", **kwargs)
@@ -169,6 +191,43 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
             logger.error("[DiscordEnvelope] Send failed: %s", e)
             self.metrics["send_failures"] += 1
             return None
+
+    def _make_button_callback(self, action_id: str):
+        """Builds an interaction callback enforcing auth and resolving approvals."""
+
+        async def _cb(interaction):
+            try:
+                user_id = str(interaction.user.id) if interaction.user else ""
+                if not is_user_authorized("discord", user_id):
+                    self.metrics["events_rejected"] += 1
+                    await interaction.response.edit_message(
+                        content="⛔ You are not authorized to use these controls."
+                    )
+                    return
+                parts = action_id.split(":")
+                # Expected shapes: perm:approve:MISSION / perm:reject:MISSION
+                if len(parts) >= 3:
+                    action, mission_id = parts[1], parts[2]
+                elif len(parts) == 2:
+                    action, mission_id = parts[1], ""
+                else:
+                    action, mission_id = "unknown", ""
+                if not mission_id or action not in ("approve", "reject"):
+                    await interaction.response.defer()
+                    return
+                self.metrics["callback_handled"] += 1
+                handled, text = await resolve_approval(
+                    "discord", user_id, mission_id, action=action
+                )
+                await interaction.response.edit_message(content=text)
+            except Exception as e:
+                logger.error("[DiscordEnvelope] Button callback failed: %s", e)
+                try:
+                    await interaction.response.defer()
+                except Exception:
+                    pass
+
+        return _cb
 
     async def send_notification(self, chat_id: str, text: str, importance: str = "normal") -> None:
         prefix = "⚠️ **URGENT**: " if importance == "high" else ""

@@ -171,7 +171,24 @@ def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
         
         status = "archived" if job.deleted else ("scheduled_paused" if job.paused else "scheduled")
         
+        # Merge with any existing row metadata instead of replacing it, so
+        # keys the reducer does not model (one_shot, run_at, reminder,
+        # chat_id, platform, last_report, ...) survive projection rebuilds.
+        existing_meta: Dict[str, Any] = {}
+        if existing:
+            try:
+                loaded = json.loads(existing[0].get("metadata_json") or "{}")
+                if isinstance(loaded, dict):
+                    existing_meta = loaded
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Could not parse existing metadata for scheduler job %s; "
+                    "rebuilding metadata from scratch.",
+                    job_id,
+                )
+
         meta = {
+            **existing_meta,
             "schedule_expr": job.schedule_expr,
             "last_run": job.last_run,
             "last_run_tick": job.last_run_tick,

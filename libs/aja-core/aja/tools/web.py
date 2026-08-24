@@ -198,7 +198,16 @@ def fetch_url(url: str, max_chars: int = 8000) -> Dict[str, Any]:
     Returns {"url", "title", "content"}. Content is main-text heuristics:
     scripts/styles/nav/chrome stripped, tags removed, entities decoded,
     whitespace collapsed. Non-HTML content types return a short descriptor.
+
+    Security: only http/https schemes are allowed — file://, ftp://, and
+    data: URIs are rejected to prevent local file reads via web.read scope.
     """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise RuntimeError(
+            f"Blocked scheme '{parsed.scheme}:' — only http/https allowed. "
+            f"URL: {url[:120]}"
+        )
     import urllib.request
     import urllib.error
 
