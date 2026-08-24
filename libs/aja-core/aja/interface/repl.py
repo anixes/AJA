@@ -211,11 +211,19 @@ class TerminalREPL:
             return semantic_recall(query)
 
         gateway, tools_registry, executor = _resolve_production_stack()
+        model = None
+        try:
+            from aja.config import AJA_PLANNER_MODEL
+
+            model = AJA_PLANNER_MODEL or None
+        except Exception:  # best-effort: gateway falls back to its default model
+            pass
         return ConversationCore(
             gateway=gateway,
             tools_registry=tools_registry,
             executor=executor,
             recall_fn=_recall,
+            model=model,
         )
 
     def _get_session(self) -> Any:
@@ -714,6 +722,12 @@ class TerminalREPL:
     def render_final(self, ev: Final) -> None:
         self._end_stream()
         self._console.print()
+        if not (ev.text or "").strip():
+            self._console.print(
+                "[yellow]⚠ The model returned an empty response. "
+                "Check provider configuration with 'aja doctor'.[/yellow]"
+            )
+            return
         self._console.print(
             Panel(self._renderer.render_final(ev.text), title="AJA", border_style="cyan")
         )

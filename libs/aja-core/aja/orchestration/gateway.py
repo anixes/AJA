@@ -300,10 +300,8 @@ class LLMGateway:
         tools: Optional[List[Dict[str, Any]]] = None,
         extra_body: Optional[Dict[str, Any]] = None,
     ):
-        if self.provider == "copilot" and model in (
-            "copilot",
-            "github-copilot",
-            "default",
+        if self.provider == "copilot" and (
+            not model or model in ("copilot", "github-copilot", "default")
         ):
             model = "gpt-4o-mini"
 
@@ -349,7 +347,7 @@ class LLMGateway:
 
                 # Clean up model name for Copilot
                 if self.provider == "copilot":
-                    if model.startswith("copilot:"):
+                    if model and model.startswith("copilot:"):
                         model = model[8:]
 
                     m_lower = model.lower()
@@ -638,10 +636,8 @@ class LLMGateway:
         temperature: Optional[float] = None,
     ):
         """Stream token chunks directly from LLM gateway."""
-        if self.provider == "copilot" and model in (
-            "copilot",
-            "github-copilot",
-            "default",
+        if self.provider == "copilot" and (
+            not model or model in ("copilot", "github-copilot", "default")
         ):
             model = "gpt-4o-mini"
         elif self.provider == "copilot" and model.startswith("copilot:"):

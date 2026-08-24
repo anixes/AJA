@@ -462,8 +462,18 @@ class AJADashboard(App):
                 gateway=get_gateway(),
                 tools_registry=NativeToolRegistry(),
                 executor=ToolExecutor(),
+                model=self._resolve_default_model(),
             )
         return self.core
+
+    @staticmethod
+    def _resolve_default_model() -> Optional[str]:
+        try:
+            from aja.config import AJA_PLANNER_MODEL
+
+            return AJA_PLANNER_MODEL or None
+        except Exception:  # best-effort: gateway falls back to its default model
+            return None
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
