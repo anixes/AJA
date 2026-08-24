@@ -72,6 +72,14 @@ class SwarmSettings(BaseModel):
             "the AJA_EMBEDDING_BACKEND env var; AJA_MOCK_EMBEDDINGS=1 forces mock."
         ),
     )
+    embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description=(
+            "Embedding model: 'all-MiniLM-L6-v2' (default) or 'bge-small-en-v1.5'. "
+            "Both are 384-dim. Changing the model REQUIRES reindexing vector "
+            "stores: run 'aja reindex-embeddings' after switching."
+        ),
+    )
     context_limit_tokens: Optional[int] = Field(
         default=None,
         ge=1024,

@@ -127,12 +127,11 @@ def test_direct_session_injects_and_cleans_up():
         session._memory = MagicMock()
         console = MagicMock()
 
-        with patch("aja.gateway.recall.semantic_recall", return_value=SEM_RESULTS), \
-             patch("aja.gateway.recall.time_recall", return_value=[]) as m_tmp, \
+        with patch("aja.gateway.recall.hybrid_recall", return_value=(SEM_RESULTS, [])) as m_hybrid, \
              patch("aja.gateway.recall.format_recall_context", return_value=RECALL_BLOCK):
             await session._turn("what did we do earlier today", console=console, interactive=False)
 
-        m_tmp.assert_called_once_with(24)
+        assert m_hybrid.call_args.kwargs.get("temporal_hours") == 24
         # execute_direct saw the recall message prepended
         passed_history = seen["history"]
         assert passed_history[0] == {"role": "system", "content": RECALL_BLOCK}
@@ -158,8 +157,7 @@ def test_direct_session_empty_recall_no_injection():
         session._memory = MagicMock()
         console = MagicMock()
 
-        with patch("aja.gateway.recall.semantic_recall", return_value=[]), \
-             patch("aja.gateway.recall.time_recall", return_value=[]), \
+        with patch("aja.gateway.recall.hybrid_recall", return_value=([], [])), \
              patch("aja.gateway.recall.format_recall_context", return_value=""):
             await session._turn("hello there", console=console, interactive=False)
 
@@ -185,7 +183,7 @@ def test_direct_session_recall_failure_is_silent():
         session._memory = MagicMock()
         console = MagicMock()
 
-        with patch("aja.gateway.recall.semantic_recall", side_effect=RuntimeError("boom")):
+        with patch("aja.gateway.recall.hybrid_recall", side_effect=RuntimeError("boom")):
             await session._turn("plain task", console=console, interactive=False)
 
         session.engine.execute_direct.assert_awaited_once()

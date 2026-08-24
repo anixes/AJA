@@ -165,8 +165,11 @@ class UnifiedGateway:
             logger.info(
                 "AJA [Native]: Trajectory pressure detected. Optimizing via Dynamic Compression..."
             )
-            messages = self.compress_trajectory(
-                messages, analysis["compress_start"], analysis["compress_end"]
+            messages = await asyncio.to_thread(
+                self.compress_trajectory,
+                messages,
+                analysis["compress_start"],
+                analysis["compress_end"],
             )
 
         # Determine active model from self.model_id or cached config default
@@ -283,6 +286,9 @@ class UnifiedGateway:
     ) -> List[Dict[str, str]]:
         """
         Compresses the middle of an AJA trajectory into LanceDB.
+
+        Blocking (batch embedding + LanceDB writes): async callers must
+        invoke via ``asyncio.to_thread``.
         """
         head = messages[:start]
         tail = messages[end:]
@@ -291,20 +297,31 @@ class UnifiedGateway:
         summary_text = f"[AJA COMPRESSION: {len(middle)} turns offloaded to LanceDB Semantic Store]"
 
         # Offload middle to VectorMemory with REAL embeddings so offloaded
-        # turns remain semantically retrievable later (was: dummy zero vector).
-        for turn in middle:
-            try:
-                from aja.memory.territory import get_text_embedding
-
-                vec = get_text_embedding(str(turn.get("content", "")))
-            except Exception as e:
-                logger.warning("Embedding failed during trajectory offload: %s", e)
-                vec = [0.0] * 384
+        # turns remain semantically retrievable later. All texts are embedded
+        # in ONE batched backend call.
+        texts = [str(turn.get("content", "")) for turn in middle]
+        vectors = self._embed_offload_batch(texts)
+        for turn, vec in zip(middle, vectors, strict=False):
             self.vector_memory.add(
                 turn["content"], vector=vec, metadata={"role": turn.get("role", "user")}
             )
 
         return head + [{"role": "system", "content": summary_text}] + tail
+
+    @staticmethod
+    def _embed_offload_batch(texts: list[str]) -> list[list[float]]:
+        """Batch-embeds offload texts via the shared EmbeddingService singleton.
+
+        Degrades gracefully to zero vectors on backend failure (fail-loud
+        service) so compression never loses the offloaded turns.
+        """
+        try:
+            from aja.embeddings.service import get_embedding_service
+
+            return get_embedding_service().embed_many(texts)
+        except Exception as e:
+            logger.warning("Embedding failed during trajectory offload: %s", e)
+            return [[0.0] * 384 for _ in texts]
 
     async def summarize(self, text: str, objective: str = "") -> str:
         """Summarizes results for AJA objective."""
@@ -697,9 +714,9 @@ class UnifiedGateway:
             from aja.orchestration.tools.native import NativeToolRegistry
 
             def _recall(query):
-                from aja.gateway.recall import semantic_recall
+                from aja.gateway.recall import hybrid_recall
 
-                return semantic_recall(query, vector_memory=self.vector_memory)
+                return hybrid_recall(query, vector_memory=self.vector_memory)
 
             self._conversation_core = ConversationCore(
                 gateway=get_gateway(),

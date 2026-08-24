@@ -273,16 +273,12 @@ class DirectSession:
         # Recall injection: prepend recalled context as a system message for this turn
         recall_msg = None
         try:
-            from aja.gateway.recall import semantic_recall, time_recall, format_recall_context
+            from aja.gateway.recall import hybrid_recall, format_recall_context
 
-            sem = semantic_recall(
+            sem, tmp = hybrid_recall(
                 processed_objective,
                 vector_memory=getattr(self.engine, "vector_memory", None),
-            )
-            tmp = (
-                time_recall(24)
-                if any(w in processed_objective.lower() for w in ("yesterday", "earlier", "last week"))
-                else []
+                temporal_hours=24,
             )
             recall_context = format_recall_context(sem, tmp)
             if recall_context:

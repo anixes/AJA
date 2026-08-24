@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 import lancedb
 import pyarrow as pa
@@ -8,9 +9,52 @@ from typing import Any, List, Optional, Dict
 from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.memory.manager import list_tables_defensive
 
+logger = logging.getLogger(__name__)
+
+# Reserved tag prefix used inside tags_json to record embedding provenance
+# (the aja_skills schema has no dedicated metadata column).
+EMBEDDING_MODEL_TAG_PREFIX = "embedding_model:"
+EMBEDDING_MODEL_NONE = EMBEDDING_MODEL_TAG_PREFIX + "none"
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat() + "Z"
+
+
+def _embed_or_zero(text: str) -> tuple[list[float], str]:
+    """Embeds `text` via the shared embedding service.
+
+    Returns (vector, model_name). Never raises: when the backend is
+    unavailable the row keeps an all-zero vector tagged "none" so consumers
+    can distinguish "never embedded" from a real semantic vector.
+    """
+    if not (text or "").strip():
+        return [0.0] * 384, "none"
+    try:
+        from aja.embeddings.service import get_embedding_service
+
+        service = get_embedding_service()
+        vector = service.embed(text)
+        return vector, service.get_model_name()
+    except Exception as e:  # last resort: write-path must stay non-fatal
+        logger.warning(
+            "Embedding backend unavailable; storing tagged zero vector "
+            "for skill '%s': %s",
+            text[:80],
+            e,
+        )
+        return [0.0] * 384, "none"
+
+
+def _is_unembedded_row(row: dict[str, Any]) -> bool:
+    """True when the row's vector is a tagged placeholder (never embedded)."""
+    try:
+        tags = json.loads(row.get("tags_json") or "[]")
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(tags, list):
+        return False
+    return any(str(t) == EMBEDDING_MODEL_NONE for t in tags)
 
 
 class SkillStore:
@@ -72,8 +116,14 @@ class SkillStore:
         sk_id = data.get("skill_id") or uuid.uuid4().hex
         now = utc_now()
 
-        # In a real impl, we'd use a model to generate this vector.
-        vector = [0.0] * 384
+        tags = list(data.get("tags", []))
+        text = " ".join(
+            part
+            for part in (data.get("name", ""), data.get("description", ""))
+            if part
+        )
+        vector, model_name = _embed_or_zero(text)
+        tags.append(EMBEDDING_MODEL_TAG_PREFIX + model_name)
 
         skill_row = [
             {
@@ -83,7 +133,7 @@ class SkillStore:
                 "name": data.get("name", "Unnamed Skill"),
                 "description": data.get("description", ""),
                 "input_pattern": data.get("input_pattern", ""),
-                "tags_json": json.dumps(data.get("tags", [])),
+                "tags_json": json.dumps(tags),
                 "tool_sequence_json": json.dumps(data.get("tool_sequence", [])),
                 "risk_level": data.get("risk_level", "LOW"),
                 "success_count": 1,
@@ -115,14 +165,18 @@ class SkillStore:
         table.delete(f"skill_id = '{skill_id}'")
 
     def search_skills(self, query_text: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Semantic search for skills using LanceDB vector indexing."""
+        """Semantic search for skills using LanceDB vector indexing.
+
+        Rows that were never embedded (tagged zero-vector placeholders) are
+        skipped so cosine similarity is computed only against real vectors.
+        """
         table = self.db.open_table("aja_skills")
 
         from aja.memory.territory import get_text_embedding
 
         query_vector = get_text_embedding(query_text)
         results = table.search(query_vector).limit(limit).to_list()
-        return results
+        return [row for row in results if not _is_unembedded_row(row)]
 
     def get_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
         table = self.db.open_table("aja_skills")

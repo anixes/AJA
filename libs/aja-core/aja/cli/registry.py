@@ -244,6 +244,11 @@ class CommandRegistry:
             else:
                 cmd_pickup(args[1])
 
+        elif cmd == "reindex-embeddings":
+            from aja.cli.commands.reindex_embeddings import cmd_reindex_embeddings
+
+            cmd_reindex_embeddings()
+
         elif cmd == "rebuild-projections":
             # Deprecated: projections verification lives under `aja doctor`.
             self._migration_notice("rebuild-projections")

@@ -73,22 +73,32 @@ def test_experience_store_temporal_decay():
         assert results[0]["timestamp"] == t_now
         assert results[1]["timestamp"] == t_old
 
-def test_vector_memory_model_mismatch_warning(capsys):
-    """Verify that VectorMemory search prints a warning on model mismatch."""
+def test_vector_memory_model_mismatch_warning(caplog):
+    """Verify that VectorMemory search warns once and FILTERS mismatched-model rows."""
+    from aja.memory import vector as vector_module
+
+    vector_module._WARNED_TABLES.discard("test_vector_mismatch_table")
     vmem = VectorMemory(table_name="test_vector_mismatch_table")
     vmem.clear()
-    
+
     # Add a record with a patched model name
     with patch.object(EmbeddingService, "get_model_name", return_value="old-embedding-model"):
         vmem.add(text="mismatch test text", vector=[0.1]*384, metadata={"key": "val"})
-        
-    # Search with the current model (which resolves to mock or sentence-transformers)
-    with patch.object(EmbeddingService, "get_model_name", return_value="current-embedding-model"):
-        results = vmem.search(query_vector=[0.1]*384, limit=1)
-        assert len(results) == 1
-        
-    captured = capsys.readouterr()
-    assert "WARNING: Mismatched embedding model" in captured.out
+
+    # Search with the current model: the stale-space row must be filtered out
+    with caplog.at_level("WARNING", logger="aja.memory.vector"):
+        with patch.object(EmbeddingService, "get_model_name", return_value="current-embedding-model"):
+            results = vmem.search(query_vector=[0.1]*384, limit=1)
+            assert len(results) == 0
+
+            # Second search must not re-warn (once per table per process)
+            results = vmem.search(query_vector=[0.1]*384, limit=1)
+            assert len(results) == 0
+
+    warnings = [r for r in caplog.records if "mismatch" in r.getMessage().lower()]
+    assert len(warnings) == 1
+    assert "old-embedding-model" in warnings[0].getMessage()
+    assert "current-embedding-model" in warnings[0].getMessage()
     vmem.clear()
 
 def test_vector_memory_filtering():

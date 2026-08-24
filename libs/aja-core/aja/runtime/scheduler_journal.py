@@ -11,6 +11,35 @@ logger = logging.getLogger(__name__)
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+def _embedded_vector(text: str, metadata: dict[str, Any]) -> list[float]:
+    """Computes a real embedding for `text`, stamping provenance into
+    ``metadata["embedding_model"]``.
+
+    Never raises: when the embedding backend is unavailable the row keeps an
+    all-zero vector tagged "none", so vector consumers can distinguish
+    "never embedded" from a real semantic vector.
+    """
+    if not (text or "").strip():
+        metadata["embedding_model"] = "none"
+        return [0.0] * 384
+    try:
+        from aja.embeddings.service import get_embedding_service
+
+        service = get_embedding_service()
+        vector = service.embed(text)
+        metadata["embedding_model"] = service.get_model_name()
+        return vector
+    except Exception as e:  # last resort: write-path must stay non-fatal
+        logger.warning(
+            "Embedding backend unavailable; storing tagged zero vector "
+            "for job goal '%s': %s",
+            text[:80],
+            e,
+        )
+        metadata["embedding_model"] = "none"
+        return [0.0] * 384
+
 def _sql_quote(value: Any) -> str:
     """Escapes a value for safe interpolation into a LanceDB SQL predicate
     (single-quoted literal, embedded single quotes doubled)."""
@@ -198,7 +227,14 @@ def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
             meta["active_run_id"] = job.active_run_id
         if job.active_trace_id:
             meta["active_trace_id"] = job.active_trace_id
-            
+
+        # New rows get a real embedding of the job goal (tagged zero-vector
+        # fallback when the backend is unavailable). Updated rows keep their
+        # existing vector column untouched.
+        vector: list[float] | None = None
+        if not existing:
+            vector = _embedded_vector(job.goal, meta)
+
         row = {
             "task_id": job.job_id,
             "title": f"Scheduled Job: {job.goal}",
@@ -209,12 +245,12 @@ def rebuild_scheduler_projections(target_job_id: Optional[str] = None) -> None:
             "metadata_json": json.dumps(meta),
             "updated_at": utc_now(),
         }
-        
+
         if existing:
             table.update(where=f"task_id = {_sql_quote(job_id)}", values=row)
         else:
             row["created_at"] = utc_now()
             row["due_date"] = ""
             row["completion_note"] = ""
-            row["vector"] = [0.0] * 384
+            row["vector"] = vector
             table.add([row])

@@ -206,9 +206,9 @@ class TerminalREPL:
         from aja.core.conversation import ConversationCore
 
         def _recall(query: str):
-            from aja.gateway.recall import semantic_recall
+            from aja.gateway.recall import hybrid_recall
 
-            return semantic_recall(query)
+            return hybrid_recall(query)
 
         gateway, tools_registry, executor = _resolve_production_stack()
         model = None

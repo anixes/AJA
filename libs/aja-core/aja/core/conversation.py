@@ -315,32 +315,55 @@ class ConversationCore:
         return messages
 
     async def _recall_block(self, query: str) -> str:
+        from aja.gateway.recall import format_recall_context
+
+        semantic: list[dict] = []
+        temporal: list[dict] = []
         try:
-            semantic = await _maybe_await(self._recall_fn(query)) or []
+            semantic, temporal = self._split_recall_result(
+                await self._invoke_recall(query)
+            )
         except Exception as e:  # best-effort: recall must never kill the turn
             logger.debug("recall_fn failed: %s", e)
-            semantic = []
-        temporal: List[dict] = []
         if any(k in query.lower() for k in _TEMPORAL_KEYWORDS):
             try:
                 from aja.gateway.recall import time_recall
 
-                temporal = time_recall(hours_back=48) or []
+                temporal = await asyncio.to_thread(time_recall, hours_back=48) or []
             except Exception as e:  # best-effort
                 logger.debug("time_recall unavailable: %s", e)
         if not semantic and not temporal:
             return ""
+        return format_recall_context(semantic, temporal)
 
-        lines: List[str] = ["Relevant context from earlier conversations:"]
-        for entry in semantic:
-            content = " ".join(str(entry.get("content", "")).split())
-            lines.append(f"- [{entry.get('role', 'unknown')}] {content}")
-        for entry in temporal:
-            lines.append(
-                f"- [{entry.get('event_type', 'EVENT')}] "
-                f"{' '.join(str(entry.get('summary', '')).split())}"
-            )
-        return "\n".join(lines)[:2000]
+    async def _invoke_recall(self, query: str):
+        """Invokes the injected recall_fn without blocking the event loop.
+
+        Async recall fns are awaited directly; sync ones (embedding/LanceDB
+        work) run in a worker thread.
+        """
+        fn = self._recall_fn
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(query)
+        result = await asyncio.to_thread(fn, query)
+        if asyncio.iscoroutine(result):  # pragma: no cover - defensive
+            return await result
+        return result
+
+    @staticmethod
+    def _split_recall_result(result) -> tuple:
+        """Normalizes recall_fn output shapes.
+
+        Supported contracts: a flat list of semantic entries (production
+        recall_fn lambdas) or a ``(semantic, temporal)`` tuple of two lists.
+        """
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and all(isinstance(part, (list, tuple)) for part in result)
+        ):
+            return list(result[0] or []), list(result[1] or [])
+        return list(result or []), []
 
     def _compress_history(self, history: List[Dict[str, str]]) -> None:
         max_msgs = self._max_history_turns * 2

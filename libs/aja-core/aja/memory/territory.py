@@ -8,32 +8,21 @@ from aja.memory.secretary import get_aja_memory
 
 logger = logging.getLogger(__name__)
 
-_embedding_model = None
-
 
 def get_embedding_model():
-    """Lazy-loads the semantic embedding model (mock-aware for test suites)."""
-    global _embedding_model
-    if _embedding_model is None:
-        import os
+    """Returns the active embedding model identifier via the shared EmbeddingService.
 
-        # Test suites force deterministic placeholder vectors for speed.
-        if os.environ.get("AJA_MOCK_EMBEDDINGS") == "1":
-            return None
-        try:
-            from sentence_transformers import SentenceTransformer
+    Retained for backward compatibility; the canonical embedding path is
+    get_text_embedding(), which delegates to the shared service singleton
+    (backend selection — sentence_transformers / onnx / mock — is handled there).
+    """
+    try:
+        from aja.embeddings.service import get_embedding_service
 
-            # Use a lightweight, high-performance model (384 dimensions)
-            _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-        except ImportError:
-            logger.warning(
-                "sentence-transformers not installed. Falling back to placeholder embeddings."
-            )
-            return None
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            return None
-    return _embedding_model
+        return get_embedding_service().get_model_name()
+    except Exception as e:
+        logger.error(f"Failed to resolve embedding model: {e}")
+        return None
 
 
 class TerritoryScanner:
@@ -163,15 +152,16 @@ class TerritoryScanner:
 
 def get_text_embedding(text: str) -> List[float]:
     """
-    Generates semantic embeddings via the shared EmbeddingService.
+    Generates semantic embeddings via the shared EmbeddingService singleton.
 
     Backend selection (sentence_transformers / onnx / mock) is handled there;
-    falls back to a deterministic placeholder if no model is available.
+    falls back to a deterministic placeholder so recall degrades instead of
+    crashing when no backend is loadable (e.g. OnnxBackendUnavailable).
     """
     try:
-        from aja.embeddings.service import EmbeddingService
+        from aja.embeddings.service import get_embedding_service
 
-        return EmbeddingService().embed(text)
+        return get_embedding_service().embed(text)
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
         return _placeholder_embedding(text)
@@ -187,34 +177,6 @@ def _placeholder_embedding(text: str) -> List[float]:
         vec[i] = float(h[i]) / 255.0
     return vec
 
-
-def get_embedding_model():
-    """Lazy-loads the sentence-transformers model (mock-aware for test suites).
-
-    Retained for backward compatibility; the canonical embedding path is
-    EmbeddingService (see get_text_embedding), which honors backend selection.
-    """
-    global _embedding_model
-    if _embedding_model is None:
-        import os
-
-        # Test suites force deterministic placeholder vectors for speed.
-        if os.environ.get("AJA_MOCK_EMBEDDINGS") == "1":
-            return None
-        try:
-            from sentence_transformers import SentenceTransformer
-
-            # Use a lightweight, high-performance model (384 dimensions)
-            _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-        except ImportError:
-            logger.warning(
-                "sentence-transformers not installed. Falling back to placeholder embeddings."
-            )
-            return None
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            return None
-    return _embedding_model
 
 if __name__ == "__main__":
     import asyncio

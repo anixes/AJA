@@ -94,36 +94,53 @@ def test_classify_command_latency_under_50ms():
 
 
 def test_embedding_mock_hash_vector_latency(monkeypatch):
+    from aja.embeddings import service as emb_service
     from aja.memory import territory
 
     monkeypatch.setenv("AJA_MOCK_EMBEDDINGS", "1")
-    monkeypatch.setattr(territory, "_embedding_model", None)
+    emb_service._reset_for_tests()
 
-    text = "Profile the AJA cognitive orchestrator planning latency on warm caches."
-    get_text_embedding = territory.get_text_embedding
-    vec = get_text_embedding(text)
+    base = "Profile the AJA cognitive orchestrator planning latency on warm caches."
+    vec = territory.get_text_embedding(base)
     assert len(vec) == 384
 
-    stats = _bench(lambda: get_text_embedding(text), iterations=200)
+    # Unique text per iteration so the shared vector cache never masks compute.
+    counter = {"i": 0}
+
+    def _embed_unique():
+        counter["i"] += 1
+        return territory.get_text_embedding(f"{base} #{counter['i']}")
+
+    stats = _bench(_embed_unique, iterations=200)
     _print_stats("get_text_embedding (mock hash)", stats)
+    emb_service._reset_for_tests()
 
 
 def test_embedding_real_model_warm_latency(monkeypatch):
     st = pytest.importorskip("sentence_transformers")
+    from aja.embeddings import service as emb_service
     from aja.memory import territory
 
-    # Load the real MiniLM model directly and measure steady-state encode cost.
-    model = st.SentenceTransformer("all-MiniLM-L6-v2")
-    monkeypatch.setattr(territory, "_embedding_model", model)
+    # Route through the real service (sentence-transformers backend) and
+    # measure steady-state encode cost on the shared singleton.
+    monkeypatch.delenv("AJA_MOCK_EMBEDDINGS", raising=False)
+    monkeypatch.setenv("AJA_EMBEDDING_BACKEND", "sentence_transformers")
+    emb_service._reset_for_tests()
 
     text = "Autonomous skill compilation distills winning trajectories into reusable packages."
     territory.get_text_embedding(text)  # first real encode happens during warmup
 
-    stats = _bench(lambda: territory.get_text_embedding(text), iterations=30)
+    counter = {"i": 0}
+
+    def _embed_unique():
+        counter["i"] += 1
+        return territory.get_text_embedding(f"{text} #{counter['i']}")
+
+    stats = _bench(_embed_unique, iterations=30)
     _print_stats("get_text_embedding (MiniLM warm)", stats)
     assert stats["mean"] < 500.0, f"warm MiniLM encode unexpectedly slow: {stats}"
 
-    monkeypatch.setattr(territory, "_embedding_model", None)  # don't leak into other tests
+    emb_service._reset_for_tests()  # don't leak the real backend into other tests
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,16 @@
 import lancedb
 import pyarrow as pa
 import pandas as pd
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from aja.memory.manager import list_tables_defensive, get_memory_manager
+from aja.embeddings.service import get_embedding_service
+
+logger = logging.getLogger(__name__)
+
+# Tables already warned about for embedding-model mismatches (once per process).
+_WARNED_TABLES: set[str] = set()
 
 class VectorMemory:
     """
@@ -35,12 +42,8 @@ class VectorMemory:
         import time
         import json
         
-        try:
-            from aja.embeddings.service import EmbeddingService
-            model_name = EmbeddingService().get_model_name()
-        except ImportError:
-            model_name = "mock-bag-of-words"
-            
+        model_name = get_embedding_service().get_model_name()
+
         full_metadata = metadata or {}
         full_metadata["embedding_model"] = model_name
         
@@ -65,24 +68,38 @@ class VectorMemory:
             
         results = query.limit(limit).to_arrow()
         
-        try:
-            from aja.embeddings.service import EmbeddingService
-            model_name = EmbeddingService().get_model_name()
-        except ImportError:
-            model_name = "mock-bag-of-words"
-            
+        model_name = get_embedding_service().get_model_name()
+
+        mismatched_models: set[str] = set()
         processed = []
         for row in results.to_pylist():
             rec_metadata = json.loads(row["metadata"])
-            rec_model = rec_metadata.get("embedding_model", "mock-bag-of-words")
-            if rec_model != model_name:
-                print(f"[VectorMemory] WARNING: Mismatched embedding model '{rec_model}' vs current '{model_name}' on search. Results might be inaccurate.")
-                
+            rec_model = rec_metadata.get("embedding_model")
+            # Rows indexed under a different embedding model live in a
+            # different vector space — their distances are meaningless, so
+            # they are filtered out (reindex with 'aja reindex-embeddings').
+            if rec_model and rec_model != model_name:
+                mismatched_models.add(rec_model)
+                continue
+            if not rec_model:
+                # Legacy rows written before model stamping existed.
+                rec_metadata["embedding_model"] = "unknown"
+
             processed.append({
                 "text": row["text"],
                 "metadata": rec_metadata,
                 "score": row.get("_distance", 0)
             })
+
+        if mismatched_models and self.table_name not in _WARNED_TABLES:
+            logger.warning(
+                "[VectorMemory] Embedding model mismatch on table '%s': rows "
+                "indexed with [%s] vs current '%s'. Results might be inaccurate.",
+                self.table_name,
+                ", ".join(sorted(mismatched_models)),
+                model_name,
+            )
+            _WARNED_TABLES.add(self.table_name)
         return processed
 
     def clear(self):

@@ -47,6 +47,36 @@ def sanitize_value(val: Any) -> str:
     return "'" + str(val).replace("'", "''") + "'"
 
 
+def _embedded_vector(text: str, metadata: Dict[str, Any]) -> List[float]:
+    """Computes a real embedding for `text`, stamping provenance into
+    ``metadata["embedding_model"]``.
+
+    Never raises: when the embedding backend is unavailable the row keeps an
+    all-zero vector tagged "none" (instead of a bare placeholder), so vector
+    consumers can distinguish "never embedded" from a real semantic vector.
+    A backend failure never loses the row's non-vector data.
+    """
+    if not (text or "").strip():
+        metadata["embedding_model"] = "none"
+        return [0.0] * 384
+    try:
+        from aja.embeddings.service import get_embedding_service
+
+        service = get_embedding_service()
+        vector = service.embed(text)
+        metadata["embedding_model"] = service.get_model_name()
+        return vector
+    except Exception as e:  # last resort: write-path must stay non-fatal
+        logger.warning(
+            "Embedding backend unavailable; storing tagged zero vector "
+            "(text=%r): %s",
+            text[:80],
+            e,
+        )
+        metadata["embedding_model"] = "none"
+        return [0.0] * 384
+
+
 # --- Schemas ---
 
 TASKS_SCHEMA = pa.schema(
@@ -380,6 +410,13 @@ class AJAMemory:
 
         tid = data.get("task_id") or uuid.uuid4().hex[:8]
         table = self.db.open_table("aja_tasks")
+        metadata = data.get("metadata") or {}
+        text = " ".join(
+            part
+            for part in (data.get("title", ""), data.get("context", ""))
+            if part
+        )
+        vector = _embedded_vector(text, metadata)
         row = {
             "task_id": tid,
             "title": data.get("title", "Untitled Task"),
@@ -391,8 +428,8 @@ class AJAMemory:
             "created_at": utc_now(),
             "updated_at": utc_now(),
             "completion_note": "",
-            "metadata_json": json.dumps(data.get("metadata", {})),
-            "vector": [0.0] * 384,
+            "metadata_json": json.dumps(metadata),
+            "vector": vector,
         }
         table.add([row])
         return row
@@ -862,6 +899,13 @@ class AJAMemory:
     def create_approval(self, data: Dict[str, Any]) -> str:
         aid = data.get("approval_id") or uuid.uuid4().hex[:8]
         table = self.db.open_table("aja_approvals")
+        metadata = data.get("metadata") or {}
+        text = " ".join(
+            part
+            for part in (data.get("kind", ""), data.get("description", ""))
+            if part
+        )
+        vector = _embedded_vector(text, metadata)
         row = {
             "approval_id": aid,
             "kind": data.get("kind", "manual"),
@@ -869,8 +913,8 @@ class AJAMemory:
             "status": "pending",
             "created_at": utc_now(),
             "updated_at": utc_now(),
-            "metadata_json": json.dumps(data.get("metadata", {})),
-            "vector": [0.0] * 384,
+            "metadata_json": json.dumps(metadata),
+            "vector": vector,
         }
         table.add([row])
         return aid
