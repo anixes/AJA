@@ -7,7 +7,7 @@ ProviderAdapter in a new module and registering it here.
 
 from __future__ import annotations
 
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
 from aja.orchestration.providers.base import ProviderAdapter
 

@@ -40,7 +40,6 @@ from aja.memory.secretary import (
     parse_communication_intent,
     parse_task_intent,
 )
-from aja.security.stripper import CommandStripper
 from aja.utils.maintenance import run_maintenance
 
 

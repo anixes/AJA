@@ -309,8 +309,9 @@ class BiTemporalEntityGraph:
         """Full-text keyword search across active or historical entities."""
         now = self._now()
         fts_q = self._sanitize_fts_query(query)
-        # LIKE fallback pattern: escape wildcards so user input cannot scan everything
-        like_q = f"%{re.escape(query.strip())}%"
+        # LIKE fallback pattern: escape SQL LIKE wildcards (% and _) so user
+        # input cannot match everything. re.escape does NOT handle these.
+        like_q = f"%{query.strip().replace('%', '\\%').replace('_', '\\_')}%"
         if not fts_q:
             return []
 

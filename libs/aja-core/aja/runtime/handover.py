@@ -410,10 +410,17 @@ class BatonManager(HandoverManager):
         # pickup boundary check once the RAM cache entry expires.
         meta = dict(meta)
         meta["arrow_ref"] = str(arrow_path)
-        with open(baton_path, "w", encoding="utf-8") as f:
-            json.dump(meta, f)
+        # Atomic ordering: write the .arrow payload first, then the meta that
+        # makes it pickup-able. A crash mid-way can never leave meta pointing
+        # at a missing Arrow file.
         with open(arrow_path, "wb") as f:
             f.write(arrow_data)
+        try:
+            with open(baton_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f)
+        except Exception:
+            arrow_path.unlink(missing_ok=True)
+            raise
 
         # Cache in memory
         try:
