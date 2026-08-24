@@ -403,7 +403,12 @@ class GoalEngine:
     async def _step_planning(self, goal: Goal):
         print(f"\n[GoalEngine] Planning for goal: {goal.objective}")
         try:
-            goal.plan = self.expand_goal(goal)
+            # expand_goal bottoms out in the sync planner (run_async_synchronously
+            # thread-join). Run it in a worker thread so the shared event loop
+            # stays responsive during the multi-second LLM planning round-trip.
+            import asyncio as _asyncio
+
+            goal.plan = await _asyncio.to_thread(self.expand_goal, goal)
             goal.current_node_index = 0
             plan = goal.plan
 

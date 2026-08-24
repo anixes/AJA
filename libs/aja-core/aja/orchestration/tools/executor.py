@@ -64,11 +64,8 @@ class ToolExecutor:
             "manifest_path": result.manifest_path,
         }
 
-    def execute(self, command: str, cwd: str = None, workspace_mode: str = "direct") -> Dict[str, Any]:
-        """Executes a single command and returns the result."""
-        logger.info(f"ToolExecutor: Executing '{command}'")
-        
-        # 1. Safety Check
+    def _check_permission(self, command: str) -> Optional[Dict[str, Any]]:
+        """Returns an error dict when the command must not run, else None."""
         classification = classify_command(command)
         if classification["decision"] == "deny":
             return {"status": "error", "message": "Command blocked: " + "; ".join(classification["reasons"])}
@@ -84,18 +81,78 @@ class ToolExecutor:
                 from aja.security.permissions import PermissionEngine
                 result = PermissionEngine().authorize(scope, reason=reason)
                 granted = result.allowed
-                
+
             if not granted:
                 return {"status": "error", "message": "Command blocked by security policy: " + "; ".join(classification["reasons"])}
+        return None
+
+    @staticmethod
+    def _resolve_cwd(cwd: str = None) -> str:
+        if cwd:
+            return cwd
+        from aja.workspace.context import get_current_workspace
+        ctx = get_current_workspace()
+        return str(ctx.path if ctx else PROJECT_ROOT)
+
+    @staticmethod
+    def _result_to_dict(result) -> Dict[str, Any]:
+        return {
+            "status": "success" if result.success else "failed",
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "code": result.exit_code,
+            "session_id": result.session_id,
+            "manifest_path": result.manifest_path,
+        }
+
+    async def _run_execution_async(self, command: str, cwd: str, workspace_mode: str = "direct") -> Dict[str, Any]:
+        """Async-native execution path: no thread hop, never blocks the loop."""
+        result = await get_default_execution_manager().run(
+            ExecutionRequest(
+                command=command,
+                cwd=cwd,
+                timeout=30,
+                workspace_mode=workspace_mode,
+                metadata={"legacy_api": "ToolExecutor.execute_async"},
+            )
+        )
+        return self._result_to_dict(result)
+
+    async def execute_async(self, command: str, cwd: str = None, workspace_mode: str = "direct") -> Dict[str, Any]:
+        """Async twin of :meth:`execute` for callers already running on an event loop.
+
+        Runs the subprocess via the ExecutionManager directly (awaited), so the
+        calling loop stays responsive for the full command duration instead of
+        freezing in ``thread.join()``.
+        """
+        logger.info(f"ToolExecutor: Executing '{command}'")
+
+        blocked = self._check_permission(command)
+        if blocked is not None:
+            return blocked
+
+        target_cwd = self._resolve_cwd(cwd)
+
+        try:
+            output = await self._run_execution_async(command, target_cwd, workspace_mode)
+            self.history.append({"command": command, "result": output})
+            return output
+        except Exception as e:
+            logger.error(f"Execution error: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def execute(self, command: str, cwd: str = None, workspace_mode: str = "direct") -> Dict[str, Any]:
+        """Executes a single command and returns the result."""
+        logger.info(f"ToolExecutor: Executing '{command}'")
+
+        # 1. Safety Check
+        blocked = self._check_permission(command)
+        if blocked is not None:
+            return blocked
 
         # 2. Preparation
-        if cwd:
-            target_cwd = cwd
-        else:
-            from aja.workspace.context import get_current_workspace
-            ctx = get_current_workspace()
-            target_cwd = str(ctx.path if ctx else PROJECT_ROOT)
-        
+        target_cwd = self._resolve_cwd(cwd)
+
         try:
             output = self._run_execution(command, target_cwd, workspace_mode)
             self.history.append({"command": command, "result": output})

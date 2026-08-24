@@ -387,9 +387,11 @@ class AJADashboard(App):
 
     async def _safe_provider(self, fn: Callable[[], Any]) -> List[Dict[str, Any]]:
         try:
-            data = fn()
-            if asyncio.iscoroutine(data):
-                data = await data
+            if asyncio.iscoroutinefunction(fn):
+                data = await fn()
+            else:
+                # Sync providers do LanceDB/scheduler IO — never block the loop.
+                data = await asyncio.to_thread(fn)
             return list(data or [])
         except Exception as e:
             return [{"_error": f"{type(e).__name__}: {e}"}]
@@ -534,7 +536,7 @@ class AJADashboard(App):
         """Render one typed CoreEvent into the chat flow."""
         log = self.query_one("#chat-log", RichLog)
         if isinstance(ev, Delta):
-            self._delta_buffer.append(ev.text)
+            self._delta_buffer.append(ev.text or "")
             preview = "".join(self._delta_buffer)[-80:].replace("\n", " ")
             self._set_status(preview)
         elif isinstance(ev, ToolStarted):

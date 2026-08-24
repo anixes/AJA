@@ -144,7 +144,7 @@ class EventRenderer:
         self.reset_stream()
         async for event in events:
             if isinstance(event, Delta):
-                self.render_delta(event.text)
+                self.render_delta(event.text or "")
             elif isinstance(event, ToolStarted):
                 self.render_tool_started(event.name, event.args_summary)
             elif isinstance(event, ToolFinished):

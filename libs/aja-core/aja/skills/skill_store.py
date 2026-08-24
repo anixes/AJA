@@ -200,3 +200,81 @@ def update_skill_metrics(skill_id: str, success: bool) -> None:
         "updated_at": utc_now(),
     }
     store.update_skill(skill_id, updates)
+
+
+# ---------------------------------------------------------------------------
+# Recommendation + normalization (store-row → execute_skill() contract)
+# ---------------------------------------------------------------------------
+
+STALE_AFTER_DAYS = 30
+
+
+def _is_stale_row(row: Dict[str, Any], stale_after_days: int = STALE_AFTER_DAYS) -> bool:
+    """True when the row has not been updated within stale_after_days days."""
+    updated_at = row.get("updated_at")
+    if not updated_at:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+        age_days = (datetime.now(timezone.utc) - ts).days
+        return age_days >= stale_after_days
+    except (ValueError, TypeError):
+        return False
+
+
+def normalize_skill_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Maps a raw ``aja_skills`` row onto the shape ``execute_skill()`` expects.
+
+    Raw rows expose ``skill_id`` / ``tool_sequence_json`` / ``tags_json``;
+    the normalized dict exposes ``id`` / ``tool_sequence`` (decoded list) /
+    ``tags`` while preserving the original keys.
+    """
+    try:
+        tool_sequence = json.loads(row.get("tool_sequence_json") or "[]")
+        if not isinstance(tool_sequence, list):
+            tool_sequence = []
+    except (ValueError, TypeError):
+        tool_sequence = []
+    try:
+        tags = json.loads(row.get("tags_json") or "[]")
+        if not isinstance(tags, list):
+            tags = []
+    except (ValueError, TypeError):
+        tags = []
+
+    normalized = dict(row)
+    normalized["id"] = row.get("skill_id") or row.get("id") or "unknown"
+    normalized["tool_sequence"] = tool_sequence
+    normalized["tags"] = tags
+    return normalized
+
+
+def recommend_skill(
+    query_text: str,
+    min_confidence: float = 0.0,
+    include_stale: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Finds the best matching skill for *query_text* and normalizes it.
+
+    Returns a dict suitable for ``aja.skills.skill_executor.execute_skill``
+    (keys: id, tool_sequence, risk_level, ...) or None when no candidate
+    passes the confidence/staleness filters.
+    """
+    try:
+        store = SkillStore()
+        candidates = store.search_skills(query_text, limit=25)
+    except Exception as e:
+        logger.warning("recommend_skill() search failed: %s", e)
+        return None
+
+    for row in candidates:
+        try:
+            confidence = float(row.get("confidence_score") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence < min_confidence:
+            continue
+        if not include_stale and _is_stale_row(row):
+            continue
+        return normalize_skill_row(row)
+    return None

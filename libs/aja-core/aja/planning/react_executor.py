@@ -321,6 +321,7 @@ class ReActExecutor:
                             "node": node.id,
                             "state": self._bridge.system_state,
                             "plan_embedding": embed(self.graph.to_json()),
+                            "plan_node_ids": [n.id for n in self.graph.primitive_nodes()],
                             "error": node.error,
                             "failure_type": f_type
                         })
@@ -391,10 +392,12 @@ class ReActExecutor:
                     PlanStore.record_repair(
                         plan_id=self.plan_id,
                         node_id=rec.node_id,
-                        attempt=rec.attempt,
-                        failure_kind=rec.failure_kind,
-                        action_taken=rec.action_taken,
-                        notes=rec.notes,
+                        action=rec.action_taken,
+                        metadata={
+                            "attempt": rec.attempt,
+                            "failure_kind": rec.failure_kind,
+                            "notes": rec.notes,
+                        },
                     )
                 except Exception as exc:
                     print(f"[ReActExecutor] PlanStore.record_repair() warning: {exc}")

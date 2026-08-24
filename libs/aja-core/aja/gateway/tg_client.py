@@ -364,7 +364,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 # Dynamic History Update: Inject significant events into conversational session history
                 if hasattr(self, "gateway") and self.gateway:
                     try:
-                        session = self.gateway.gateway_state.get_session(chat_id)
+                        session = await asyncio.to_thread(
+                            self.gateway.gateway_state.get_session, chat_id
+                        )
                         if ev['kind'] in ["PLAN_CREATED", "MISSION_RESULT", "MISSION_DONE", "MISSION_FAILED", "NODE_FAILED", "NODE_REJECTED", "NODE_APPROVED"]:
                             system_note = f"[System Note: {ev['message']}]"
                             session["history"].append({
@@ -372,7 +374,9 @@ class TelegramAdapter(BasePlatformAdapter):
                                 "text": system_note,
                                 "time": time.time()
                             })
-                            self.gateway.gateway_state.update_session(chat_id, session)
+                            await asyncio.to_thread(
+                                self.gateway.gateway_state.update_session, chat_id, session
+                            )
                     except Exception as he:
                         logger.error(f"Failed to update session history from event: {he}")
 
@@ -443,42 +447,52 @@ class TelegramAdapter(BasePlatformAdapter):
                     eid = ev.get("event_id")
                     if not eid or eid in seen_event_ids:
                         continue
-                    
+
+                    # eid is marked seen only AFTER successful enqueue below,
+                    # so a crash mid-processing retries next tick instead of
+                    # permanently dropping the row.
+
+                    try:
+                        # Format as event payload
+                        kind = ev.get("kind")
+                        target = ev.get("target")
+                        status = (ev.get("status") or "success").upper()
+                        if status == "FAILED":
+                            status = "ERROR"
+                        elif status == "SUCCESS":
+                            status = "SUCCESS"
+
+                        metadata_raw = ev.get("metadata_json") or "{}"
+                        try:
+                            metadata = json.loads(metadata_raw)
+                        except Exception:
+                            metadata = {}
+
+                        message = metadata.get("message") or metadata.get("plan_summary") or ev.get("message")
+                        if not message:
+                            message = f"Event: {kind} on target {target}"
+
+                        payload = {
+                            "event_id": eid,
+                            "kind": kind,
+                            "target": target,
+                            "status": status,
+                            "message": message,
+                            "command": ev.get("command", ""),
+                            "timestamp": ev.get("timestamp") or datetime.now(timezone.utc).isoformat()
+                        }
+
+                        await self.telemetry_queue.put(payload)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.error(f"Failed to process event {eid}: {e}")
+                        continue
+
                     seen_event_ids.add(eid)
                     # Keep seen_event_ids bounded in size
                     if len(seen_event_ids) > 5000:
                         seen_event_ids = set(list(seen_event_ids)[-4000:])
-                        
-                    # Format as event payload
-                    kind = ev.get("kind")
-                    target = ev.get("target")
-                    status = ev.get("status", "success").upper()
-                    if status == "FAILED":
-                        status = "ERROR"
-                    elif status == "SUCCESS":
-                        status = "SUCCESS"
-                    
-                    metadata_raw = ev.get("metadata_json") or "{}"
-                    try:
-                        metadata = json.loads(metadata_raw)
-                    except Exception:
-                        metadata = {}
-                        
-                    message = metadata.get("message") or metadata.get("plan_summary") or ev.get("message")
-                    if not message:
-                        message = f"Event: {kind} on target {target}"
-                        
-                    payload = {
-                        "event_id": eid,
-                        "kind": kind,
-                        "target": target,
-                        "status": status,
-                        "message": message,
-                        "command": ev.get("command", ""),
-                        "timestamp": ev.get("timestamp") or datetime.now(timezone.utc).isoformat()
-                    }
-                    
-                    await self.telemetry_queue.put(payload)
                     
             except asyncio.CancelledError:
                 break

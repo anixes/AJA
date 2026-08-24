@@ -9,6 +9,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, Static
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.binding import Binding
+import asyncio
 import os
 import subprocess
 import json
@@ -137,6 +138,8 @@ class AJAShell(App):
         Binding("f5", "refresh_state", "Refresh Status"),
     ]
 
+    SHELL_TIMEOUT_S = 60
+
     def __init__(self, provider, key, model):
         super().__init__()
         self.gateway = LLMGateway(provider, key)
@@ -244,13 +247,10 @@ class AJAShell(App):
             self.log_aja(f"Processing request: '{raw_input}'")
             # Logic here would typically call the intent parser
             # For brevity in TUI, we delegate to a quick chat call
-            import asyncio
-
-            loop = asyncio.get_event_loop()
             prompt = f"User request: '{raw_input}'. If it's a command, wrap in <cmd>bash</cmd>. Otherwise reply as AJA (Assistant of Joint Agents)."
-            response = await loop.run_in_executor(
-                None, self.gateway.chat, self.model, prompt
-            )
+            response = await self.gateway.chat(self.model, prompt)
+            if not isinstance(response, str):
+                response = ""
 
             if "<cmd>" in response:
                 import re
@@ -261,13 +261,13 @@ class AJAShell(App):
                     self.log_aja(
                         f"I've prepared a command for you: [bold yellow]{cmd}[/]"
                     )
-                    self.audit_and_execute(cmd)
+                    await self.audit_and_execute(cmd)
                     return
             self.log_aja(response)
         else:
-            self.audit_and_execute(raw_input)
+            await self.audit_and_execute(raw_input)
 
-    def audit_and_execute(self, cmd: str):
+    async def audit_and_execute(self, cmd: str):
         classification = classify_command(cmd)
         root = classification["root"]
         risk_level = classification["level"]
@@ -280,12 +280,17 @@ class AJAShell(App):
             self.log_aja("Command blocked: " + "; ".join(classification["reasons"]))
             return
 
-        # Execute
+        # Execute (off-loop so long commands never freeze the UI)
         try:
             if platform.system() == "Windows" and cmd.startswith("ls"):
                 cmd = cmd.replace("ls", "dir", 1)
 
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    subprocess.run, cmd, shell=True, capture_output=True, text=True
+                ),
+                timeout=self.SHELL_TIMEOUT_S,
+            )
             log = self.query_one("#log-container")
             log.mount(Static(f"[bold green]> {cmd}[/]"))
             if result.stdout:
@@ -294,6 +299,10 @@ class AJAShell(App):
                 log.mount(Static(f"[red]{result.stderr}[/]"))
             log.scroll_end()
             self.action_refresh_state()
+        except asyncio.TimeoutError:
+            self.log_aja(
+                f"Command timed out after {self.SHELL_TIMEOUT_S}s: {cmd}"
+            )
         except Exception as e:
             self.log_aja(f"Execution failed: {e}")
 

@@ -32,14 +32,25 @@ def _install_signal_handlers(stop_event: asyncio.Event):
     ``signal.signal`` on Windows Proactor where add_signal_handler raises
     NotImplementedError. Both registrations are best-effort.
 
-    Returns a cleanup callable that restores previous handlers.
+    The stop event is always set via ``loop.call_soon_threadsafe`` so the
+    wakeup happens on the loop's thread even if the handler is ever invoked
+    from another thread.
+
+    Windows caveat: external SIGTERM delivery does not exist on win32 — only
+    in-process signals (SIGINT/SIGBREAK via Ctrl+C/Ctrl+Break) reach these
+    handlers, and ``docker stop`` on Windows containers will not deliver
+    SIGTERM here. Graceful teardown on Windows therefore relies on
+    KeyboardInterrupt or the stop-event plumbing (e.g. the Docker healthcheck /
+    stop-event side channel), not OS signals.
     """
     loop = asyncio.get_running_loop()
     _restorers = []
 
     def _handle() -> None:
         logger.info("Shutdown signal received - stopping AJA serve...")
-        stop_event.set()
+        # Always wake the loop from its own thread: safe if the handler is
+        # installed or invoked from a non-loop thread.
+        loop.call_soon_threadsafe(stop_event.set)
 
     def _cleanup() -> None:
         for sig, previous in _restorers:

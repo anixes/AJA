@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import shutil
 import subprocess
@@ -40,7 +41,9 @@ async def dispatch_worker(worker_id: str, baton: dict, workspace_dir: str) -> di
     }
 
     adapter = adapters.get(worker_id) or SwarmMaintenanceAdapter()
-    return adapter.run(baton, workspace_dir)
+    # Adapter .run() implementations are blocking subprocess work (git, CLIs,
+    # pytest) with no timeout — never run them inline on the event loop.
+    return await asyncio.to_thread(adapter.run, baton, workspace_dir)
 
 
 class BaseAdapter:

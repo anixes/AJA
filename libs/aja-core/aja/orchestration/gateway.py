@@ -85,6 +85,34 @@ def google_api_key(api_key: str = "") -> str:
     )
 
 
+def _flatten_google_content(content: Any) -> str:
+    """Flatten OpenAI-style content into a single text string for Gemini.
+
+    List-typed content (vision format) is joined from its text parts;
+    non-text parts (e.g. image_url — unsupported on this path) are dropped.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for part in content:
+            if isinstance(part, dict):
+                if part.get("type") == "text" and isinstance(part.get("text"), str):
+                    texts.append(part["text"])
+                else:
+                    logger.debug(
+                        "[Gateway] Dropping non-text content part (type=%s): "
+                        "Gemini path has no multimodal support",
+                        part.get("type"),
+                    )
+            elif isinstance(part, str):
+                texts.append(part)
+        return "\n".join(t for t in texts if t)
+    return str(content)
+
+
 def load_config():
     """Load saved config from .aja/config.json."""
     try:
@@ -314,15 +342,26 @@ class LLMGateway:
             adapter_cls = get_adapter_class(self.provider)
             if adapter_cls is not None:
                 adapter = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
-                llm_resp = await adapter.chat(
-                    model=model,
-                    messages=self._normalize_prompt_to_messages(prompt),
-                    system=system,
-                    tools=tools,
-                    temperature=temperature,
-                    extra_body=extra_body,
-                    retries=retries,
-                )
+                try:
+                    llm_resp = await adapter.chat(
+                        model=model,
+                        messages=self._normalize_prompt_to_messages(prompt),
+                        system=system,
+                        tools=tools,
+                        temperature=temperature,
+                        extra_body=extra_body,
+                        retries=retries,
+                    )
+                finally:
+                    # Adapters own per-instance httpx/aiohttp pools; a fresh
+                    # instance is built per call, so it must be closed here or
+                    # every chat() leaks sockets/fds.
+                    close = getattr(adapter, "close", None)
+                    if close is not None:
+                        try:
+                            await close()
+                        except Exception as close_err:
+                            logger.debug("[Gateway] Adapter close failed: %s", close_err)
                 if tools is not None:
                     return {
                         "content": llm_resp.content,
@@ -596,6 +635,15 @@ class LLMGateway:
                 client = self._get_openai_client()
                 response = await client.chat.completions.create(**kwargs)
 
+                # Some providers (Copilot Claude passthrough, llama.cpp usage
+                # chunks, content-filter proxies) legally return choices: [].
+                # Return None so callers' existing retry-exhaustion handling
+                # engages instead of IndexError.
+                if not getattr(response, "choices", None):
+                    logger.warning(
+                        "[Gateway] Provider returned empty choices (model=%s)", model
+                    )
+                    return None
                 msg = response.choices[0].message
                 if tools is not None:
                     tool_calls = []
@@ -727,8 +775,17 @@ class LLMGateway:
         if isinstance(prompt, list):
             contents = []
             for m in prompt:
-                role = "user" if m.get("role") == "user" else "model"
-                text = m.get("content", m.get("text", ""))
+                role_in = m.get("role")
+                # Gemini has no tool role here: represent tool results as
+                # user turns so the model can still see them.
+                role = "user" if role_in in ("user", "tool") else "model"
+                text = _flatten_google_content(
+                    m.get("content", m.get("text", ""))
+                )
+                if role_in == "tool":
+                    text = (
+                        f"[Tool result for {m.get('tool_call_id') or 'call'}]: {text}"
+                    )
                 contents.append(
                     {
                         "role": role,
@@ -780,11 +837,21 @@ class LLMGateway:
                     return None
 
                 data = await response.json()
+                # Safety-blocked prompts return "candidates": [] — the default
+                # [{}] only applies when the key is absent, so index defensively.
+                candidates = data.get("candidates") or []
                 parts = (
-                    data.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [])
+                    candidates[0].get("content", {}).get("parts", [])
+                    if candidates
+                    else []
                 )
+                if not parts:
+                    block = (data.get("promptFeedback") or {}).get("blockReason")
+                    logger.warning(
+                        "[Gateway] Google blocked/empty candidates (blockReason=%s)",
+                        block,
+                    )
+                    return None
                 if tools is not None:
                     content = ""
                     tool_calls = []

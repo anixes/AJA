@@ -30,7 +30,12 @@ def test_telegram_local_control_executes_native_tool_calls(monkeypatch):
 
     import aja.gateway.remote_control as remote_control
 
-    monkeypatch.setattr(remote_control, "parse_intent", fake_parse_intent)
+    # remote_control now awaits the async parser (never blocks the loop on a
+    # sync LLM roundtrip), so patch the async twin.
+    async def fake_parse_intent_async(text, history, system_state=None):
+        return fake_parse_intent(text, history, system_state=system_state)
+
+    monkeypatch.setattr(remote_control, "parse_intent_async", fake_parse_intent_async)
 
     journal_path = DATA_DIR / "missions" / "mission_test-telegram-control.jsonl"
     try:

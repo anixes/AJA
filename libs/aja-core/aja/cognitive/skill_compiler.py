@@ -96,7 +96,7 @@ class SkillCompiler:
             description=f"Auto-distilled skill for: {trajectory.goal}",
             instructions=skill_md_content,
             script_code=script_code,
-            tags=[trajectory.domain.lower(), "auto_generated"],
+            tags=[(trajectory.domain or "general").lower(), "auto_generated"],
         )
 
         return CompiledSkillResult(
@@ -129,7 +129,7 @@ Automatically generated procedure for goal: **{safe_goal_inline}**.
 
 ## Steps Executed in Reference Mission:
 """ + "\n".join(
-            f"{i+1}. **{s.action_type.upper()}**: `{s.action_payload[:80].replace(chr(10), ' ').replace(chr(96), chr(39))}`"
+            f"{i+1}. **{s.action_type.upper()}**: `{str(s.action_payload or '')[:80].replace(chr(10), ' ').replace(chr(96), chr(39))}`"
             for i, s in enumerate(trajectory.steps)
         ) + """
 
@@ -167,7 +167,7 @@ Execute `python run.py` within the target environment.
                 lines.append(f'        sys.exit(res_{i}.returncode)')
                 lines.append(f'    print(res_{i}.stdout.strip())')
             else:
-                payload_literal = repr(step.action_payload[:40])
+                payload_literal = repr(str(step.action_payload or "")[:40])
                 lines.append(f'    print("[Step {i+1}] Completed:", {payload_literal})')
 
         lines.extend([

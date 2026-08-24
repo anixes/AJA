@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Optional, Protocol
 
@@ -120,3 +122,29 @@ class LanceRuntimeEventSink:
         except Exception:
             logger.exception("Failed to emit runtime event: %s", normalized)
             return None
+
+    async def emit_async(self, event: Dict[str, Any]) -> Optional[str]:
+        """Offloads the blocking LanceDB write off the event loop.
+
+        ``emit`` stays synchronous (the RuntimeEventSink protocol is sync);
+        async call sites on a shared loop should prefer this variant.
+        """
+        return await asyncio.to_thread(self.emit, event)
+
+
+# Module-level shared sink: repeated per-call construction of
+# LanceRuntimeEventSink re-opens the adapter each time. The underlying
+# memory backend is already a process-wide singleton, so sharing one sink
+# instance is trivially safe (creation is lock-guarded; writes go through
+# the same shared memory either way).
+_shared_sink: Optional[LanceRuntimeEventSink] = None
+_shared_sink_lock = threading.Lock()
+
+
+def get_shared_runtime_sink() -> LanceRuntimeEventSink:
+    """Returns the process-wide LanceRuntimeEventSink singleton."""
+    global _shared_sink
+    with _shared_sink_lock:
+        if _shared_sink is None:
+            _shared_sink = LanceRuntimeEventSink()
+        return _shared_sink

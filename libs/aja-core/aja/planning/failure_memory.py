@@ -87,13 +87,21 @@ class FailureMemory:
         plan_nodes_set = {n.id for n in plan.primitive_nodes()}
         
         for f in cls._failures:
-            # 1. Goal similarity
-            g_sim = cosine_similarity(goal_emb, f["goal_embedding"])
+            # 1. Goal similarity (tolerates missing/None embeddings and
+            # dimension mismatches from embedding-backend switches)
+            f_goal_emb = f.get("goal_embedding")
+            if not f_goal_emb:
+                continue
+            try:
+                g_sim = cosine_similarity(goal_emb, f_goal_emb)
+            except (ValueError, TypeError):
+                continue
             if g_sim < 0.8:
                 continue # Goals are different, ignore
                 
-            # 2. Plan structural similarity
-            f_nodes_set = set(f["plan_node_ids"])
+            # 2. Plan structural similarity (records from the in-loop writer
+            # may predate the plan_node_ids key — default to empty)
+            f_nodes_set = set(f.get("plan_node_ids") or [])
             node_intersection = len(plan_nodes_set.intersection(f_nodes_set))
             node_union = len(plan_nodes_set.union(f_nodes_set))
             node_sim = node_intersection / node_union if node_union > 0 else 0.0

@@ -598,7 +598,19 @@ class UnifiedGateway:
             actual_goal = content_stripped if force_swarm else content
             mission = self.aja_memory.create_mission(actual_goal)
 
-            if force_swarm:
+            if not mission or not mission.get("mission_id"):
+                # create_mission is Optional under transient Mission Hub /
+                # LanceDB contention — never index into it unconditionally.
+                logger.error(
+                    "create_mission returned no mission for goal %r",
+                    redact_secrets(actual_goal),
+                )
+                response = (
+                    "⚠️ **AJA Error**: I couldn't register the mission in the "
+                    "Mission Hub (transient storage issue). Please try again "
+                    "in a moment."
+                )
+            elif force_swarm:
                 self.aja_memory.update_mission(
                     mission["mission_id"],
                     {"metadata_json": json.dumps({"force_swarm": True})}

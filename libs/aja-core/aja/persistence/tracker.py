@@ -1,28 +1,39 @@
 import json
+import logging
+import uuid
 from datetime import datetime, timezone
 from aja.memory.manager import MemoryManager, get_memory_manager
+
+logger = logging.getLogger(__name__)
 
 _manager = get_memory_manager()
 
 
 def log_event(event_type: str, payload: dict):
-    """Log a runtime event into the Arrow-backed event feed."""
+    """Log a runtime event into the Arrow-backed event feed.
+
+    Rows are written in the shared RUNTIME_EVENTS_SCHEMA shape
+    (`kind`/`status`/`timestamp` columns) so gateway telemetry pollers never
+    materialize NULL status cells that would crash `.upper()` handling.
+    """
     try:
         table = _manager.get_table("aja_runtime_events")
-        import uuid
 
         row = [
             {
                 "event_id": uuid.uuid4().hex,
-                "event_type": event_type,
+                "kind": event_type,
+                "target": payload.get("task_id") or payload.get("plan_id") or "system",
+                "status": str(payload.get("level") or "info"),
                 "message": json.dumps(payload),
-                "level": payload.get("level", "info"),
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "command": "",
+                "metadata_json": "{}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         ]
         table.add(row)
     except Exception as e:
-        print(f"[Tracker] Failed to log event: {e}")
+        logger.error(f"[Tracker] Failed to log event: {e}")
 
 
 def get_events_by_task_id(task_id: str) -> list:
@@ -37,14 +48,14 @@ def get_events_by_task_id(task_id: str) -> list:
             if data.get("task_id") == task_id or data.get("objective") == task_id:
                 results.append(
                     {
-                        "event_type": row["event_type"],
+                        "event_type": row.get("kind"),
                         "payload": data,
-                        "timestamp": row["created_at"],
+                        "timestamp": row.get("timestamp"),
                     }
                 )
         return results
     except Exception as e:
-        print(f"[Tracker] Failed to retrieve events: {e}")
+        logger.error(f"[Tracker] Failed to retrieve events: {e}")
         return []
 
 

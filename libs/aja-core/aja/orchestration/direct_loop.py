@@ -267,7 +267,16 @@ async def run_direct_loop(
                 sim_stdout = f"[DRY-RUN SIMULATION OUTPUT] Successfully simulated command: {cmd}"
                 result = {"status": "success", "stdout": sim_stdout, "stderr": "", "code": 0}
             else:
-                result = executor.execute(cmd)
+                # This loop always runs on an event loop; the sync executor
+                # would block it via thread.join(). Use the async-native path
+                # when available, else offload the sync bridge to a thread.
+                import asyncio
+
+                execute_async = getattr(executor, "execute_async", None)
+                if execute_async is not None:
+                    result = await execute_async(cmd)
+                else:
+                    result = await asyncio.to_thread(executor.execute, cmd)
 
             if hooks.on_command:
                 hooks.on_command(cmd, result)

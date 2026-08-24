@@ -204,6 +204,15 @@ class OpenAICompatAdapter:
         for attempt in range(attempts):
             try:
                 response = await self._get_client().chat.completions.create(**kwargs)
+                # Some providers (Copilot Claude passthrough, llama.cpp usage
+                # chunks) legally return choices: [] — degrade to an empty
+                # LLMResponse instead of IndexError.
+                if not getattr(response, "choices", None):
+                    logger.warning(
+                        "[%s] Provider returned empty choices (model=%s)",
+                        self.provider, model,
+                    )
+                    return LLMResponse(content="", model=model)
                 msg = response.choices[0].message
                 tool_calls: List[ToolCall] = []
                 if getattr(msg, "tool_calls", None):

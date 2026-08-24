@@ -31,6 +31,10 @@ class SlackAdapter(BasePlatformAdapter):
         self._socket_client = None
         self._queue = asyncio.Queue()
         self.gateway = None
+        # Per-channel telemetry tail state (adapter contract parity with
+        # Telegram/Discord adapters; see start_tail/tail_events/stop_tails).
+        self._tail_tasks: Dict[str, asyncio.Task] = {}
+        self._chat_queues: Dict[str, asyncio.Queue] = {}
         self.metrics = {
             "events_received": 0,
             "events_rejected": 0,
@@ -82,12 +86,23 @@ class SlackAdapter(BasePlatformAdapter):
                             except Exception as e:
                                 logger.debug(f"[SlackAdapter] Could not deliver denial notice: {e}")
                             return
+                        text_content = event.get("text") or ""
+                        if not text_content:
+                            # Attachment-only / file_share events can carry a
+                            # NULL text. Drop them here rather than letting the
+                            # orchestrator coerce empty text into its vision
+                            # default prompt (no media is attached on Slack).
+                            logger.debug(
+                                "[SlackAdapter] Dropping message without text (channel=%s)",
+                                event.get("channel"),
+                            )
+                            return
                         evt = MessageEvent(
                             platform="slack",
                             chat_id=str(event.get("channel")),
                             user_id=str(event.get("user")),
                             message_type=MessageType.TEXT,
-                            text=event.get("text"),
+                            text=text_content,
                             message_id=str(event.get("client_msg_id")),
                             raw_event=event,
                         )
@@ -99,10 +114,45 @@ class SlackAdapter(BasePlatformAdapter):
             logger.info("[SlackAdapter] Connected via SocketMode successfully.")
 
     async def stop(self):
+        await self.stop_tails()
         if self._socket_client and SLACK_AVAILABLE:
             await self._socket_client.close()
         self.is_running = False
         logger.info("[SlackAdapter] Stopped.")
+
+    # ------------------------------------------------------------------ #
+    # Telemetry tail contract (parity with Telegram/Discord adapters)
+    # ------------------------------------------------------------------ #
+
+    def start_tail(self, chat_id: str) -> None:
+        """Registers a per-channel telemetry tail task with tracked lifecycle."""
+        chat_key = str(chat_id)
+        if chat_key in self._tail_tasks and not self._tail_tasks[chat_key].done():
+            return
+        self._chat_queues.setdefault(chat_key, asyncio.Queue(maxsize=500))
+        self._tail_tasks[chat_key] = asyncio.create_task(self.tail_events(chat_key))
+
+    async def stop_tails(self):
+        for task in list(self._tail_tasks.values()):
+            task.cancel()
+        self._tail_tasks.clear()
+        self._chat_queues.clear()
+
+    async def tail_events(self, chat_id: str):
+        """Tails this channel's telemetry queue and forwards events to Slack."""
+        logger.info(f"Starting telemetry bridge for channel_id: {chat_id}")
+        chat_queue = self._chat_queues.setdefault(str(chat_id), asyncio.Queue(maxsize=500))
+        while self.is_running:
+            try:
+                ev = await chat_queue.get()
+                msg = f"[{ev.get('status') or 'INFO'}] {ev.get('message', '')}"
+                await self.send_notification(chat_id, msg)
+                chat_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Telemetry tail error: {e}")
+                await asyncio.sleep(1)
 
     async def send_message(self, chat_id: str, text: str, **kwargs) -> Any:
         self.metrics["messages_sent"] += 1

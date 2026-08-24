@@ -540,7 +540,9 @@ def execute_skill(
              stale flag is cleared on reuse.
     """
 
-    skill_id = skill.get("id", "unknown")
+    # Accept both the normalized recommend_skill() shape ("id") and raw
+    # SkillStore rows ("skill_id")
+    skill_id = skill.get("id") or skill.get("skill_id") or "unknown"
     skill_name = skill.get("name", skill_id)
 
     def _log(event: str, extra: dict = None):
@@ -594,9 +596,17 @@ def execute_skill(
         _log("SKILL_EXECUTION_STARTED")
 
         # ── Step 3 — Parse tool_sequence ──────────────────────────────────────
-        try:
-            tool_sequence = json.loads(skill.get("tool_sequence") or "[]")
-        except (json.JSONDecodeError, TypeError):
+        # Accept both a pre-decoded list (normalized recommend_skill() rows)
+        # and the raw JSON string stored in tool_sequence_json.
+        raw_seq = skill.get("tool_sequence")
+        if isinstance(raw_seq, str):
+            try:
+                tool_sequence = json.loads(raw_seq or "[]")
+            except (json.JSONDecodeError, TypeError):
+                tool_sequence = []
+        elif isinstance(raw_seq, list):
+            tool_sequence = raw_seq
+        else:
             tool_sequence = []
 
         if not tool_sequence:

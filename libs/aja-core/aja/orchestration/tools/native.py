@@ -685,6 +685,18 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Tool Execution Error: {str(e)}\n{traceback.format_exc()}"
 
+    async def execute_async(self, name: str, arguments: Dict[str, Any]) -> str:
+        """Non-blocking twin of :meth:`execute` for event-loop callers.
+
+        Tool implementations are synchronous (subprocess/urllib/file IO), so
+        running them inline inside ``async`` code freezes the loop for up to
+        120s per shell call. This offloads the sync tool body to a worker
+        thread while keeping the exact same result contract.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(self.execute, name, arguments)
+
     def dispatch(self, name: str, arguments: Dict[str, Any], trace_id: str) -> Any:
         from aja.orchestration.activity_rt import Activity, ActivityType, RetryPolicy
         schema = next((t["function"] for t in self.get_schemas() if t["function"]["name"] == name), None)

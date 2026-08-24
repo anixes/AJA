@@ -261,6 +261,28 @@ class CronScheduler:
         }
         self.event_sink.emit(payload)
 
+    async def _emit_event_async(
+        self,
+        event_type: str,
+        message: str,
+        level: str = "info",
+        metadata: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+    ) -> None:
+        """Async variant of :meth:`_emit_event` that offloads the sink write.
+
+        The Lance-backed event sink performs blocking disk IO; calling it from
+        the tick loop would stall the shared event loop every second.
+        """
+        await asyncio.to_thread(
+            self._emit_event,
+            event_type,
+            message,
+            level=level,
+            metadata=metadata,
+            trace_id=trace_id,
+        )
+
     def add_job(
         self,
         goal: str,
@@ -681,8 +703,10 @@ class CronScheduler:
                 # Fetch only active scheduled tasks. Explicit high limit:
                 # the store default is 50, which would permanently starve
                 # job #51+ in large fleets.
-                scheduled_tasks = self.store.list_tasks(
-                    status="scheduled", limit=10000
+                # Offloaded to a worker thread: LanceDB reads are disk-bound
+                # and must not block the shared event loop every tick.
+                scheduled_tasks = await asyncio.to_thread(
+                    self.store.list_tasks, status="scheduled", limit=10000
                 )
                 
                 for task in scheduled_tasks:
@@ -709,7 +733,11 @@ class CronScheduler:
                                 f"One-shot job {task['task_id']} has invalid run_at "
                                 f"{meta.get('run_at')!r}; disabling."
                             )
-                            self.store.update_task(task["task_id"], {"status": "disabled"})
+                            await asyncio.to_thread(
+                                self.store.update_task,
+                                task["task_id"],
+                                {"status": "disabled"},
+                            )
                             continue
                         if datetime.now() < run_dt:
                             continue
@@ -717,7 +745,8 @@ class CronScheduler:
                         if meta.get("reminder"):
                             self._fire_reminder(job_id, task["context"], meta)
                             cleanup = meta.get("cleanup_after_fire", True)
-                            self.store.update_task(
+                            await asyncio.to_thread(
+                                self.store.update_task,
                                 task["task_id"],
                                 {"status": "archived" if cleanup else "disabled"},
                             )
@@ -742,7 +771,7 @@ class CronScheduler:
                     if is_due:
                         job_id = task["task_id"]
                         if job_id in self._running_jobs:
-                            self._emit_event(
+                            await self._emit_event_async(
                                 "SCHEDULER_JOB_SKIPPED_OVERLAP",
                                 f"Skipped overlapping scheduled job: {task['context']}",
                                 level="warning",
@@ -754,7 +783,7 @@ class CronScheduler:
                         from aja.runtime.replay_guards import derive_run_id, derive_trace_id
                         run_id = derive_run_id(task["task_id"], self._tick)
                         trace_id = derive_trace_id(run_id)
-                        
+
                         # Immediately update last_run and last_run_tick to prevent double triggers
                         meta["last_run"] = now_ts
                         meta["last_run_tick"] = self._tick
@@ -763,16 +792,18 @@ class CronScheduler:
                         updates = {"metadata_json": json.dumps(meta)}
                         if disable_after_fire:
                             updates["status"] = "disabled"
-                        self.store.update_task(task["task_id"], updates)
+                        await asyncio.to_thread(
+                            self.store.update_task, task["task_id"], updates
+                        )
 
                         self._running_jobs.add(job_id)
-                        self._emit_event(
+                        await self._emit_event_async(
                             "SCHEDULER_JOB_DUE",
                             f"Scheduled job due: {task['context']}",
                             metadata={"job_id": job_id, "run_id": run_id},
                             trace_id=trace_id,
                         )
-                        
+
                         # Spawn task execution asynchronously in the background
                         exec_task = asyncio.create_task(
                             self._execute_job(job_id, task["context"], run_id, trace_id),

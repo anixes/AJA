@@ -446,6 +446,8 @@ EXAMPLES:
             raw = raw.split("```")[1].split("```")[0].strip()
 
         data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError(f"LLM returned non-dict intent JSON ({type(data).__name__})")
         return data
     except Exception as e:
         print(f"[IntentParser] Error parsing intent: {e}")
@@ -526,6 +528,8 @@ EXAMPLES:
             raw = raw.split("```")[1].split("```")[0].strip()
 
         data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError(f"LLM returned non-dict intent JSON ({type(data).__name__})")
         return data
     except Exception as e:
         print(f"[IntentParser] Error parsing intent async: {e}")

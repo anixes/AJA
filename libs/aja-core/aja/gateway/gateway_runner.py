@@ -20,6 +20,12 @@ class GatewayRunner:
         self.adapters: List[BasePlatformAdapter] = []
         self._tasks: List[asyncio.Task] = []
         self.is_running = False
+        # Serializes process_event: the telegram_adapter swap below mutates
+        # shared orchestrator state and must stay active for the entire
+        # handle_gateway_event await. Without mutual exclusion, concurrent
+        # adapter pollers clobber each other's adapter and replies/telemetry
+        # get routed to the WRONG platform.
+        self._event_lock = asyncio.Lock()
 
     async def start(self):
         self.is_running = True
@@ -90,13 +96,14 @@ class GatewayRunner:
             async def send_notification(self, chat_id, text, importance="normal"):
                 return await self.target_adapter.send_notification(chat_id, text, importance)
 
-        original_tg_adapter = self.orchestrator.telegram_adapter
-        try:
-            self.orchestrator.telegram_adapter = AdapterProxy(adapter)
-            # Call handle_gateway_event which does reasoning, session tracking, worker delegation
-            await self.orchestrator.handle_gateway_event(event)
-        finally:
-            self.orchestrator.telegram_adapter = original_tg_adapter
+        async with self._event_lock:
+            original_tg_adapter = self.orchestrator.telegram_adapter
+            try:
+                self.orchestrator.telegram_adapter = AdapterProxy(adapter)
+                # Call handle_gateway_event which does reasoning, session tracking, worker delegation
+                await self.orchestrator.handle_gateway_event(event)
+            finally:
+                self.orchestrator.telegram_adapter = original_tg_adapter
 
     async def stop(self):
         self.is_running = False

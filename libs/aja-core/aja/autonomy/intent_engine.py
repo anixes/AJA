@@ -213,7 +213,10 @@ class IntentEngine:
                     continue
 
                 if self.safe(intent):
-                    self.execute(intent)
+                    # execute() performs blocking IO on-loop (LanceDB mission
+                    # write, experience save, cooldown file write, report
+                    # sink emit) — offload the whole sync body to a worker.
+                    await asyncio.to_thread(self.execute, intent)
                     actions_taken += 1
                 else:
                     print(
@@ -221,8 +224,9 @@ class IntentEngine:
                     )
                     from aja.scheduler.telegram import _send_telegram_report
 
-                    _send_telegram_report(
-                        f"Proposed unsafe action required approval: {intent.objective}"
+                    await asyncio.to_thread(
+                        _send_telegram_report,
+                        f"Proposed unsafe action required approval: {intent.objective}",
                     )
 
             self.check_drift_control()

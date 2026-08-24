@@ -86,11 +86,44 @@ class GoogleAdapter:
         return url, not self.base_url
 
     @staticmethod
-    def _convert_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _flatten_content(content: Any) -> str:
+        """Flatten OpenAI-style content into a single text string for Gemini.
+
+        List-typed content (vision format) is joined from its text parts;
+        non-text parts (e.g. image_url — unsupported on this path) are dropped.
+        """
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and isinstance(part.get("text"), str):
+                        texts.append(part["text"])
+                    else:
+                        logger.debug(
+                            "[GoogleAdapter] Dropping non-text content part "
+                            "(type=%s): Gemini path has no multimodal support",
+                            part.get("type"),
+                        )
+                elif isinstance(part, str):
+                    texts.append(part)
+            return "\n".join(t for t in texts if t)
+        return str(content)
+
+    @classmethod
+    def _convert_messages(cls, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         contents = []
         for m in messages:
-            role = "user" if m.get("role") == "user" else "model"
-            text = m.get("content", m.get("text", ""))
+            role_in = m.get("role")
+            # Gemini has no tool role here: represent tool results as user
+            # turns so the model can still see them.
+            role = "user" if role_in in ("user", "tool") else "model"
+            text = cls._flatten_content(m.get("content", m.get("text", "")))
+            if role_in == "tool":
+                text = f"[Tool result for {m.get('tool_call_id') or 'call'}]: {text}"
             contents.append({"role": role, "parts": [{"text": text}]})
         return contents
 
@@ -112,7 +145,19 @@ class GoogleAdapter:
     def _parse_response(
         data: Dict[str, Any], tools_was_provided: bool
     ) -> LLMResponse:
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        # Safety-blocked prompts return "candidates": [] — the default [{}]
+        # only applies when the key is absent, so index defensively.
+        candidates = data.get("candidates") or []
+        parts = (
+            candidates[0].get("content", {}).get("parts", []) if candidates else []
+        )
+        if not parts:
+            block = (data.get("promptFeedback") or {}).get("blockReason")
+            if block:
+                logger.warning(
+                    "[GoogleAdapter] Prompt blocked/empty candidates (blockReason=%s)",
+                    block,
+                )
         content_parts: List[str] = []
         tool_calls: List[ToolCall] = []
         for p in parts:

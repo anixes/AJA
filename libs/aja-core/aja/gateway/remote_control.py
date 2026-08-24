@@ -2,7 +2,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional
 
-from aja.interface.intent_parser import parse_intent
+from aja.interface.intent_parser import parse_intent_async
 
 
 MAX_TELEGRAM_REPLY_CHARS = 3500
@@ -26,7 +26,7 @@ async def execute_local_control(
     mission_id = mission_id or f"telegram-{uuid.uuid4().hex[:12]}"
 
     system_state = _system_state()
-    intent = parse_intent(text, history, system_state=system_state)
+    intent = await parse_intent_async(text, history, system_state=system_state)
     response = intent.get("response") or "AJA received the Telegram control request."
 
     intent_type = intent.get("type")

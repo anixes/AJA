@@ -73,7 +73,19 @@ class VectorMemory:
         mismatched_models: set[str] = set()
         processed = []
         for row in results.to_pylist():
-            rec_metadata = json.loads(row["metadata"])
+            # Legacy/pre-stamped rows can carry null or malformed metadata
+            # cells — one bad row must not kill the whole search.
+            raw_metadata = row.get("metadata")
+            try:
+                rec_metadata = (
+                    json.loads(raw_metadata)
+                    if isinstance(raw_metadata, str) and raw_metadata.strip()
+                    else {}
+                )
+                if not isinstance(rec_metadata, dict):
+                    rec_metadata = {}
+            except (ValueError, TypeError):
+                rec_metadata = {}
             rec_model = rec_metadata.get("embedding_model")
             # Rows indexed under a different embedding model live in a
             # different vector space — their distances are meaningless, so

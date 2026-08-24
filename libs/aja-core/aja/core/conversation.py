@@ -494,7 +494,7 @@ class ConversationCore:
         else:
             for m in reversed(history):
                 if m.get("role") == "assistant":
-                    final_text = m.get("content", "")
+                    final_text = m.get("content") or ""
                     break
         if final_text:
             yield Delta(text=final_text)

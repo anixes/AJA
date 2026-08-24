@@ -49,6 +49,11 @@ def resolve_provider_model(model_str, operating_mode, local_model_fallback, clou
       online   — local llama_cpp attempts redirect to the cloud fallback
     """
     provider = "openrouter"  # Default
+    # Raw json.load config readers pass explicit JSON nulls through as None
+    # (`.get(key, default)` does not fire for null values) — normalize here so
+    # all call sites share the same default instead of crashing on `in None`.
+    if not model_str:
+        model_str = "google:gemini-2.5-flash"
     model_name = model_str
 
     if ":" in model_str:
@@ -151,28 +156,47 @@ def run_async_synchronously(coro):
     """
     Runs a coroutine synchronously, handling both cases where an event loop
     is already running in the current thread or not.
+
+    Hardened: BaseException-safe, never deadlocks if the worker thread dies
+    before resolving the future, and never masks the original error with an
+    UnboundLocalError from closing a loop that was never created.
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
     res_future = Future()
 
     def thread_target():
+        worker_loop = None
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(coro)
-            res_future.set_result(result)
-        except Exception as e:
-            res_future.set_exception(e)
+            worker_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(worker_loop)
+            try:
+                result = worker_loop.run_until_complete(coro)
+            except BaseException as exc:
+                res_future.set_exception(exc)
+            else:
+                res_future.set_result(result)
+        except BaseException as exc:
+            # Loop creation/setup itself failed; coro was never awaited.
+            res_future.set_exception(exc)
+            coro.close()
         finally:
-            loop.close()
+            if worker_loop is not None:
+                try:
+                    worker_loop.close()
+                except Exception:
+                    pass
 
-    t = threading.Thread(target=thread_target)
+    t = threading.Thread(target=thread_target, daemon=True)
     t.start()
     t.join()
+    if not res_future.done():
+        raise RuntimeError(
+            "run_async_synchronously worker thread terminated without producing a result"
+        )
     return res_future.result()
 
 

@@ -55,9 +55,16 @@ class GatewayState:
         if results:
             raw = results[0].get("session_json")
             try:
-                return json.loads(raw)
+                parsed = json.loads(raw)
             except (TypeError, ValueError):
-                pass
+                parsed = None
+            # Post-load shape validation: a valid-but-non-object JSON blob
+            # (null / list / string from an anomalous write) would wedge the
+            # chat on every subsequent .pop()/["history"] access.
+            if isinstance(parsed, dict):
+                parsed.setdefault("history", [])
+                parsed.setdefault("metadata", {})
+                return parsed
         return {"history": [], "metadata": {}}
 
     def update_session(self, chat_id: str, update: Dict[str, Any]):
