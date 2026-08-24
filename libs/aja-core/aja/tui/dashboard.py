@@ -24,6 +24,7 @@ import time
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Union
 
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -213,7 +214,7 @@ class AJADashboard(App):
             "[bold]Missions[/]",
         ]
         for m in data.get("missions", []):
-            lines.append(f"  • {m.get('id')} {m.get('goal')}")
+            lines.append(f"  • {escape(str(m.get('id', '')))} {escape(str(m.get('goal', '')))}")
         if not data.get("missions"):
             lines.append("  (none)")
         self.query_one("#sidebar", Static).update(Text.from_markup("\n".join(lines)))
@@ -242,12 +243,12 @@ class AJADashboard(App):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
-        event.input.clear()
         if not text:
             return
         if self._turn_task is not None and not self._turn_task.done():
             self._append_system_line("busy — press ctrl+c to interrupt the current turn", style="yellow")
             return
+        event.input.clear()
         msg = InboundMessage(
             surface=self._surface,
             chat_id=self._chat_id,
@@ -256,7 +257,7 @@ class AJADashboard(App):
         )
         self.turn_count += 1
         log = self.query_one("#chat-log", RichLog)
-        log.write(Text.from_markup(f"\n[bold cyan]you ›[/] {text}"))
+        log.write(Text.from_markup(f"\n[bold cyan]you ›[/] {escape(text)}"))
         self._turn_task = asyncio.create_task(self._run_turn(msg))
 
     async def _run_turn(self, msg: InboundMessage) -> None:
@@ -279,7 +280,7 @@ class AJADashboard(App):
         if isinstance(ev, Delta):
             log.write(ev.text)
         elif isinstance(ev, ToolStarted):
-            log.write(Text.from_markup(f"  [dim]⚙ {ev.name}({ev.args_summary})…[/]"))
+            log.write(Text.from_markup(f"  [dim]⚙ {escape(ev.name)}({escape(ev.args_summary or '')})…[/]"))
         elif isinstance(ev, ToolFinished):
             mark = "✓" if ev.success else "✗"
             style = "green" if ev.success else "red"
@@ -287,7 +288,7 @@ class AJADashboard(App):
         elif isinstance(ev, Error):
             self._render_error_panel(ev.code, ev.message)
         elif isinstance(ev, ApprovalRequested):
-            log.write(Text.from_markup(f"  [yellow]⏸ approval requested ({ev.approval_id}): {ev.reason}[/]"))
+            log.write(Text.from_markup(f"  [yellow]⏸ approval requested ({escape(ev.approval_id)}): {escape(ev.reason)}[/]"))
         elif isinstance(ev, Final):
             if ev.text:
                 log.write(Panel(Markdown(ev.text), border_style=self.accent_color, title="AJA"))

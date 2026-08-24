@@ -96,9 +96,17 @@ class TerminalREPL:
         """Build the production ConversationCore (heavy imports stay lazy)."""
         from aja.core.conversation import ConversationCore
 
+        def _recall(query: str):
+            from aja.gateway.recall import semantic_recall
+
+            return semantic_recall(query)
+
         gateway, tools_registry, executor = _resolve_production_stack()
         return ConversationCore(
-            gateway=gateway, tools_registry=tools_registry, executor=executor
+            gateway=gateway,
+            tools_registry=tools_registry,
+            executor=executor,
+            recall_fn=_recall,
         )
 
     def _get_session(self) -> Any:

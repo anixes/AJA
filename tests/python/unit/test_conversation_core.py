@@ -318,8 +318,12 @@ async def test_default_session_store_is_in_memory_protocol():
     assert isinstance(store, SessionStore)
     state = await store.load("x")
     state["history"].append({"role": "user", "content": "a"})
+    # load() returns an isolated copy; only save() persists mutations.
     again = await store.load("x")
-    assert again["history"] == [{"role": "user", "content": "a"}]
+    assert again["history"] == []
+    await store.save("x", state)
+    persisted = await store.load("x")
+    assert persisted["history"] == [{"role": "user", "content": "a"}]
 
 
 # --------------------------------------------------------------------------- #

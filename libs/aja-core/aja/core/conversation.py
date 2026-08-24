@@ -17,6 +17,7 @@ without importing lancedb / aja.config / aja.api.bridge.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -109,10 +110,14 @@ class InMemorySessionStore:
         self._states: Dict[str, dict] = {}
 
     async def load(self, chat_id: str) -> dict:
-        return self._states.setdefault(chat_id, {"history": [], "tasks": []})
+        if chat_id not in self._states:
+            self._states[chat_id] = {"history": [], "tasks": []}
+        # Deep-copy so concurrent turns never mutate a shared dict.
+        return copy.deepcopy(self._states[chat_id])
 
     async def save(self, chat_id: str, state: dict) -> None:
-        self._states[chat_id] = state
+        # Store a private snapshot; the caller keeps its own working copy.
+        self._states[chat_id] = copy.deepcopy(state)
 
 
 @dataclass
@@ -215,6 +220,10 @@ class ConversationCore:
                 session["history"].append({"role": "user", "content": text})
                 if final_text:
                     session["history"].append({"role": "assistant", "content": final_text})
+            # Ephemeral per-turn keys must never leak into the session store,
+            # regardless of which intent handler ran.
+            session.pop("_recall_block", None)
+            session.pop("_working_history", None)
             await self._stage_persist(session, msg.chat_id)
         except Exception as e:
             logger.exception("ConversationCore pipeline failure")
@@ -405,7 +414,7 @@ class ConversationCore:
         hooks = SimpleNamespace(on_command=_on_command, on_tool_result=None, on_synthesis=None)
         outcome: Dict[str, Any] = {}
         history = session["_working_history"]
-        recall_block = session.pop("_recall_block", "")
+        recall_block = session.get("_recall_block", "")
         system_prompt = self._system_prompt
         if recall_block:
             system_prompt = (
@@ -436,9 +445,14 @@ class ConversationCore:
             if get_task in done:
                 yield get_task.result()
                 continue
-            get_task.cancel()  # loop finished with empty queue
+            get_task.cancel()  # loop finished with empty queue (at this instant)
+            await asyncio.gather(get_task, return_exceptions=True)  # suppress CancelledError
             break
         await asyncio.gather(task, return_exceptions=True)
+        # Drain events queued between the last wait and runner completion so
+        # tool activity emitted just before Final is never silently dropped.
+        while not queue.empty():
+            yield queue.get_nowait()
 
         err = outcome.get("error")
         if err is None and task.exception():
