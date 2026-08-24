@@ -18,7 +18,6 @@ from aja.cli.registry import registry
 # Re-export command handlers for backwards compatibility
 from aja.cli.commands.run import cmd_run
 from aja.cli.commands.direct import cmd_direct
-from aja.cli.commands.chat import cmd_chat, run_chat_with_gateway
 from aja.cli.commands.status import cmd_status, run_gpu_check, run_logs_check
 from aja.cli.commands.setup import cmd_setup
 from aja.cli.commands.doctor import cmd_doctor

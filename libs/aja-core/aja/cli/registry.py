@@ -15,6 +15,7 @@ Consolidated user-facing surface (8 commands):
 Plus low-priority helpers: mcp, pickup (internal), healthcheck.
 """
 
+import sys
 from typing import List, Callable, Dict, Optional
 from aja.interface.modern import print_error, print_info
 
@@ -42,6 +43,52 @@ _ALIASES: Dict[str, str] = {
     "direct": "chat",
     "daemon": "serve",
 }
+
+
+def _launch_repl():
+    """Boots background components then launches the new streaming TerminalREPL."""
+    import asyncio
+    import os
+    import subprocess
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+    gateway_proc = None
+    worker_proc = None
+
+    if token:
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+
+        gateway_proc = subprocess.Popen(
+            [sys.executable, "-m", "aja.gateway.server"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        worker_proc = subprocess.Popen(
+            [sys.executable, "-m", "aja.runtime.autonomous_loop"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+
+    try:
+        from aja.interface.repl import TerminalREPL
+
+        repl = TerminalREPL()
+        asyncio.run(repl.run())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        import contextlib
+
+        for proc in (gateway_proc, worker_proc):
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:  # best-effort: never block REPL exit on teardown
+                    with contextlib.suppress(Exception):
+                        proc.kill()
 
 
 def _cmd_healthcheck(args: List[str]):
@@ -93,9 +140,7 @@ class CommandRegistry:
 
     def dispatch(self, args: List[str], agent_mode: bool = False):
         if not args:
-            from aja.cli.commands.chat import run_chat_with_gateway
-
-            run_chat_with_gateway()
+            _launch_repl()
             return
 
         raw_cmd = args[0].lower()
@@ -123,9 +168,7 @@ class CommandRegistry:
             cmd_run(objective, background=bg, dry_run=dry_run)
 
         elif cmd == "chat":
-            from aja.cli.commands.chat import run_chat_with_gateway
-
-            run_chat_with_gateway()
+            _launch_repl()
 
         elif cmd == "status":
             from aja.cli.commands.status import cmd_status

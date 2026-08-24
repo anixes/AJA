@@ -54,14 +54,27 @@ __all__ = ["TerminalREPL", "build_key_bindings"]
 InputProvider = Callable[[str], Awaitable[str]]
 ApprovalResolver = Callable[[ApprovalRequested], Awaitable[bool]]
 
-SLASH_COMMANDS: Tuple[str, ...] = ("/help", "/clear", "/exit", "/quit")
+SLASH_COMMANDS: Tuple[str, ...] = (
+    "/help", "/clear", "/exit", "/quit", "/status", "/kanban", "/live",
+    "/missions", "/models", "/tui", "/swarm", "/goal", "/schedule",
+    "/doctor", "/todo", "/doing", "/done", "/failed", "/rmtask",
+)
 
 _HELP_TEXT = """\
 **Commands**
-- `/help`   — show this help
-- `/clear`  — clear the terminal screen
-- `/exit`   — quit AJA (or press Ctrl+D)
-- `/`       — open the command palette
+- `/help`      — show this help
+- `/clear`     — clear the terminal screen
+- `/exit`      — quit AJA (or press Ctrl+D)
+- `/`          — open the command palette
+- `/status`    — active batons and system metrics
+- `/kanban` /missions /live — full-screen mission dashboard
+- `/tui`       — Mission Control curses dashboard
+- `/models [planner worker]` — Copilot model selector
+- `/swarm <objective>` — multi-agent swarm mission
+- `/goal <objective>`  — persistent direct mission
+- `/schedule`  — schedule a recurring background task
+- `/doctor`    — system environment diagnostics
+- `/todo <task>` · `/doing <id>` · `/done <id>` · `/failed <id>` · `/rmtask <id>` — task board
 
 **Keys**
 - `Enter`     — send message
@@ -167,6 +180,7 @@ class TerminalREPL:
         self._live: Optional[Any] = None  # active rich.live.Live handle
         self._stream_parts: list[str] = []
         self._needs_newline = False
+        self._bg_tasks: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ #
     # Wiring
@@ -280,7 +294,18 @@ class TerminalREPL:
             if command == "handled":
                 continue
             await self.run_turn(text)
+        self._cancel_bg_tasks()
         self._console.print("[dim]Goodbye.[/dim]")
+
+    def _spawn_bg(self, coro) -> None:
+        """Schedule a fire-and-forget background task (slash-command dispatch)."""
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    def _cancel_bg_tasks(self) -> None:
+        for task in tuple(self._bg_tasks):
+            task.cancel()
 
     def _try_tab_complete_hint(self, text: str) -> bool:
         """Partial slash token (e.g. ``/he``) autocompletes inline."""
@@ -397,23 +422,182 @@ class TerminalREPL:
         table.add_row("/help", "Show help")
         table.add_row("/clear", "Clear the terminal screen")
         table.add_row("/exit", "Quit AJA")
+        table.add_row("/status", "Active batons and system metrics")
+        table.add_row("/kanban · /missions · /live", "Full-screen mission dashboard")
+        table.add_row("/tui", "Mission Control curses dashboard")
+        table.add_row("/models [planner worker]", "Copilot / LLM model selector")
+        table.add_row("/swarm <objective>", "Multi-agent swarm mission")
+        table.add_row("/goal <objective>", "Persistent direct mission")
+        table.add_row("/schedule", "Schedule recurring background task")
+        table.add_row("/doctor", "System environment diagnostics")
+        table.add_row("/todo <task>", "Add a mission task to the board")
+        table.add_row("/doing <id> · /done <id> · /failed <id>", "Update task status")
+        table.add_row("/rmtask <id>", "Delete task from board")
         table.add_row("/", "Open this command palette")
         self._console.print(table)
 
     def _handle_slash_command(self, text: str) -> str:
-        low = text.lower().strip()
+        stripped = text.strip()
+        low = stripped.lower()
         if not low.startswith("/"):
             return ""
-        if low in ("/exit", "/quit"):
+        parts = low.split(None, 1)
+        cmd = parts[0]
+        raw_args = stripped.split(None, 1)[1].strip() if len(parts) > 1 else ""
+        if cmd in ("/exit", "/quit"):
             return "exit"
-        if low == "/help":
+        if cmd == "/help":
             self._console.print(Panel(Markdown(_HELP_TEXT), title="AJA Help", border_style="cyan"))
             return "handled"
-        if low == "/clear":
+        if cmd == "/clear":
             self._console.clear()
             return "handled"
-        self._console.print(f"[dim]Unknown command: {text.split()[0]}[/dim]")
+        if cmd in ("/kanban", "/live", "/missions"):
+            self._spawn_bg(asyncio.to_thread(self._open_dashboard))
+            return "handled"
+        if cmd == "/tui":
+            self._spawn_bg(asyncio.to_thread(self._open_curses_tui))
+            return "handled"
+        if cmd == "/status":
+            def _status() -> None:
+                from aja.cli.commands.status import cmd_status
+
+                cmd_status()
+
+            self._spawn_bg(asyncio.to_thread(_status))
+            return "handled"
+        if cmd == "/doctor":
+            def _doctor() -> None:
+                from aja.cli.commands.doctor import cmd_doctor
+
+                cmd_doctor()
+
+            self._spawn_bg(asyncio.to_thread(_doctor))
+            return "handled"
+        if cmd == "/models":
+            def _models() -> None:
+                from aja.cli.commands.models import handle_models_command
+
+                handle_models_command(raw_args, console=self._console)
+
+            self._spawn_bg(asyncio.to_thread(_models))
+            return "handled"
+        if cmd in ("/swarm", "/goal"):
+            if not raw_args:
+                self._console.print(f"[red]Usage: {cmd} <objective>[/red]")
+                return "handled"
+            self._spawn_bg(self._run_mission(cmd, raw_args))
+            return "handled"
+        if cmd == "/schedule":
+            self._spawn_bg(asyncio.to_thread(self._schedule_flow, raw_args))
+            return "handled"
+        if cmd in ("/todo", "/doing", "/done", "/failed", "/rmtask"):
+            if not raw_args:
+                usage = {
+                    "/todo": "Usage: /todo <task title>",
+                    "/doing": "Usage: /doing <task_id>",
+                    "/done": "Usage: /done <task_id>",
+                    "/failed": "Usage: /failed <task_id>",
+                    "/rmtask": "Usage: /rmtask <task_id>",
+                }[cmd]
+                self._console.print(f"[red]{usage}[/red]")
+                return "handled"
+            self._spawn_bg(asyncio.to_thread(self._run_task_command, cmd, raw_args))
+            return "handled"
+        self._console.print(f"[dim]Unknown command: {cmd}[/dim]")
         return "handled"
+
+    # ------------------------------------------------------------------ #
+    # Slash-command dispatch targets
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _open_dashboard() -> None:
+        from aja.tui.dashboard import AJADashboard
+        from aja.tui.terminal import run_fullscreen_modal
+
+        run_fullscreen_modal(AJADashboard().run)
+
+    @staticmethod
+    def _open_curses_tui() -> None:
+        import asyncio as _asyncio
+
+        from aja.tui.curses_tui import run_curses_tui_main
+        from aja.tui.terminal import run_fullscreen_modal
+
+        run_fullscreen_modal(lambda: _asyncio.run(run_curses_tui_main()))
+
+    async def _run_mission(self, kind: str, objective: str) -> None:
+        try:
+            from aja.presence.state import get_system_state
+
+            sys_state = get_system_state()
+            dry_run = (
+                sys_state.get("dry_run", False)
+                if isinstance(sys_state, dict)
+                else False
+            )
+            from aja.orchestration.goal_session import GoalSession, GoalSwarmSession
+
+            session_cls = GoalSwarmSession if kind == "/swarm" else GoalSession
+            await session_cls(dry_run=dry_run).run(objective)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._end_stream()
+            self._console.print(f"[red]Mission error:[/] {type(e).__name__}: {e}")
+
+    def _schedule_flow(self, objective: str) -> None:
+        from rich.prompt import Prompt
+
+        if not objective:
+            objective = Prompt.ask("Enter objective for the scheduled task").strip()
+        if not objective:
+            return
+        expr = Prompt.ask(
+            "Enter schedule expression (e.g., 'every 2h', '0 0 * * *')"
+        ).strip()
+        if not expr:
+            return
+        try:
+            from aja.scheduler.cron_scheduler import CronScheduler
+
+            CronScheduler().add_job(objective, expr)
+            self._console.print("[green]✔ Successfully scheduled task![/green]")
+            self._console.print(f"  [bold]Objective:[/] {objective}")
+            self._console.print(f"  [bold]Schedule:[/] {expr}")
+            self._console.print(
+                "[yellow]Note: The task will be picked up by the autonomous loop/scheduler daemon.[/yellow]"
+            )
+        except Exception as e:
+            self._console.print(f"[red]Failed to schedule task:[/] {e}")
+
+    def _run_task_command(self, cmd: str, args_str: str) -> None:
+        from aja.tui.tasks import (
+            STATUS_COMPLETED,
+            STATUS_FAILED,
+            STATUS_RUNNING,
+            TaskManager,
+        )
+
+        manager = TaskManager()
+        if cmd == "/todo":
+            tid = manager.add_task(args_str)
+            self._console.print(f"[green]✔ Added task {tid}: {args_str}[/green]")
+        elif cmd == "/doing":
+            manager.update_status(args_str, STATUS_RUNNING)
+            self._console.print(f"[yellow]Task {args_str} moved to RUNNING[/yellow]")
+        elif cmd == "/done":
+            manager.update_status(args_str, STATUS_COMPLETED)
+            self._console.print(f"[green]✔ Task {args_str} moved to COMPLETED[/green]")
+        elif cmd == "/failed":
+            manager.update_status(args_str, STATUS_FAILED)
+            self._console.print(
+                f"[bold red]✘ Task {args_str} marked as FAILED[/bold red]"
+            )
+        elif cmd == "/rmtask":
+            manager.delete_task(args_str)
+            self._console.print(f"[dim]Task {args_str} deleted[/dim]")
 
     # ------------------------------------------------------------------ #
     # Startup banner w/ quick health summary
