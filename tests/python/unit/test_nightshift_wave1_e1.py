@@ -409,7 +409,8 @@ class _FakeOrchestrator:
         self.handled = []
 
     async def handle_gateway_event(self, event):
-        self.handled.append((event, self.telegram_adapter))
+        from aja.gateway.orchestrator import _current_responder
+        self.handled.append((event, _current_responder.get()))
         await asyncio.sleep(0.02)
 
 
@@ -457,12 +458,13 @@ async def test_runner_routes_each_event_through_its_own_adapter():
     )
 
     by_event = {id(ev_a): ad_a, id(ev_b): ad_b}
-    for event, adapter in orch.handled:
+    for event, responder in orch.handled:
         expected = by_event[id(event)]
-        assert getattr(adapter, "target_adapter", None) is expected, (
-            "each event must observe its own adapter installed during handling"
+        assert responder is expected, (
+            "each event must observe its own adapter as the active responder"
         )
-    assert orch.telegram_adapter == "original", "swap must be restored afterwards"
+    from aja.gateway.orchestrator import _current_responder
+    assert _current_responder.get() is None, "responder must be reset after handling"
 
 
 # --------------------------------------------------------------------------- #

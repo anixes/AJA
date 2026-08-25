@@ -278,6 +278,12 @@ class AJAMemory:
         if "aja_chat_history" not in existing:
             self.db.create_table("aja_chat_history", schema=CHAT_HISTORY_SCHEMA)
 
+        # Crash-corruption self-healing: a torn table write (e.g. hard power
+        # cut) can leave a LanceDB table with an empty schema, failing every
+        # subsequent query. Must run BEFORE schema evolution so add_columns
+        # never operates on a broken table.
+        self._repair_empty_schema_tables()
+
         # Schema evolution: backfill columns added after first release on
         # pre-existing tables (best-effort; never blocks startup).
         for tbl_name, schema in (
@@ -295,6 +301,76 @@ class AJAMemory:
                     logger.info("Migrated %s schema: added %s", tbl_name, [f.name for f in missing])
             except Exception as e:
                 logger.warning("%s schema migration check failed: %s", tbl_name, e)
+
+    # Canonical schemas for every table this module owns, keyed by table name.
+    # Drives the crash-corruption repair pass below (never used to alter the
+    # schema of a healthy table).
+    KNOWN_TABLE_SCHEMAS: Dict[str, pa.Schema] = {
+        "aja_tasks": TASKS_SCHEMA,
+        "aja_communications": COMMUNICATIONS_SCHEMA,
+        "aja_approvals": APPROVALS_SCHEMA,
+        "aja_workers": WORKERS_SCHEMA,
+        "aja_worker_executions": WORKER_EXECUTIONS_SCHEMA,
+        "aja_runtime_events": RUNTIME_EVENTS_SCHEMA,
+        "aja_territory_knowledge": TERRITORY_KNOWLEDGE_SCHEMA,
+        "aja_missions": MISSIONS_SCHEMA,
+        "aja_chat_history": CHAT_HISTORY_SCHEMA,
+    }
+
+    def _repair_empty_schema_tables(self):
+        """
+        Self-heals crash-corrupted tables.
+
+        A hard power-cut during a table write can leave a LanceDB table with
+        an empty (zero-field) schema; every query then fails with
+        ``LanceError(Schema): No field named ...`` and callers error-loop.
+        A zero-field schema is treated as the corruption signature: the table
+        is dropped and recreated with its canonical schema constant.
+        Tables with any non-empty schema are never touched, nor are unknown
+        tables. For ``aja_missions`` the JSONL journals under
+        DATA_DIR/missions are the source of truth, so projections are rebuilt
+        after recreation. Never raises: a failed repair is logged and
+        startup continues.
+        """
+        try:
+            present = set(list_tables_defensive(self.db))
+        except Exception as e:
+            logger.warning("empty-schema repair skipped (table listing failed): %s", e)
+            return
+
+        for tbl_name, schema in self.KNOWN_TABLE_SCHEMAS.items():
+            if tbl_name not in present:
+                continue
+            try:
+                table = self.db.open_table(tbl_name)
+            except Exception as e:
+                logger.warning(
+                    "empty-schema repair could not open '%s': %s", tbl_name, e
+                )
+                continue
+            try:
+                if len(table.schema) != 0:
+                    continue  # healthy or evolved schema — never touched
+                self.db.drop_table(tbl_name)
+                self.db.create_table(tbl_name, schema=schema)
+                logger.warning(
+                    "repaired crash-corrupted empty-schema table '%s'", tbl_name
+                )
+                if tbl_name == "aja_missions":
+                    try:
+                        from aja.runtime.mission_journal import (
+                            rebuild_all_mission_projections,
+                        )
+
+                        rebuild_all_mission_projections()
+                    except Exception as e:
+                        logger.warning(
+                            "mission projection rebuild after empty-schema "
+                            "repair failed: %s",
+                            e,
+                        )
+            except Exception as e:
+                logger.warning("empty-schema repair failed for '%s': %s", tbl_name, e)
 
     # --- Worker Management (Heartbeats) ---
     

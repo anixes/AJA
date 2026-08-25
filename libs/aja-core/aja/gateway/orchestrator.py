@@ -30,11 +30,22 @@ from aja.gateway.persistence import GatewayState
 from aja.gateway.vision import VisionBridge
 from aja.gateway.base import MessageEvent, MessageType
 
+import contextvars
+
 logger = logging.getLogger(__name__)
 
 # Max chars for a data URL persisted in session["last_image_url"] (~4MB raw
 # image → ~5.3MB base64). Larger payloads stay turn-local only.
 _MAX_PERSISTED_IMAGE_URL_CHARS = 4 * 1024 * 1024
+
+# Explicit-responder routing: the gateway_runner sets this per event so
+# replies/telemetry route back to the platform the message CAME FROM.
+# A ContextVar (not shared mutable state) means concurrent platform pollers
+# never clobber each other's routing and no event serialization is needed.
+# Falls back to the Telegram adapter when unset (direct gateway-server mode).
+_current_responder: "contextvars.ContextVar" = contextvars.ContextVar(
+    "aja_current_responder", default=None
+)
 
 
 class UnifiedGateway:
@@ -393,6 +404,12 @@ class UnifiedGateway:
 
         return code
 
+    def _responder(self):
+        """The platform adapter replies/telemetry for the CURRENT event should
+        route through. Explicit per-event responder (set by GatewayRunner)
+        wins; falls back to the Telegram adapter for direct-server mode."""
+        return _current_responder.get() or self.telegram_adapter
+
     async def start(self):
         """Starts the gateway services (Telegram, etc)."""
         token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
@@ -497,7 +514,7 @@ class UnifiedGateway:
                 event.user_id,
                 redact_secrets(event.text),
             )
-            await self.telegram_adapter.send_message(chat_id, msg)
+            await self._responder().send_message(chat_id, msg)
             return
 
         session = await asyncio.to_thread(self.gateway_state.get_session, chat_id)
@@ -583,7 +600,7 @@ class UnifiedGateway:
                     lines.append(f"{badge} `{w.name}` (`{w.id}`)\n  📁 `{w.path}`")
                 lines.append("\n_Use `/switch <name>` to change default workspace or `@<name> <goal>` for single tasks._")
                 ws_msg = "\n".join(lines)
-            await self.telegram_adapter.send_message(chat_id, ws_msg)
+            await self._responder().send_message(chat_id, ws_msg)
             return
 
         if content_stripped.lower().startswith("/switch ") or content_stripped.lower().startswith("/use "):
@@ -594,7 +611,7 @@ class UnifiedGateway:
                 msg = f"✅ **Switched Active Workspace to:** `{ws.name}`\n📁 `{ws.path}`"
             else:
                 msg = f"❌ Workspace `{target}` not found. Use `/workspaces` to see registered projects."
-            await self.telegram_adapter.send_message(chat_id, msg)
+            await self._responder().send_message(chat_id, msg)
             return
 
         # Check for @<workspace> syntax (e.g. "@backend fix migrations")
@@ -616,7 +633,7 @@ class UnifiedGateway:
                 mission_id=f"telegram-{chat_id}-{correlation_id}",
                 trace_id=f"telegram-{correlation_id}",
             )
-            await self.telegram_adapter.send_message(chat_id, response)
+            await self._responder().send_message(chat_id, response)
             session["history"].append(
                 {"role": "assistant", "text": response, "time": time.time()}
             )
@@ -663,7 +680,7 @@ class UnifiedGateway:
                 self._auto_boot_local_worker()
                 active_workers = self.aja_memory.get_active_workers(timeout_seconds=120)
                 if not active_workers:
-                    await self.telegram_adapter.send_message(
+                    await self._responder().send_message(
                         chat_id,
                         "⚠️ **AJA Info**: Terminal Worker auto-boot initiated in background. Terminal missions will be available shortly."
                     )
@@ -699,10 +716,10 @@ class UnifiedGateway:
 
             # Start telemetry bridge for this chat (lifecycle-tracked by the adapter)
             if chat_id not in self.active_telemetry_bridges:
-                if hasattr(self.telegram_adapter, "start_tail"):
-                    self.telegram_adapter.start_tail(chat_id)
+                if hasattr(self._responder(), "start_tail"):
+                    self._responder().start_tail(chat_id)
                 else:  # adapters without per-chat tail management (e.g. stubs)
-                    asyncio.create_task(self.telegram_adapter.tail_events(chat_id))
+                    asyncio.create_task(self._responder().tail_events(chat_id))
                 self.active_telemetry_bridges.add(chat_id)
 
         elif intent == "REMINDER":
@@ -789,7 +806,7 @@ class UnifiedGateway:
                 response = await self._chat_via_core(event, content_stripped)
 
         # 4. AJA Response
-        await self.telegram_adapter.send_message(chat_id, response)
+        await self._responder().send_message(chat_id, response)
         logger.info(
             "telegram_event_replied",
             extra={
@@ -1020,4 +1037,5 @@ class UnifiedGateway:
             logger.warning(f"LLM Intent Classification failed ({e}), falling back to safe CHAT default.")
 
         return "CHAT"
+
 

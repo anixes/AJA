@@ -6,6 +6,7 @@ from aja.gateway.base import BasePlatformAdapter, MessageEvent
 from aja.gateway.tg_client import TelegramAdapter
 from aja.gateway.adapters.discord_adapter import DiscordAdapter
 from aja.gateway.adapters.slack_adapter import SlackAdapter
+from aja.gateway.orchestrator import _current_responder
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,9 @@ class GatewayRunner:
         self.adapters: List[BasePlatformAdapter] = []
         self._tasks: List[asyncio.Task] = []
         self.is_running = False
-        # Serializes process_event: the telegram_adapter swap below mutates
-        # shared orchestrator state and must stay active for the entire
-        # handle_gateway_event await. Without mutual exclusion, concurrent
-        # adapter pollers clobber each other's adapter and replies/telemetry
-        # get routed to the WRONG platform.
-        self._event_lock = asyncio.Lock()
+        # No event lock needed: per-event routing uses an explicit ContextVar
+        # responder (see process_event), so concurrent adapter pollers never
+        # mutate shared orchestrator state.
 
     async def start(self):
         self.is_running = True
@@ -84,26 +82,15 @@ class GatewayRunner:
         Processes a platform-agnostic MessageEvent.
         Provides continuous session recovery by storing user interaction states.
         """
-        # Override the orchestrator's active adapter temporarily, or provide a dynamic response mapping
-        # so that when the orchestrator calls telemetry/responses it goes back to this adapter.
-        class AdapterProxy:
-            def __init__(self, target_adapter):
-                self.target_adapter = target_adapter
-            def __getattr__(self, name):
-                return getattr(self.target_adapter, name)
-            async def send_message(self, chat_id, text, **kwargs):
-                return await self.target_adapter.send_message(chat_id, text, **kwargs)
-            async def send_notification(self, chat_id, text, importance="normal"):
-                return await self.target_adapter.send_notification(chat_id, text, importance)
-
-        async with self._event_lock:
-            original_tg_adapter = self.orchestrator.telegram_adapter
-            try:
-                self.orchestrator.telegram_adapter = AdapterProxy(adapter)
-                # Call handle_gateway_event which does reasoning, session tracking, worker delegation
-                await self.orchestrator.handle_gateway_event(event)
-            finally:
-                self.orchestrator.telegram_adapter = original_tg_adapter
+        # Explicit-responder routing: set the ContextVar the orchestrator's
+        # _responder() reads, so replies/telemetry for THIS event go back to
+        # the platform it came from. ContextVars are task-local, so concurrent
+        # pollers can't clobber each other's routing — no lock or adapter swap.
+        token = _current_responder.set(adapter)
+        try:
+            await self.orchestrator.handle_gateway_event(event)
+        finally:
+            _current_responder.reset(token)
 
     async def stop(self):
         self.is_running = False
