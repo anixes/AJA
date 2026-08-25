@@ -1069,6 +1069,22 @@ class AJAMemory:
         table.add([row])
         return eid
 
+    def get_runtime_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Returns the newest runtime events, newest-first (bounded read)."""
+        table = self.db.open_table("aja_runtime_events")
+        rows = table.search().limit(max(1, int(limit))).to_list()
+        rows.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+        for r in rows:
+            raw = r.get("metadata_json")
+            if raw:
+                try:
+                    r["metadata"] = json.loads(raw)
+                except (TypeError, ValueError):
+                    r["metadata"] = {}
+            else:
+                r["metadata"] = {}
+        return rows
+
     # --- Maintenance ---
 
     def cleanup_old_tasks(self, ttl_days: int = 30):

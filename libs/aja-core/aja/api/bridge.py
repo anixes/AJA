@@ -47,16 +47,22 @@ from aja.utils.redact import redact_secrets
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Launch Telegram Poller if token is available
+    # Startup: Launch Telegram Poller if token is available. Opt-out for
+    # tests/headless embeds: a second poller steals Telegram getUpdates
+    # from the live gateway (Conflict -> dropped messages).
+    background_disabled = bool(os.getenv("AJA_BRIDGE_BACKGROUND_DISABLED"))
     polling_task = None
-    if TELEGRAM_BOT_TOKEN:
+    if TELEGRAM_BOT_TOKEN and not background_disabled:
         print(f"[*] AJA Voice Gateway: Initializing Telegram Poller...")
         polling_task = asyncio.create_task(telegram_polling_loop())
 
-    # Launch Maintenance Service in a background thread
-    print(f"[*] AJA Core: Initializing Maintenance Service...")
-    maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
-    maintenance_thread.start()
+    # Launch Maintenance Service in a background thread. Opt out with
+    # AJA_BRIDGE_BACKGROUND_DISABLED=1 (tests, aja serve where the scheduler
+    # already owns periodic pruning).
+    if not background_disabled:
+        print(f"[*] AJA Core: Initializing Maintenance Service...")
+        maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
+        maintenance_thread.start()
 
     yield
 

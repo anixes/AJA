@@ -282,13 +282,31 @@ class ActivityRuntime:
         )
 
     async def _run_python(self, activity: Activity) -> ActivityResult:
-        from aja.orchestration.tools.native import NativeToolRegistry
+        from aja.orchestration.tools.native import NativeToolRegistry, ToolSignatureError
         registry = NativeToolRegistry(engine=self._permission_engine)
         t0 = time.monotonic()
-        result_str = registry.execute(activity.tool, activity.args)
+        try:
+            # Tool bodies are sync (subprocess/urllib/file IO up to 120s) —
+            # offload so the event loop never blocks on a tool call.
+            result_str = await registry.execute_async(activity.tool, activity.args)
+        except ToolSignatureError as exc:
+            # Signature drift is journaled as a failed activity, not a crash.
+            return ActivityResult(
+                tool=activity.tool,
+                success=False,
+                data=None,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error=f"Tool signature mismatch: {exc}",
+            )
         duration_ms = int((time.monotonic() - t0) * 1000)
         is_security_err = result_str.startswith("Security Error")
-        is_err = result_str.startswith("Error") or is_security_err
+        is_err = (
+            result_str.startswith("Error")
+            or is_security_err
+            # Tool-level failures return "Tool Execution Error: ..." strings;
+            # they must journal as failures, not silent successes.
+            or result_str.startswith("Tool Execution Error")
+        )
         return ActivityResult(
             tool=activity.tool,
             success=not is_err,
