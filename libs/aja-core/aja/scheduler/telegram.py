@@ -81,7 +81,6 @@ def _send_telegram_report(message: str):
         extra={"message_length": len(message or "")},
     )
     try:
-    try:
         get_shared_runtime_sink().emit(
             {
                 "event_type": "LEGACY_TELEGRAM_REPORT",
