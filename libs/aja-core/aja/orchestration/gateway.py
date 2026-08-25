@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import random
 from aja.utils.redact import redact_secrets
 import os
 from pathlib import Path
@@ -12,6 +13,25 @@ from aja.config import DATA_DIR
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _llm_timeout_s() -> float:
+    """Per-request LLM timeout (seconds). The openai SDK defaults to 600s and
+    aiohttp to 300s — both far beyond any sane turn budget without this knob."""
+    try:
+        return float(os.getenv("AJA_LLM_TIMEOUT_S", "120"))
+    except ValueError:
+        return 120.0
+
+
+def _backoff_sleep_seconds(attempt: int) -> float:
+    """Jittered exponential backoff in [0.5x, 1.0x] of min(30, 2**attempt).
+    Full-jitter bounds prevent fleet-wide thundering-herd retry sync."""
+    return min(30.0, 2.0 ** attempt) * (0.5 + random.random() / 2.0)
+
+
+async def _backoff_sleep(attempt: int) -> None:
+    await asyncio.sleep(_backoff_sleep_seconds(attempt))
 
 
 def find_project_root() -> Path:
@@ -249,7 +269,7 @@ class LLMGateway:
             asyncio.set_event_loop(loop)
 
         if self._session is None or self._session.closed or self._session_loop != loop:
-            timeout = aiohttp.ClientTimeout(total=60)
+            timeout = aiohttp.ClientTimeout(total=_llm_timeout_s())
             connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
             self._session = aiohttp.ClientSession(connector=connector, timeout=timeout)
             self._session_loop = loop
@@ -280,6 +300,10 @@ class LLMGateway:
                 api_key=self.api_key or "dummy-local-key",
                 base_url=self.base_url,
                 default_headers=headers,
+                # Explicit per-request timeout (SDK default is 600s) and
+                # max_retries=0 so AJA's own retry loop is the only layer.
+                timeout=_llm_timeout_s(),
+                max_retries=0,
             )
             self._openai_client_loop = loop
         return self._openai_client
@@ -370,7 +394,15 @@ class LLMGateway:
                             for tc in llm_resp.tool_calls
                         ],
                     }
-                return llm_resp.content or ""
+                # Contract: None on failure/empty, str on success — never "".
+                if not getattr(llm_resp, "content", None):
+                    logger.warning(
+                        "[Gateway] Adapter path returned no content "
+                        "(provider=%s, model=%s)",
+                        self.provider, model,
+                    )
+                    return None
+                return llm_resp.content
         except Exception as adapter_err:
             logger.debug("[Gateway] Adapter path failed (%s), falling back to legacy.", adapter_err)
 
@@ -571,9 +603,14 @@ class LLMGateway:
 
                         if resp.status != 200:
                             detail = await resp.text()
-                            raise ValueError(
+                            # Attach the status so the 4xx fast-fail classifier
+                            # below can catch deterministic client errors —
+                            # otherwise a 400 burns all retries silently.
+                            err = ValueError(
                                 f"Copilot Responses API Error {resp.status}: {detail}"
                             )
+                            err.status_code = resp.status
+                            raise err
                         data = await resp.json()
 
                     output_items = data.get("output", [])
@@ -598,6 +635,14 @@ class LLMGateway:
 
                     if tools is not None:
                         return {"content": resp_content, "tool_calls": resp_tool_calls}
+                    # Contract: None on failure/empty, str on success — never "".
+                    if not resp_content:
+                        logger.warning(
+                            "[Gateway] Responses path returned no content "
+                            "(provider=%s, model=%s)",
+                            self.provider, model,
+                        )
+                        return None
                     return resp_content
 
                 if isinstance(prompt, list):
@@ -657,7 +702,14 @@ class LLMGateway:
                                 }
                             )
                     return {"content": msg.content or "", "tool_calls": tool_calls}
-                return msg.content or ""
+                # Contract: None on failure/empty, str on success — never "".
+                if not getattr(msg, "content", None):
+                    logger.warning(
+                        "[Gateway] Legacy path returned no content (provider=%s, model=%s)",
+                        self.provider, model,
+                    )
+                    return None
+                return msg.content
             except Exception as e:
                 # Do not retry deterministic client errors (bad model name,
                 # invalid schema, auth failures) — they will fail identically.
@@ -687,7 +739,7 @@ class LLMGateway:
                         self._openai_client = None  # Re-instantiate fresh client on next attempt
                     except Exception:
                         pass
-                await asyncio.sleep(2**attempt)
+                await _backoff_sleep(attempt)
 
     async def chat_stream(
         self,
@@ -706,6 +758,7 @@ class LLMGateway:
 
         # If model is OpenAI compatible
         if self.provider in ("openai", "openrouter", "copilot", "llama_cpp", "ollama", "together", "groq", "nvidia"):
+            yielded_any = False
             try:
                 if isinstance(prompt, list):
                     prompt_messages = []
@@ -733,10 +786,23 @@ class LLMGateway:
                 response_stream = await client.chat.completions.create(**kwargs)
                 async for chunk in response_stream:
                     if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yielded_any = True
                         yield chunk.choices[0].delta.content
                 return
             except Exception as e:
-                logger.debug(f"[Gateway] chat_stream streaming error: {e}, falling back to non-streamed chat.")
+                if yielded_any:
+                    # Mid-stream failure: partial content was already
+                    # delivered. Falling back to non-streamed chat would
+                    # yield the FULL response again (duplicate reply).
+                    logger.warning(
+                        "[Gateway] chat_stream failed mid-stream after partial "
+                        "output (%s); keeping partial response.",
+                        e,
+                    )
+                    return
+                logger.debug(
+                    f"[Gateway] chat_stream streaming error: {e}, falling back to non-streamed chat."
+                )
 
         # Fallback for Google or non-streamed paths
         full_res = await self.chat(model=model, prompt=prompt, system=system, temperature=temperature)
@@ -905,6 +971,9 @@ class LLMGateway:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 default_headers=headers,
+                # Same explicit-timeout / no-SDK-retry posture as chat clients.
+                timeout=_llm_timeout_s(),
+                max_retries=0,
             ) as client:
                 response = await client.embeddings.create(input=text, model=model)
                 return response.data[0].embedding
