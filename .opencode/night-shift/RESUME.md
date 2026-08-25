@@ -1,27 +1,43 @@
 # Night Shift — RESUME CHECKPOINT
-# Updated: 2026-08-25 ~16:00 local
-# MACHINE: RAM instability CONFIRMED via WinDbg (0x10e_2d dxgmms2!VIDMM_CPU_HOST_APERTURE::MapRange
-#   - video memory manager mapping host RAM = page-table corruption from failing DIMM).
-#   Memory Diagnostic SCHEDULED (bcdedit /bootsequence {memdiag}) - runs on next reboot.
-#   Suspect: non-Samsung "0949" OEM stick. pytest runs are hardware-flaky (Rust allocation
-#   aborts with 11GB free) - treat suite failures as noise unless reproduced in isolation.
-# STRATEGY: sequential main-session work only, commit per domain.
+# Updated: 2026-08-25 ~16:45 local — WAVES 0-3 COMPLETE
+# MACHINE: RAM instability CONFIRMED via WinDbg (0x10e_2d dxgmms2!VIDMM_CPU_HOST_APERTURE::MapRange).
+#   Memory Diagnostic SCHEDULED (bcdedit /bootsequence {memdiag}) - runs on NEXT reboot.
+#   Suspect: non-Samsung "0949" OEM stick. Suite failures that abort the interpreter
+#   (Rust allocation failures / PyO3 panics) = hardware noise; verify in isolation.
 
-## STATE (all pushed to origin/native-worker-3)
+## PUSHED STATE (origin/native-worker-3, newest last)
 - dfbf1bc wave-0: Telegram vision + single-instance daemons + heartbeat fix
 - 5beffef wave-1: async/type sweep (~50 fixes)
-- 384d2be + df40179 wave-2 E1: CommandGuard newline + interpreter laundering
-  (calibrated: read-only pipelines keep fast path, separators/destructive escalate)
-- 72181ce wave-2 E6: providers (anthropic base_url, copilot env-token, tool-name
-  sanitization bijection, array-root schema wrap)
-- bfb6cbd wave-2 E2: bridge auth (loopback bind, protected routes, atomic approvals, redact)
+- 384d2be + df40179 wave-2 E1: CommandGuard newline-chaining + interpreter laundering
+  (calibrated: separator-free read-only pipelines keep fast path)
+- 72181ce wave-2 E6: providers (anthropic base_url, copilot env-token preservation,
+  tool-name sanitization bijection, array-root schema wrap)
+- bfb6cbd wave-2 E2: bridge auth (loopback-default bind, protected routes,
+  atomic approvals, telegram token redaction)
 - 2b5f35a: ws broadcasting test authenticates
-- E3 approvals + E4 streaming + E5 llm-semantics + E7 orchestrator: committed in bfb6cbd batch? NO -
-  E3/E4/E5/E7 changes are in the working tree of commits 384d2be..2b5f35a (mixed in). All ledgered.
+- 9b20510 wave-3a: activity_rt off-loop tools + get_runtime_events reader +
+  AJA_BRIDGE_BACKGROUND_DISABLED opt-out (maintenance thread + telegram poller)
+- 9242f68 wave-3b: telegram poll supervisor (restart w/ backoff) +
+  approval_expires_at stamping at all 3 emission sites
+- bcf95dc wave-3c: chat_stream mid-stream failure no longer duplicates replies
+- 0b0f6c3 wave-3d: Discord bus subscription at start (standalone gateway had ZERO Discord telemetry)
+- 150e944 wave-3e: dashboard _tick_spinner mount/unmount race guarded (rotating flake FIXED)
+- 7009c39 + fd1ccb9 wave-3f: shared runtime sink in scheduler.telegram
+- Final gate: 1241 passed, 1 timing-flake (passes in isolation)
+- E3 approvals / E4 streaming / E5 llm-semantics / E7 orchestrator fixes are inside
+  the bfb6cbd..9b20510 commits (ledger reports in .opencode/night-shift/ledger/)
 
-## NEXT (Waves 3-5, sequential, self-researched)
-- Wave 3: Memory/Persistence + Scheduler (briefs: reuse wave-1 A4/T3 findings; verify each still open)
-- Wave 4: CLI/TUI + remaining security (wave-1 A3/T4 leftovers)
-- Wave 5: test-gap + perf (wave-1 leftovers: dashboard _tick_spinner flake, activity_rt to_thread)
-- Gate per wave: full suite -n 4; hardware-noise failures: verify in isolation before fixing
-- Morning: user retests Telegram photo; user runs memdiag results; RAM stick swap decision
+## REMAINING (Wave 4-5 backlog; details in briefs/ + ledger deferrals)
+- Slack telemetry dispatcher (G3#3): needs fan-out wiring like tg_client tails
+- gateway_runner explicit-responder refactor (E1-deferred; replaces adapter-swap lock)
+- async decompose refactor (E5-deferred); briefing/rebuild offload
+- Architecture items from explore agents: episodic memory is keyword-JSON not vectors;
+  4 overlapping task stores; agent_memory table orphaned
+- Morning checklist: 1) let Memory Diagnostic run on reboot, note results
+  2) retest Telegram product-photo advice 3) RAM stick swap decision
+
+## HARD RULES
+- pytest -n 2 scoped / -n 4 gates (RAM instability under sustained load)
+- Never restart the live gateway/worker processes without user say-so
+- git checkout libs/aja-core/data/failures.json before every commit
+- Interpreter-aborting failures (Rust alloc/PyO3 panic) = hardware noise; verify in isolation
