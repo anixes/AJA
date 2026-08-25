@@ -40,7 +40,9 @@ from aja.memory.secretary import (
     parse_communication_intent,
     parse_task_intent,
 )
+from aja.gateway.auth import get_allowlist, is_user_authorized
 from aja.utils.maintenance import run_maintenance
+from aja.utils.redact import redact_secrets
 
 
 @asynccontextmanager
@@ -96,7 +98,8 @@ app.add_middleware(
 
 RUNTIME_STATE_PATH = DATA_DIR / "runtime-state.json"  # debug export only
 BATON_DIR = DATA_DIR / "batons"
-API_TOKEN = os.getenv("AJA_API_TOKEN", "dev-token-123")
+DEFAULT_API_TOKEN = "dev-token-123"
+API_TOKEN = os.getenv("AJA_API_TOKEN", DEFAULT_API_TOKEN)
 TELEGRAM_HISTORY_PATH = DATA_DIR / "telegram-history.jsonl"
 TELEGRAM_PENDING_PATH = DATA_DIR / "telegram-pending.json"  # debug export only
 APPROVAL_AUDIT_PATH = DATA_DIR / "approval-audit.jsonl"  # debug export only
@@ -149,6 +152,27 @@ ASK_PATTERNS = {
 def verify_token(authorization: str = Header(None)):
     if not authorization or authorization.replace("Bearer ", "") != API_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def is_loopback_host(host: str) -> bool:
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def resolve_bridge_bind():
+    """Resolve the bridge bind address, refusing insecure default-token exposure.
+
+    Binds loopback by default (AJA_BRIDGE_HOST opt-out). Refuses to start on a
+    non-loopback host while the API token is still the well-known default.
+    """
+    host = os.getenv("AJA_BRIDGE_HOST", "127.0.0.1")
+    port = int(os.getenv("AJA_BRIDGE_PORT", "8000"))
+    if not is_loopback_host(host) and API_TOKEN == DEFAULT_API_TOKEN:
+        raise SystemExit(
+            "Refusing to bind the AJA bridge to a non-loopback address with the "
+            "default API token. Set AJA_API_TOKEN explicitly (or drop "
+            "AJA_BRIDGE_HOST to bind 127.0.0.1 for local development)."
+        )
+    return host, port
 
 
 from aja.presence.state import get_system_state
@@ -207,8 +231,25 @@ def _setup_event_bus_subscriptions():
 _setup_event_bus_subscriptions()
 
 
+def _ws_token_ok(websocket: WebSocket) -> bool:
+    """Authenticate a websocket via ?token= query param or Bearer header."""
+    provided = websocket.query_params.get("token") or ""
+    auth_header = websocket.headers.get("authorization") or ""
+    bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    return bool(API_TOKEN) and API_TOKEN in (provided, bearer)
+
+
+@app.get("/health")
+def health_probe():
+    """Minimal unauthenticated liveness probe (no system details)."""
+    return {"ok": True}
+
+
 @app.websocket("/ws/mobile")
 async def websocket_endpoint(websocket: WebSocket):
+    if not _ws_token_ok(websocket):
+        await websocket.close(code=4401)
+        return
     q = await ws_manager.connect(websocket)
     try:
         while True:
@@ -1077,7 +1118,28 @@ def approval_is_expired(approval: dict):
         return True
 
 
+_APPROVAL_CLAIM_LOCKS: dict[str, asyncio.Lock] = {}
+_APPROVAL_CLAIM_LOCKS_GUARD = threading.Lock()
+
+
+def _approval_claim_lock(request_id: str) -> asyncio.Lock:
+    """Single-flight lock so concurrent resolvers cannot double-execute."""
+    with _APPROVAL_CLAIM_LOCKS_GUARD:
+        lock = _APPROVAL_CLAIM_LOCKS.get(request_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _APPROVAL_CLAIM_LOCKS[request_id] = lock
+        return lock
+
+
 async def approve_runtime_approval(request_id: str, user_id: int | None = None):
+    async with _approval_claim_lock(request_id):
+        return await _approve_runtime_approval_locked(request_id, user_id)
+
+
+async def _approve_runtime_approval_locked(
+    request_id: str, user_id: int | None = None
+):
     approval = get_pending_approval_by_id(request_id)
     if not approval:
         return {"ok": False, "message": "No pending approval found for that id."}
@@ -1132,6 +1194,9 @@ async def approve_runtime_approval(request_id: str, user_id: int | None = None):
         }
 
     mem = get_aja_memory()
+    # Claim the approval BEFORE any side effects so concurrent resolvers
+    # observe a non-pending row and cannot execute the command twice.
+    mem.update_approval(request_id, "executing", "Claimed for execution.")
     mem.log_approval_audit(
         {
             "approval_id": request_id,
@@ -1140,7 +1205,19 @@ async def approve_runtime_approval(request_id: str, user_id: int | None = None):
             "command": command,
         }
     )
-    result = await run_shell_command(command)
+    try:
+        result = await run_shell_command(command)
+    except Exception as exc:
+        # Roll the claim back to a terminal failed state (never re-pending).
+        mem.update_approval(request_id, "failed", compact_text(str(exc), 300))
+        mem.log_approval_audit(
+            {
+                "approval_id": request_id,
+                "action": "execution_failed",
+                "command": command,
+            }
+        )
+        return {"ok": False, "message": f"Failed: execution error\n{exc}"}
     mem.update_approval(
         request_id,
         "resolved" if result["ok"] else "failed",
@@ -1248,7 +1325,8 @@ async def send_telegram_message(
     try:
         return await asyncio.to_thread(_send)
     except Exception as exc:
-        return {"ok": False, "description": str(exc)}
+        # httpx/urllib exceptions embed the full bot-token-bearing URL.
+        return {"ok": False, "description": redact_secrets(str(exc))}
 
 
 def ensure_telegram_secret(secret_header: str | None):
@@ -1733,7 +1811,7 @@ def build_runtime_snapshot():
     }
 
 
-@app.get("/status")
+@app.get("/status", dependencies=[Depends(verify_token)])
 def get_status():
     """Returns dynamic engineering and safety status."""
     return build_status_payload()
@@ -1743,9 +1821,9 @@ def get_status():
 async def get_telegram_status():
     """Return Telegram bridge configuration without exposing secrets."""
     return {
-        "enabled": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID),
+        "enabled": bool(TELEGRAM_BOT_TOKEN and get_allowlist("telegram")),
         "bot_token_set": bool(TELEGRAM_BOT_TOKEN),
-        "allowed_user_id_set": bool(TELEGRAM_ALLOWED_USER_ID),
+        "allowed_user_id_set": get_allowlist("telegram") is not None,
         "webhook_secret_set": bool(TELEGRAM_WEBHOOK_SECRET),
         "pending_count": len(load_telegram_pending()),
         "history_path": str(TELEGRAM_HISTORY_PATH),
@@ -2230,7 +2308,7 @@ async def post_telegram_command(request: Request):
     text = str(body.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="Missing text.")
-    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
+    if not is_user_authorized("telegram", user_id):
         append_telegram_history(
             {
                 "user_id": user_id,
@@ -2270,7 +2348,7 @@ async def telegram_webhook(
         )
         return {"ok": True}
 
-    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(TELEGRAM_ALLOWED_USER_ID):
+    if not is_user_authorized("telegram", user_id):
         append_telegram_history(
             {
                 "user_id": user_id,
@@ -2289,7 +2367,7 @@ async def telegram_webhook(
     return {"ok": True}
 
 
-@app.get("/diff")
+@app.get("/diff", dependencies=[Depends(verify_token)])
 def get_diff():
     try:
         diff = subprocess.check_output(
@@ -2304,7 +2382,7 @@ def get_diff():
         return {"diff": "// Unable to access structural history."}
 
 
-@app.get("/git/history")
+@app.get("/git/history", dependencies=[Depends(verify_token)])
 def get_git_history():
     try:
         output = subprocess.check_output(
@@ -2323,24 +2401,24 @@ def get_git_history():
         return {"commits": []}
 
 
-@app.get("/runtime/approvals")
+@app.get("/runtime/approvals", dependencies=[Depends(verify_token)])
 def get_pending_approval():
     state = load_runtime_state()
     return {"pending": state.get("pendingApproval")}
 
 
-@app.get("/runtime/events")
+@app.get("/runtime/events", dependencies=[Depends(verify_token)])
 def get_runtime_events():
     state = load_runtime_state()
     return {"events": state.get("events", [])[:10]}
 
 
-@app.get("/runtime/batons")
+@app.get("/runtime/batons", dependencies=[Depends(verify_token)])
 def get_runtime_batons():
     return {"batons": load_baton_state()}
 
 
-@app.get("/runtime/stream")
+@app.get("/runtime/stream", dependencies=[Depends(verify_token)])
 async def runtime_stream(request: Request):
     async def event_generator():
         last_payload = None
@@ -2491,14 +2569,14 @@ async def swarm_run(request: Request):
         ) from exc
 
 
-@app.get("/safety/pending")
+@app.get("/safety/pending", dependencies=[Depends(verify_token)])
 def get_pending_legacy():
     state = load_runtime_state()
     pending = state.get("pendingApproval")
     return {"pending": [pending] if pending else []}
 
 
-@app.get("/safety/history")
+@app.get("/safety/history", dependencies=[Depends(verify_token)])
 def get_safety_history():
     state = load_runtime_state()
     return {"events": state.get("events", [])[:10]}
@@ -2521,7 +2599,7 @@ def save_config(data: dict):
     CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-@app.get("/config")
+@app.get("/config", dependencies=[Depends(verify_token)])
 def get_config():
     cfg = load_config()
     # Mask the API key for safety — only show last 4 chars
@@ -2623,7 +2701,7 @@ async def telegram_polling_loop():
                     with urllib.request.urlopen(url, timeout=35) as response:
                         return json.loads(response.read().decode("utf-8"))
                 except Exception as e:
-                    return {"ok": False, "error": str(e)}
+                    return {"ok": False, "error": redact_secrets(str(e))}
 
             res = await asyncio.to_thread(_fetch)
             if res.get("ok"):
@@ -2638,9 +2716,7 @@ async def telegram_polling_loop():
                     if not chat_id or not user_id or not text:
                         continue
                     print(f"[Telegram Poller] Ingress: {user_id} > {text[:50]}...")
-                    if not TELEGRAM_ALLOWED_USER_ID or str(user_id) != str(
-                        TELEGRAM_ALLOWED_USER_ID
-                    ):
+                    if not is_user_authorized("telegram", user_id):
                         print(f"[Telegram Poller] Blocked unauthorized user: {user_id}")
                         await send_telegram_message(
                             chat_id, "🔒 *Access Denied*: User is not whitelisted."
@@ -2652,7 +2728,7 @@ async def telegram_polling_loop():
                         )
                         await send_telegram_message(chat_id, reply)
                     except Exception as exec_err:
-                        print(f"[Telegram Poller] Execution error: {exec_err}")
+                        print(f"[Telegram Poller] Execution error: {redact_secrets(str(exec_err))}")
                         await send_telegram_message(
                             chat_id, f"❌ *Internal Error*: {exec_err}"
                         )
@@ -2680,7 +2756,7 @@ async def telegram_polling_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"[Telegram Poller] Critical Loop Error: {e}")
+            print(f"[Telegram Poller] Critical Loop Error: {redact_secrets(str(e))}")
             await asyncio.sleep(10)
         await asyncio.sleep(0.5)
 
@@ -2695,4 +2771,5 @@ def start_dashboard():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    host, port = resolve_bridge_bind()
+    uvicorn.run(app, host=host, port=port)

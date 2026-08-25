@@ -20,6 +20,18 @@ _REDACTION_PATTERNS = [
     re.compile(r"([?&]key=)[^&'\s]+"),
     # GitHub tokens
     re.compile(r"(?:gh[pousr]_[A-Za-z0-9_]{20,})"),
+    # Telegram bot tokens (e.g. 1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+    # URL-embedded form first (api.telegram.org/bot<token>/) so the whole
+    # bot<token> segment masks as a unit; no leading \b on the bare form
+    # since "bot" is alphanumeric and a word boundary never matches there.
+    re.compile(r"bot\d{8,10}:[A-Za-z0-9_\-]{35}\b"),
+    re.compile(r"\d{8,10}:[A-Za-z0-9_\-]{35}\b"),
+    # Slack tokens (xoxb-/xoxp-/xoxa-/xoxr-/xoxs-...)
+    re.compile(r"\bxox[aebprs]-[A-Za-z0-9\-]{10,}"),
+    # Discord bot tokens (three dot-separated base64url segments)
+    re.compile(r"\b[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,}"),
+    # AWS access key ids
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
 ]
 
 _MASK = "***REDACTED***"
