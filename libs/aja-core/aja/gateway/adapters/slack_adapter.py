@@ -1,8 +1,11 @@
 import logging
 import asyncio
+import uuid
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from aja.gateway.auth import is_user_authorized
 from aja.gateway.base import BasePlatformAdapter, MessageEvent, MessageType
+from aja.runtime.event_bus import bus, EVENTS
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,9 @@ class SlackAdapter(BasePlatformAdapter):
         # Telegram/Discord adapters; see start_tail/tail_events/stop_tails).
         self._tail_tasks: Dict[str, asyncio.Task] = {}
         self._chat_queues: Dict[str, asyncio.Queue] = {}
+        self._bus_handlers: list = []
+        self.telemetry_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._dispatcher_task: Optional[asyncio.Task] = None
         self.metrics = {
             "events_received": 0,
             "events_rejected": 0,
@@ -43,6 +49,10 @@ class SlackAdapter(BasePlatformAdapter):
 
     async def start(self, gateway):
         self.gateway = gateway
+        # Subscribe to the event bus in BOTH paths (real + simulated): Slack
+        # missions previously promised live reports that never arrived —
+        # nothing fed the per-channel queues.
+        self._subscribe_bus_events()
         if not self.token:
             logger.warning("[SlackAdapter] No Slack token provided. Skipping initialization.")
             return
@@ -115,9 +125,106 @@ class SlackAdapter(BasePlatformAdapter):
 
     async def stop(self):
         await self.stop_tails()
+        for event_name, handler in self._bus_handlers:
+            try:
+                bus.unsubscribe(event_name, handler)
+            except Exception as e:
+                logger.debug("Failed to unsubscribe handler for %s: %s", event_name, e)
+        self._bus_handlers.clear()
+        if self._dispatcher_task and not self._dispatcher_task.done():
+            self._dispatcher_task.cancel()
+        self._dispatcher_task = None
         if self._socket_client and SLACK_AVAILABLE:
             await self._socket_client.close()
         self.is_running = False
+
+    # ------------------------------------------------------------------ #
+    # Telemetry pipeline (bus -> shared queue -> per-channel fan-out),
+    # mirroring TelegramAdapter so Slack missions deliver live reports.
+    # ------------------------------------------------------------------ #
+
+    def _subscribe_bus_events(self):
+        for event_name in EVENTS.values():
+            handler = self._make_event_handler(event_name)
+            bus.subscribe(event_name, handler)
+            self._bus_handlers.append((event_name, handler))
+
+    def _make_event_handler(self, event_name: str):
+        def handler(payload: dict):
+            try:
+                target = payload.get("node_id", payload.get("mission_id", "system"))
+                status = "INFO"
+                if "FAILED" in event_name:
+                    status = "ERROR"
+                elif "SUCCESS" in event_name:
+                    status = "SUCCESS"
+
+                message = payload.get("message", str(payload))
+                if event_name == EVENTS.get("PLAN_CREATED", "PLAN_CREATED"):
+                    message = payload.get("plan_summary", "Plan created.")
+
+                self._put_telemetry(
+                    {
+                        "event_id": uuid.uuid4().hex[:8],
+                        "kind": event_name,
+                        "target": target,
+                        "status": status,
+                        "message": message,
+                        "command": payload.get("command", ""),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            except Exception as e:
+                logger.error(f"[SlackAdapter] Failed to queue event {event_name}: {e}")
+
+        return handler
+
+    def _put_telemetry(self, ev: dict):
+        """Bounded enqueue with drop-oldest; approvals are never dropped."""
+        q = self.telemetry_queue
+        if ev.get("kind") == "AWAITING_APPROVAL":
+            if q.full():
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            q.put_nowait(ev)
+            return
+        try:
+            q.put_nowait(ev)
+        except asyncio.QueueFull:
+            try:
+                dropped = q.get_nowait()
+                q.put_nowait(ev)
+                logger.warning(
+                    "Telemetry queue full; dropped event %s (%s)",
+                    dropped.get("event_id"),
+                    dropped.get("kind"),
+                )
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    async def _dispatch_telemetry(self):
+        """Single consumer fanning each event out to every subscribed channel
+        queue — without this, N competing consumers delivered each event to
+        exactly ONE arbitrary channel."""
+        while True:
+            try:
+                ev = await self.telemetry_queue.get()
+                for chat_q in list(self._chat_queues.values()):
+                    try:
+                        chat_q.put_nowait(ev)
+                    except asyncio.QueueFull:
+                        logger.warning(
+                            "Channel telemetry queue full; dropping event %s",
+                            ev.get("event_id"),
+                        )
+                self.telemetry_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Telemetry dispatcher error: {e}")
+                await asyncio.sleep(1)
         logger.info("[SlackAdapter] Stopped.")
 
     # ------------------------------------------------------------------ #
@@ -129,6 +236,10 @@ class SlackAdapter(BasePlatformAdapter):
         chat_key = str(chat_id)
         if chat_key in self._tail_tasks and not self._tail_tasks[chat_key].done():
             return
+        # Ensure the shared-queue dispatcher is running so events actually
+        # reach this channel's queue.
+        if self.is_running and (self._dispatcher_task is None or self._dispatcher_task.done()):
+            self._dispatcher_task = asyncio.create_task(self._dispatch_telemetry())
         self._chat_queues.setdefault(chat_key, asyncio.Queue(maxsize=500))
         self._tail_tasks[chat_key] = asyncio.create_task(self.tail_events(chat_key))
 
