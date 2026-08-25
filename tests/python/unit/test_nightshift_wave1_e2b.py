@@ -135,12 +135,26 @@ async def test_native_registry_execute_async_matches_execute():
     registry = NativeToolRegistry(engine=None)
     name = next(iter(registry.tools))
     args = {}
-    sync_out = registry.execute(name, args)
-    async_out = await registry.execute_async(name, args)
-    # Deterministic tools may embed timestamps; both calls must simply succeed
-    # with string results of the same shape.
-    assert isinstance(sync_out, str)
-    assert isinstance(async_out, str)
+    # execute() may legitimately return a string OR raise ToolSignatureError
+    # (signature-drift contract); execute_async must mirror whichever occurs.
+    try:
+        sync_out = registry.execute(name, args)
+        sync_exc = None
+    except Exception as exc:  # noqa: BLE001 - contract comparison
+        sync_out = None
+        sync_exc = exc
+    try:
+        async_out = await registry.execute_async(name, args)
+        async_exc = None
+    except Exception as exc:  # noqa: BLE001 - contract comparison
+        async_out = None
+        async_exc = exc
+    assert (sync_out is None) == (async_out is None)
+    if sync_out is not None:
+        assert isinstance(sync_out, str)
+        assert isinstance(async_out, str)
+    else:
+        assert type(async_exc) is type(sync_exc)
 
 
 async def test_native_registry_execute_async_does_not_block_loop():

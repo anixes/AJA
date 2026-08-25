@@ -1,3 +1,4 @@
+import inspect
 import json
 import logging
 import re
@@ -10,6 +11,57 @@ import traceback
 from aja.utils.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
+
+# Provider-safe tool-name constraints (OpenAI/Azure/DeepSeek/Anthropic/Gemini
+# all reject names outside ^[a-zA-Z0-9_-]{1,64}$; dots are illegal).
+_TOOL_NAME_SAFE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_TOOL_NAME_INVALID_RE = re.compile(r"[^a-zA-Z0-9_-]")
+_TOOL_NAME_MAX_LEN = 64
+
+# Module-level bijection original <-> provider-safe name so schemas can be
+# advertised with sanitized names while dispatch/execute reverse-map back.
+_ORIGINAL_TO_SAFE: Dict[str, str] = {}
+_SAFE_TO_ORIGINAL: Dict[str, str] = {}
+
+
+def sanitize_tool_name(name: str) -> str:
+    """Map an arbitrary tool name to a provider-safe identifier.
+
+    Dots become double underscores; any other invalid character becomes a
+    single underscore; results are capped at 64 chars. Collisions are broken
+    with a deterministic numeric suffix so the mapping stays injective.
+    """
+    safe = _ORIGINAL_TO_SAFE.get(name)
+    if safe:
+        return safe
+    safe = name.replace(".", "__")
+    safe = _TOOL_NAME_INVALID_RE.sub("_", safe)[:_TOOL_NAME_MAX_LEN]
+    if not _TOOL_NAME_SAFE_RE.match(safe):
+        safe = "tool_" + abs(hash(name)) % 10**8
+    base = safe
+    counter = 1
+    while _SAFE_TO_ORIGINAL.get(safe, name) != name:
+        counter += 1
+        suffix = f"_{counter}"
+        safe = base[: _TOOL_NAME_MAX_LEN - len(suffix)] + suffix
+    _ORIGINAL_TO_SAFE[name] = safe
+    _SAFE_TO_ORIGINAL[safe] = name
+    return safe
+
+
+def desanitize_tool_name(name: str) -> str:
+    """Reverse-map a provider-safe name to its original (may be unchanged)."""
+    return _SAFE_TO_ORIGINAL.get(name, name)
+
+
+class ToolSignatureError(TypeError):
+    """Raised when tool-call arguments do not match the tool's signature.
+
+    Distinct from tool-level failures (which return error strings) so the
+    runtime can journal signature drift as TOOL_FAILED instead of silently
+    misclassifying "Tool Execution Error: ..." output as success.
+    """
+
 
 class NativeToolRegistry:
     _external_schemas: Dict[str, Dict[str, Any]] = {}
@@ -675,11 +727,32 @@ class NativeToolRegistry:
                 self.register_external_schema(schema)
         except Exception:
             pass
-        return schemas + list(self._external_schemas.values())
+        all_schemas = schemas + list(self._external_schemas.values())
+        return [self._sanitize_schema(t) for t in all_schemas]
+
+    @staticmethod
+    def _sanitize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of ``schema`` whose advertised name is provider-safe."""
+        fn = schema.get("function", schema)
+        original = fn.get("name", "")
+        safe = sanitize_tool_name(original)
+        if safe == original:
+            return schema
+        sanitized = json.loads(json.dumps(schema))
+        target = sanitized.get("function", sanitized)
+        target["name"] = safe
+        return sanitized
 
     def execute(self, name: str, arguments: Dict[str, Any]) -> str:
+        name = desanitize_tool_name(name)
         if name not in self.tools:
             return f"Error: Tool '{name}' not found."
+        try:
+            inspect.signature(self.tools[name]).bind(**arguments)
+        except TypeError as exc:
+            raise ToolSignatureError(
+                f"Tool '{name}' argument/signature mismatch: {exc}"
+            ) from exc
         try:
             return self.tools[name](**arguments)
         except Exception as e:
@@ -699,20 +772,28 @@ class NativeToolRegistry:
 
     def dispatch(self, name: str, arguments: Dict[str, Any], trace_id: str) -> Any:
         from aja.orchestration.activity_rt import Activity, ActivityType, RetryPolicy
-        schema = next((t["function"] for t in self.get_schemas() if t["function"]["name"] == name), None)
+        original_name = desanitize_tool_name(name)
+        schema = next(
+            (
+                t["function"]
+                for t in self.get_schemas()
+                if desanitize_tool_name(t["function"]["name"]) == original_name
+            ),
+            None,
+        )
         if not schema:
-            raise ValueError(f"Tool '{name}' not registered")
+            raise ValueError(f"Tool '{original_name}' not registered")
         activity_type = schema.get("activity_type", "python")
         retry_policy = schema.get("retry_policy", "none")
         return Activity(
-            tool=name,
+            tool=original_name,
             args=arguments,
             activity_type=ActivityType(activity_type),
             retry_policy=RetryPolicy(retry_policy),
             trace_id=trace_id,
             metadata={
                 "required_scope": schema.get("required_scope"),
-                "schema_name": name,
+                "schema_name": original_name,
                 **dict(schema.get("metadata", {})),
             },
         )

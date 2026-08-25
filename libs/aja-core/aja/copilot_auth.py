@@ -36,6 +36,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -145,13 +146,32 @@ def _restrict_file_acl(path) -> None:
 # In-memory session cache for resolved raw GitHub token: (token, source)
 _CACHED_RAW_TOKEN: Optional[tuple[str, str]] = None
 
+# Env keys THIS process wrote (opt-in export after gh-CLI resolution or
+# device-flow login). Only these may be removed on cache invalidation —
+# never operator-supplied environment tokens (docker/VPS inject them).
+_ENV_TOKENS_WRITTEN: set = set()
+
+# Singleflight lock around resolve+exchange so N concurrent workers hitting
+# token expiry don't stampede the rate-limited exchange endpoint and
+# last-writer-wins over fresher caches.
+_auth_lock = threading.RLock()
+
 
 def invalidate_copilot_cache() -> None:
-    """Invalidate all cached GitHub and Copilot tokens (e.g. after a 401/403)."""
+    """Invalidate all cached GitHub and Copilot tokens (e.g. after a 401/403).
+
+    Only mutates env keys this process wrote. Environment-sourced raw tokens
+    (COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN) are preserved so the
+    next resolution re-reads the original source instead of permanently
+    destroying the operator's credentials.
+    """
     global _CACHED_RAW_TOKEN, _jwt_cache
-    _CACHED_RAW_TOKEN = None
-    _jwt_cache.clear()
-    os.environ.pop("COPILOT_GITHUB_TOKEN", None)
+    with _auth_lock:
+        _CACHED_RAW_TOKEN = None
+        _jwt_cache.clear()
+        for key in list(_ENV_TOKENS_WRITTEN):
+            os.environ.pop(key, None)
+        _ENV_TOKENS_WRITTEN.clear()
     logger.info("Copilot token and JWT caches have been invalidated.")
 
 
@@ -160,6 +180,23 @@ def resolve_copilot_token() -> tuple[str, str]:
     global _CACHED_RAW_TOKEN
 
     # 1. Fast in-memory cache lookup
+    if _CACHED_RAW_TOKEN is not None:
+        token, source = _CACHED_RAW_TOKEN
+        valid, _ = validate_copilot_token(token)
+        if valid:
+            return token, source
+        with _auth_lock:
+            _CACHED_RAW_TOKEN = None
+
+    with _auth_lock:
+        return _resolve_copilot_token_locked()
+
+
+def _resolve_copilot_token_locked() -> tuple[str, str]:
+    global _CACHED_RAW_TOKEN
+
+    # Re-check cache under lock (another thread may have refreshed it while
+    # we waited).
     if _CACHED_RAW_TOKEN is not None:
         token, source = _CACHED_RAW_TOKEN
         valid, _ = validate_copilot_token(token)
@@ -200,6 +237,7 @@ def resolve_copilot_token() -> tuple[str, str]:
             # (opt-in via AJA_EXPORT_COPILOT_TOKEN=1)
             if _export_token_enabled():
                 os.environ["COPILOT_GITHUB_TOKEN"] = token
+                _ENV_TOKENS_WRITTEN.add("COPILOT_GITHUB_TOKEN")
             else:
                 logger.debug(
                     "Skipping COPILOT_GITHUB_TOKEN export to child-process "
@@ -359,6 +397,7 @@ def copilot_device_code_login(
                 # (opt-in via AJA_EXPORT_COPILOT_TOKEN=1)
                 if _export_token_enabled():
                     os.environ["COPILOT_GITHUB_TOKEN"] = token
+                    _ENV_TOKENS_WRITTEN.add("COPILOT_GITHUB_TOKEN")
                 else:
                     logger.debug(
                         "Skipping COPILOT_GITHUB_TOKEN export to child-process "
@@ -398,42 +437,47 @@ def _token_fingerprint(raw_token: str) -> str:
 
 
 def exchange_copilot_token(raw_token: str, timeout: float = 10.0) -> tuple[str, float]:
-    """Exchange a raw GitHub token for a Copilot API token."""
+    """Exchange a raw GitHub token for a Copilot API token.
+
+    Singleflight: concurrent callers for the same raw token share one
+    exchange — the first refreshes the JWT cache, the rest reuse it.
+    """
     import urllib.request
 
     fp = _token_fingerprint(raw_token)
 
-    cached = _jwt_cache.get(fp)
-    if cached:
-        api_token, expires_at = cached
-        if time.time() < expires_at - _JWT_REFRESH_MARGIN_SECONDS:
-            return api_token, expires_at
+    with _auth_lock:
+        cached = _jwt_cache.get(fp)
+        if cached:
+            api_token, expires_at = cached
+            if time.time() < expires_at - _JWT_REFRESH_MARGIN_SECONDS:
+                return api_token, expires_at
 
-    req = urllib.request.Request(
-        _TOKEN_EXCHANGE_URL,
-        method="GET",
-        headers={
-            "Authorization": f"token {raw_token}",
-            "User-Agent": "GitHubCopilotChat/0.26.7",
-            "Accept": "application/json",
-            "Editor-Version": "vscode/1.104.1",
-        },
-    )
+        req = urllib.request.Request(
+            _TOKEN_EXCHANGE_URL,
+            method="GET",
+            headers={
+                "Authorization": f"token {raw_token}",
+                "User-Agent": "GitHubCopilotChat/0.26.7",
+                "Accept": "application/json",
+                "Editor-Version": "vscode/1.104.1",
+            },
+        )
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode())
-    except Exception as exc:
-        raise ValueError(f"Copilot token exchange failed: {exc}") from exc
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as exc:
+            raise ValueError(f"Copilot token exchange failed: {exc}") from exc
 
-    api_token = data.get("token", "")
-    expires_at = data.get("expires_at", 0)
-    if not api_token:
-        raise ValueError("Copilot token exchange returned empty token")
+        api_token = data.get("token", "")
+        expires_at = data.get("expires_at", 0)
+        if not api_token:
+            raise ValueError("Copilot token exchange returned empty token")
 
-    expires_at = float(expires_at) if expires_at else time.time() + 1800
-    _jwt_cache[fp] = (api_token, expires_at)
-    return api_token, expires_at
+        expires_at = float(expires_at) if expires_at else time.time() + 1800
+        _jwt_cache[fp] = (api_token, expires_at)
+        return api_token, expires_at
 
 
 def get_copilot_api_token(raw_token: str) -> str:

@@ -138,7 +138,39 @@ def extract_json_object(text):
     return None
 
 
+def _wrap_array_root(schema):
+    """Wrap an array-root schema for synthetic-tool parameters.
+
+    OpenAI-family Chat Completions endpoints require function ``parameters``
+    to be object-rooted; array roots 400 on strict providers. Returns
+    ``(parameters_schema, was_wrapped)``.
+    """
+    if isinstance(schema, dict) and schema.get("type") == "array":
+        return (
+            {
+                "type": "object",
+                "properties": {"items": schema},
+                "required": ["items"],
+            },
+            True,
+        )
+    return schema, False
+
+
+def _unwrap_wrapped_value(value, schema):
+    """Inverse of :func:`_wrap_array_root` on a validated candidate."""
+    if (
+        isinstance(schema, dict)
+        and schema.get("type") == "array"
+        and isinstance(value, dict)
+        and set(value.keys()) == {"items"}
+    ):
+        return value["items"]
+    return value
+
+
 def _emit_result_tool(schema):
+    parameters, _ = _wrap_array_root(schema)
     return [
         {
             "type": "function",
@@ -149,7 +181,7 @@ def _emit_result_tool(schema):
                     "arguments MUST be a single JSON value matching the "
                     "provided JSON schema exactly."
                 ),
-                "parameters": schema,
+                "parameters": parameters,
             },
         }
     ]
@@ -179,6 +211,7 @@ def _extract_and_validate(response, schema):
             last_raw = raw if isinstance(raw, str) else json.dumps(raw)
             continue
         last_raw = obj if isinstance(obj, str) else json.dumps(obj)
+        obj = _unwrap_wrapped_value(obj, schema)
         errors = validate_against_schema(obj, schema)
         if not errors:
             return obj, last_raw, []

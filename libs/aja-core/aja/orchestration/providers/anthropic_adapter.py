@@ -31,8 +31,16 @@ class AnthropicAdapter:
 
     provider_name = "anthropic"
 
-    def __init__(self, api_key: str = "") -> None:
+    def __init__(self, api_key: str = "", base_url: str = "") -> None:
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        # The gateway instantiates every adapter uniformly with
+        # (api_key=..., base_url=...); honor an explicit base_url and fall
+        # back to env/default exactly like the sibling adapters.
+        self.base_url = (
+            base_url
+            or os.environ.get("ANTHROPIC_BASE_URL", "")
+            or ANTHROPIC_BASE_URL
+        ).rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
 
     # ------------------------------------------------------------------ #
@@ -200,14 +208,19 @@ class AnthropicAdapter:
         for attempt in range(max(1, retries)):
             try:
                 async with session.post(
-                    f"{ANTHROPIC_BASE_URL}/v1/messages", json=body
+                    f"{self.base_url}/v1/messages", json=body
                 ) as resp:
                     payload = await resp.json(content_type=None)
                     if resp.status >= 400:
+                        # Deterministic HTTP errors are non-retryable: honor
+                        # the Protocol contract ("Returns normalized
+                        # LLMResponse") like the sibling adapters instead of
+                        # raising into the gateway's silent legacy fallback.
                         detail = redact_secrets(json.dumps(payload)[:500])
-                        raise RuntimeError(
-                            f"anthropic api error {resp.status}: {detail}"
+                        logger.error(
+                            "[AnthropicAdapter] Error %s: %s", resp.status, detail
                         )
+                        return LLMResponse(model=model)
                     return self._parse_response(payload)
             except Exception as exc:  # noqa: BLE001 — retried below, logged redacted
                 last_error = exc
@@ -218,7 +231,12 @@ class AnthropicAdapter:
                     redact_secrets(exc),
                 )
 
-        raise RuntimeError(f"anthropic chat failed after {retries} attempt(s): {redact_secrets(last_error)}")
+        logger.error(
+            "anthropic chat failed after %d attempt(s): %s",
+            retries,
+            redact_secrets(last_error),
+        )
+        return LLMResponse(model=model)
 
     async def stream(
         self,
