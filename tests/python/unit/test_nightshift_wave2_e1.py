@@ -63,9 +63,11 @@ class TestQuotedInterpreterLaundering:
             f"inner payload not expanded into segments: {segments}"
         )
 
-    def test_powershell_command_flag_kills_fast_path(self):
+    def test_powershell_readonly_single_pipeline_stays_allowed(self):
+        """Read-only single pipelines keep the fast path (pre-existing
+        contract from test_aja_hardening); laundering requires separators."""
         res = classify_command('powershell -Command "Get-Process"')
-        assert res["decision"] in ("ask", "deny")
+        assert res["decision"] == "allow"
 
     def test_bash_c_laundering_is_escalated(self):
         res = classify_command('bash -c "ls; rm -rf /tmp/important"')

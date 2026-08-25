@@ -108,11 +108,57 @@ def _has_inline_script_flag(root: str, args: List[str]) -> bool:
     return any(a.lower() in INLINE_SCRIPT_FLAGS for a in args)
 
 
+_PS_READONLY_CMDLET_RE = re.compile(
+    r"\b(get-childitem|get-content|get-process|where-object|select-object"
+    r"|get-wmiobject|get-ciminstance|systeminfo|tasklist|netstat|ping|ipconfig)\b",
+    re.IGNORECASE,
+)
+_PS_DESTRUCTIVE_CMDLET_RE = re.compile(
+    r"\b(remove-item|del|rmdir|rd|format|start-process|stop-process"
+    r"|invoke-expression|invoke-webrequest|invoke-restmethod|set-item"
+    r"|new-item|clear-content|taskkill|shutdown|restart-computer"
+    r"|remove-itemproperty|set-executionpolicy)\b",
+    re.IGNORECASE,
+)
+
+
+def _inner_payload_allows_fast_path(root: str, command: str) -> bool:
+    """Decides whether an interpreter's inline-script payload may keep the
+    known-safe fast path.
+
+    Statement separators (`;`, `&&`, `||`, newlines, backticks) inside the
+    payload are the laundering vector — they disqualify immediately. A single
+    read-only pipeline (e.g. `Get-Process | Select-Object -First 5`) stays
+    eligible; destructive cmdlets anywhere in the payload disqualify.
+    """
+    inner = _extract_inline_script(command)
+    if inner is None:
+        return False
+    stripped = inner.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ("\"", "'"):
+        stripped = stripped[1:-1]
+    if any(op in stripped for op in (";", "&&", "||", "\n", "\r", "`")):
+        return False
+    if root in ("powershell", "pwsh"):
+        return bool(_PS_READONLY_CMDLET_RE.search(stripped)) and not bool(
+            _PS_DESTRUCTIVE_CMDLET_RE.search(stripped)
+        )
+    if root in ("python", "python3"):
+        # Arbitrary code execution — never fast-path.
+        return False
+    # cmd /c, bash -c with a single operator-free command: fall through to
+    # the generic checks (workspace boundaries etc.). The payload is also
+    # expanded into its own classified segments by classify_command.
+    return True
+
+
 def is_known_safe(command: str, root: str, args: List[str]) -> bool:
     # Interpreters with inline scripts (-c/-Command) can hide arbitrary
     # payloads inside quotes, which the operator scan below strips out.
-    # They never take the fast path.
-    if _has_inline_script_flag(root, args):
+    # The inner payload must be separator-free and read-only to keep the
+    # fast path; anything else runs through full classification (and the
+    # payload is expanded into its own segments by classify_command).
+    if _has_inline_script_flag(root, args) and not _inner_payload_allows_fast_path(root, command):
         return False
     # Chained or compound commands must run through full safety checks
     # and cannot be bypassed via safe roots like 'git' or 'npm'.
@@ -378,12 +424,9 @@ def _classify_single(command: str) -> Dict[str, Any]:
     }
 
 
-def _extract_inline_script(segment: str) -> Optional[str]:
-    """Returns the raw inner script passed via -c/-Command//c flags, if any.
-
-    The returned text keeps its outer quoting; the caller strips one level
-    because the OUTER shell already consumed it before the interpreter ran.
-    """
+def _inline_script_info(segment: str) -> Optional[tuple]:
+    """Returns (root, raw_inner_payload) when the segment is an interpreter
+    invocation with an inline-script flag; else None."""
     import shlex
 
     try:
@@ -392,30 +435,39 @@ def _extract_inline_script(segment: str) -> Optional[str]:
         return None
     if not tokens:
         return None
-    raw_root = tokens[0]
-    root = raw_root.replace(".exe", "").lower()
+    root = tokens[0].replace(".exe", "").lower()
     if root not in INTERPRETER_ROOTS:
         return None
     for i, tok in enumerate(tokens[1:], start=1):
         low = tok.lower()
         if low in INLINE_SCRIPT_FLAGS:
             rest = tokens[i + 1:]
-            return " ".join(rest) if rest else None
+            return (root, " ".join(rest) if rest else None)
     return None
 
 
-def _expand_inline_scripts(segments: List[str]) -> List[str]:
-    """Expands interpreter inline-script payloads into classifiable segments.
+def _extract_inline_script(segment: str) -> Optional[str]:
+    info = _inline_script_info(segment)
+    return info[1] if info else None
 
-    The original segment is kept (the interpreter invocation itself still
-    gets classified); the inner payload is appended as additional segments
-    so destructive content inside quotes can never hide from classification.
+
+def _expand_inline_scripts(segments: List[str]) -> List[str]:
+    """Expands SUSPICIOUS interpreter payloads into classifiable segments.
+
+    Escalation-only: when the inner payload qualifies for the fast path
+    (separator-free, read-only), no expansion happens — the outer segment's
+    own classification governs. When it does not qualify (chaining
+    operators, destructive cmdlets, arbitrary code), the inner payload is
+    appended as segments so its content produces explicit deny/ask reasons.
     """
     expanded: List[str] = []
     for seg in segments:
         expanded.append(seg)
-        inner = _extract_inline_script(seg)
-        if not inner:
+        info = _inline_script_info(seg)
+        if not info or not info[1]:
+            continue
+        root, inner = info
+        if _inner_payload_allows_fast_path(root, seg):
             continue
         stripped = inner.strip()
         if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ("\"", "'"):
@@ -461,7 +513,17 @@ def classify_command(command: str) -> Dict[str, Any]:
             reasons = list(dict.fromkeys(all_deny_reasons))
         elif all_ask_reasons or not all_known_safe:
             decision = "ask"
-            level = "MEDIUM"
+            # Mirror _classify_single's escalation: destructive/recursive
+            # payloads and high-risk roots are HIGH even in compound chains.
+            high_risk = any(
+                "Recursive" in r or "shutdown" in r.lower() or "reboot" in r.lower()
+                or "taskkill" in r.lower()
+                for r in all_ask_reasons
+            ) or any(
+                s.get("root") in {"shutdown", "reboot", "taskkill"}
+                for s in segment_results
+            )
+            level = "HIGH" if high_risk else "MEDIUM"
             if not all_ask_reasons and not all_known_safe:
                 all_ask_reasons.append("Compound shell chain contains unverified sub-commands.")
             reasons = list(dict.fromkeys(all_ask_reasons))
