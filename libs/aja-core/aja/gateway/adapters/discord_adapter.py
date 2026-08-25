@@ -114,6 +114,11 @@ class DiscordAdapter(BasePlatformAdapter):
             await self._on_discord_interaction(interaction)
 
         self.is_running = True
+        # Subscribe to the event bus so bus events reach Discord telemetry
+        # queues (parity with TelegramAdapter). Without this the standalone
+        # gateway (aja.gateway.server) delivered zero Discord telemetry —
+        # the bus->LanceDB bridge only loaded via the autonomous loop import.
+        self._subscribe_bus_events()
         # Start background pipelines (LanceDB polling + telemetry dispatch);
         # they do not depend on the socket being live yet.
         self._poll_task = asyncio.create_task(self._poll_lancedb_events())
