@@ -4,7 +4,7 @@ from aja.goals.goal_engine import goal_engine
 from aja.config import TELEGRAM_ALLOWED_USER_ID
 from aja.interface.intent_parser import parse_intent
 from aja.interface.telegram_listener import async_send_telegram_message
-from aja.runtime.events import LanceRuntimeEventSink
+from aja.runtime.events import get_shared_runtime_sink
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,8 @@ def _send_telegram_report(message: str):
         extra={"message_length": len(message or "")},
     )
     try:
-        LanceRuntimeEventSink().emit(
+    try:
+        get_shared_runtime_sink().emit(
             {
                 "event_type": "LEGACY_TELEGRAM_REPORT",
                 "tool": "intent_engine",
