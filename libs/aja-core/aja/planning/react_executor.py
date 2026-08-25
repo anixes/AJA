@@ -157,8 +157,18 @@ class ReActExecutor:
         if confidence < CONFIDENCE_THRESHOLD and self.session:
             print(f"[ReActExecutor] [WARN] Plan confidence ({confidence:.2f}) is below threshold ({CONFIDENCE_THRESHOLD}). Requesting user approval...")
             from aja.runtime.event_bus import bus, EVENTS
+            from datetime import datetime, timedelta, timezone
             self.session.interrupt()
-            bus.publish(EVENTS.get("AWAITING_APPROVAL", "AWAITING_APPROVAL"), {"type": "plan", "graph": self.graph})
+            bus.publish(
+                EVENTS.get("AWAITING_APPROVAL", "AWAITING_APPROVAL"),
+                {
+                    "type": "plan",
+                    "graph": self.graph,
+                    "approval_expires_at": (
+                        datetime.now(timezone.utc) + timedelta(hours=24)
+                    ).isoformat(),
+                },
+            )
             import time
             while self.session.is_interrupted:
                 time.sleep(1)
@@ -222,7 +232,20 @@ class ReActExecutor:
                         print(f"[ReActExecutor] Risk threshold exceeded for node '{node.id}'. Requesting user approval...")
                         node.status = "AWAITING_APPROVAL"
                         self.session.pending_node = node
-                        bus.publish(EVENTS.get("AWAITING_APPROVAL", "AWAITING_APPROVAL"), node)
+                        from datetime import datetime, timedelta, timezone
+                        bus.publish(
+                            EVENTS.get("AWAITING_APPROVAL", "AWAITING_APPROVAL"),
+                            {
+                                "message": (
+                                    f"Risk gate exceeded for node '{node.id}' "
+                                    f"(risk={getattr(node, 'risk', 0.0):.2f}) — approval required."
+                                ),
+                                "node_id": getattr(node, "id", ""),
+                                "approval_expires_at": (
+                                    datetime.now(timezone.utc) + timedelta(hours=24)
+                                ).isoformat(),
+                            },
+                        )
                         self.session.interrupt()
                         import time
                         while self.session.is_interrupted:

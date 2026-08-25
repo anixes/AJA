@@ -32,6 +32,10 @@ from aja.gateway.base import MessageEvent, MessageType
 
 logger = logging.getLogger(__name__)
 
+# Max chars for a data URL persisted in session["last_image_url"] (~4MB raw
+# image → ~5.3MB base64). Larger payloads stay turn-local only.
+_MAX_PERSISTED_IMAGE_URL_CHARS = 4 * 1024 * 1024
+
 
 class UnifiedGateway:
     """
@@ -211,6 +215,14 @@ class UnifiedGateway:
         response_text = ""
         tool_results = []
 
+        # Names advertised via get_schemas() (incl. browser.*/desktop.*/mcp.*
+        # externals) that are NOT registered for direct registry execution.
+        _advertised_names = {
+            (s.get("function") or s).get("name", "")
+            for s in native_schemas
+            if isinstance(s, dict)
+        }
+
         if isinstance(response_payload, dict):
             content = response_payload.get("content", "")
             tool_calls = response_payload.get("tool_calls", [])
@@ -222,24 +234,48 @@ class UnifiedGateway:
                 for tc in tool_calls:
                     fn_name = tc.get("name")
                     fn_args = tc.get("arguments", {})
+                    malformed_args = False
                     if isinstance(fn_args, str):
                         try:
                             fn_args = json.loads(fn_args)
                         except Exception:
+                            logger.debug(
+                                "[AJA Chat] Malformed JSON arguments for tool '%s': %.200r",
+                                fn_name,
+                                fn_args,
+                            )
+                            malformed_args = True
                             fn_args = {}
                     logger.info(
                         "[AJA Chat] Executing tool '%s' with args %s",
                         fn_name,
                         redact_secrets(str(fn_args)),
                     )
+                    args_note = (
+                        " (note: your arguments were invalid JSON and were reset to {}; "
+                        "retry the call with valid JSON)"
+                        if malformed_args
+                        else ""
+                    )
                     try:
                         if fn_name in tool_registry.tools:
                             res = tool_registry.execute(fn_name, fn_args)
+                        elif isinstance(fn_name, str) and (
+                            "." in fn_name or fn_name in _advertised_names
+                        ):
+                            # Advertised-but-unregistered tool (browser.*, desktop.*,
+                            # mcp.*): never shell-execute the bare name.
+                            logger.warning(
+                                "[AJA Chat] Model called unregistered tool '%s'; "
+                                "returning tool-error instead of shell fallback",
+                                fn_name,
+                            )
+                            res = f"Tool error: '{fn_name}' is not available in this session."
                         else:
                             res = executor.execute(fn_name, fn_args)
                     except Exception as ex:
                         res = f"Tool execution error: {ex}"
-                    tool_results.append(f"[{fn_name} output]: {res}")
+                    tool_results.append(f"[{fn_name} output]: {res}{args_note}")
 
         # Auto-tool fallback for real-time time/date requests if SLM omitted tool_call
         last_content = messages[-1].get("content", "") if messages else ""
@@ -392,14 +428,32 @@ class UnifiedGateway:
             logger.exception("Failed to start Telegram adapter: %s", e)
             return
 
-        try:
-            async for event in self.telegram_adapter.poll():
-                try:
-                    await self.handle_gateway_event(event)
-                except Exception as e:
-                    logger.exception("Error processing Telegram event: %s", e)
-        except Exception as e:
-            logger.exception("Telegram polling loop crashed: %s", e)
+        # Supervisor: a crashed poll loop used to die permanently while
+        # health snapshots stayed green (silent gateway death). Restart with
+        # exponential backoff; reset after a healthy stretch.
+        restart_delay = 5.0
+        while True:
+            loop_started = time.time()
+            try:
+                async for event in self.telegram_adapter.poll():
+                    try:
+                        await self.handle_gateway_event(event)
+                    except Exception as e:
+                        logger.exception("Error processing Telegram event: %s", e)
+                logger.info("Telegram polling loop ended cleanly.")
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if time.time() - loop_started > 60:
+                    restart_delay = 5.0
+                logger.exception(
+                    "Telegram polling loop crashed (%s); restarting in %.0fs",
+                    e,
+                    restart_delay,
+                )
+                await asyncio.sleep(restart_delay)
+                restart_delay = min(restart_delay * 2, 300.0)
 
     async def handle_gateway_event(self, event: MessageEvent):
         """Processes events via the AJA Gateway."""
@@ -457,7 +511,22 @@ class UnifiedGateway:
         if event.message_type == MessageType.PHOTO or event.media_urls:
             if event.media_urls:
                 image_url = event.media_urls[0]
-                session["last_image_url"] = image_url
+                # Size cap: full base64 data URLs (>4MB) are kept in-memory for
+                # this turn only and NOT persisted into session["last_image_url"],
+                # because update_session() re-serializes the whole session into
+                # the LanceDB session_json cell on every turn — a multi-MB blob
+                # would be rewritten on each subsequent message until evicted.
+                # Tradeoff: follow-up turns lose reattach context for oversized
+                # images (acceptable vs. unbounded storage bloat).
+                if len(image_url) > _MAX_PERSISTED_IMAGE_URL_CHARS:
+                    logger.info(
+                        "AJA Vision Bridge: image payload (%d chars) exceeds session "
+                        "persistence cap; keeping in-memory for this turn only.",
+                        len(image_url),
+                    )
+                    session.pop("last_image_url", None)
+                else:
+                    session["last_image_url"] = image_url
                 logger.info("AJA Vision Bridge: Processing incoming photo payload for chat %s...", chat_id)
         elif session.get("last_image_url"):
             VISION_FOLLOWUP_TRIGGERS = (
@@ -470,6 +539,11 @@ class UnifiedGateway:
                 logger.info("AJA Vision Bridge: Attaching active image context for chat %s...", chat_id)
             else:
                 # Clear image context when conversation shifts to standard text
+                logger.debug(
+                    "AJA Vision Bridge: dropping prior image context for chat %s "
+                    "(follow-up text matched no vision trigger)",
+                    chat_id,
+                )
                 session.pop("last_image_url", None)
 
 
@@ -698,7 +772,19 @@ class UnifiedGateway:
         else:
             # Simple Chat Reasoning — delegated to ConversationCore.
             if image_url:
-                response = await self.chat(content_stripped, chat_history=session["history"], image_url=image_url)
+                try:
+                    response = await self.chat(content_stripped, chat_history=session["history"], image_url=image_url)
+                except Exception as exc:
+                    # Never leave the user with silence on a provider vision
+                    # rejection (e.g. 400 from a non-vision model).
+                    logger.warning(
+                        "Vision chat failed for chat %s: %s", chat_id, exc
+                    )
+                    response = (
+                        f"I couldn't analyze that image with the current model "
+                        f"({str(exc)[:200]}). Try /models to switch to a "
+                        "vision-capable model."
+                    )
             else:
                 response = await self._chat_via_core(event, content_stripped)
 

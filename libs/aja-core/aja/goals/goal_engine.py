@@ -247,8 +247,19 @@ class GoalEngine:
         if mission_id != "system":
             self.memory.update_mission(mission_id, {"status": "AWAITING_APPROVAL"})
 
+        from datetime import datetime, timedelta, timezone
+
         bus.publish(
-            EVENTS["AWAITING_APPROVAL"], {"message": message, "mission_id": mission_id}
+            EVENTS["AWAITING_APPROVAL"],
+            {
+                "message": message,
+                "mission_id": mission_id,
+                # Approval expiry was previously never written (dead expiry
+                # checks downstream); default escalations expire in 24h.
+                "approval_expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=24)
+                ).isoformat(),
+            },
         )
 
     def disable_autonomy(self):
