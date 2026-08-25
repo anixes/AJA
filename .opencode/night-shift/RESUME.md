@@ -24,8 +24,11 @@
 - 150e944 wave-3e: dashboard _tick_spinner mount/unmount race guarded (rotating flake FIXED)
 - 7009c39 + fd1ccb9 wave-3f: shared runtime sink in scheduler.telegram
 - Final gate: 1241 passed, 1 timing-flake (passes in isolation)
-- E3 approvals / E4 streaming / E5 llm-semantics / E7 orchestrator fixes are inside
-  the bfb6cbd..9b20510 commits (ledger reports in .opencode/night-shift/ledger/)
+- afc9dcd wave-2 E3/E4/E5/E7: approvals signature+expiry+atomic claim, streaming
+  4096-split + circuit breaker, LLM timeouts + retry jitter + await fixes,
+  orchestrator vision fallback + tool fallthrough guard (WARNING: these sat
+  UNCOMMITTED in the working tree through 5 commits - caught by user in VS Code;
+  always run git status after executor rounds, never trust per-domain adds alone)
 
 ## REMAINING (Wave 4-5 backlog; details in briefs/ + ledger deferrals)
 - Slack telemetry dispatcher (G3#3): needs fan-out wiring like tg_client tails
