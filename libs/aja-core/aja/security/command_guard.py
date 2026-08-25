@@ -3,7 +3,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from aja.security.stripper import CommandStripper
 
@@ -89,8 +89,31 @@ WINDOWS_PATTERN_REASONS = {
     "bypass-execution-policy": "Bypassing PowerShell execution policy requires confirmation.",
 }
 
+# Interpreters that can execute inline scripts past via -c/-Command style flags.
+# Quoted payloads are invisible to the compound-operator scan (quotes are
+# stripped before it runs), so these flags always disqualify the known-safe
+# fast path and the inner payload is classified as its own segment(s).
+INTERPRETER_ROOTS = {
+    "pwsh", "powershell", "bash", "sh", "zsh", "fish",
+    "python", "python3", "cmd", "node", "perl", "ruby",
+}
+INLINE_SCRIPT_FLAGS = {
+    "-c", "--command", "-command", "/c", "-encodedcommand", "--encodedcommand",
+}
+
+
+def _has_inline_script_flag(root: str, args: List[str]) -> bool:
+    if root not in INTERPRETER_ROOTS:
+        return False
+    return any(a.lower() in INLINE_SCRIPT_FLAGS for a in args)
+
 
 def is_known_safe(command: str, root: str, args: List[str]) -> bool:
+    # Interpreters with inline scripts (-c/-Command) can hide arbitrary
+    # payloads inside quotes, which the operator scan below strips out.
+    # They never take the fast path.
+    if _has_inline_script_flag(root, args):
+        return False
     # Chained or compound commands must run through full safety checks
     # and cannot be bypassed via safe roots like 'git' or 'npm'.
     # Remove quoted strings to avoid false positives (e.g. semicolons in commit messages)
@@ -196,7 +219,10 @@ def split_compound_command(command: str) -> List[str]:
                 current = []
                 i += 2
                 continue
-            elif char in (";", "|", "&"):
+            elif char in (";", "|", "&") or char in ("\n", "\r"):
+                # Newlines are segment separators too: newline-chained
+                # commands must never collapse into one segment whose root
+                # hides the trailing binaries from classification.
                 seg = "".join(current).strip()
                 if seg:
                     segments.append(seg)
@@ -315,6 +341,12 @@ def _classify_single(command: str) -> Dict[str, Any]:
     if root in ASK_BINARIES and not known_safe:
         ask_reasons.append(ASK_BINARIES[root])
 
+    if _has_inline_script_flag(root, args) and not known_safe:
+        ask_reasons.append(
+            "Interpreter invoked with an inline script flag (-c/-Command); "
+            "quoted payloads bypass operator scanning and require confirmation."
+        )
+
     if analysis.get("Operators") and not known_safe:
         ask_reasons.append("Compound shell operators require explicit confirmation.")
 
@@ -346,8 +378,55 @@ def _classify_single(command: str) -> Dict[str, Any]:
     }
 
 
+def _extract_inline_script(segment: str) -> Optional[str]:
+    """Returns the raw inner script passed via -c/-Command//c flags, if any.
+
+    The returned text keeps its outer quoting; the caller strips one level
+    because the OUTER shell already consumed it before the interpreter ran.
+    """
+    import shlex
+
+    try:
+        tokens = shlex.split(segment, posix=False)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    raw_root = tokens[0]
+    root = raw_root.replace(".exe", "").lower()
+    if root not in INTERPRETER_ROOTS:
+        return None
+    for i, tok in enumerate(tokens[1:], start=1):
+        low = tok.lower()
+        if low in INLINE_SCRIPT_FLAGS:
+            rest = tokens[i + 1:]
+            return " ".join(rest) if rest else None
+    return None
+
+
+def _expand_inline_scripts(segments: List[str]) -> List[str]:
+    """Expands interpreter inline-script payloads into classifiable segments.
+
+    The original segment is kept (the interpreter invocation itself still
+    gets classified); the inner payload is appended as additional segments
+    so destructive content inside quotes can never hide from classification.
+    """
+    expanded: List[str] = []
+    for seg in segments:
+        expanded.append(seg)
+        inner = _extract_inline_script(seg)
+        if not inner:
+            continue
+        stripped = inner.strip()
+        if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ("\"", "'"):
+            stripped = stripped[1:-1]
+        if stripped.strip():
+            expanded.extend(split_compound_command(stripped.strip()))
+    return expanded
+
+
 def classify_command(command: str) -> Dict[str, Any]:
-    segments = split_compound_command(command)
+    segments = _expand_inline_scripts(split_compound_command(command))
 
     if len(segments) <= 1:
         res = _classify_single(command)
