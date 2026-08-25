@@ -584,8 +584,15 @@ class AJADashboard(App):
         status.display = False
 
     def _tick_spinner(self) -> None:
+        if not self.is_running:
+            return
         self._spinner_i += 1
-        status = self.query_one("#status-line", Static)
+        try:
+            status = self.query_one("#status-line", Static)
+        except Exception:
+            # Interval fired during mount/unmount race — widget tree not ready
+            # or already torn down. Next healthy tick resumes.
+            return
         if not status.display:
             return
         detail = "".join(self._delta_buffer)[-80:] if self._delta_buffer else "thinking…"
