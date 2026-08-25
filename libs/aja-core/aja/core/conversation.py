@@ -195,6 +195,20 @@ class ConversationCore:
     async def handle(self, msg: InboundMessage) -> AsyncIterator[CoreEvent]:
         """Single entry point. Yields typed events (CoreEvent subclasses)."""
         text = (msg.text or "").strip()
+        image_attachments = [
+            a for a in (msg.attachments or []) if getattr(a, "kind", "") == "image"
+        ]
+        if image_attachments:
+            # Vision routing is not wired on this surface yet — never silently
+            # drop the user's images; say so instead of answering blind.
+            names = ", ".join((a.name or "image") for a in image_attachments[:3])
+            yield Final(
+                text=(
+                    "🖼️ Images aren't processed on this surface yet "
+                    f"({names}). Please describe the image in text or share a URL."
+                )
+            )
+            return
         try:
             session = await self._stage_intake(msg)
         except PermissionError as e:
@@ -596,7 +610,21 @@ class ConversationCore:
         await self._sessions.save(chat_id, session)
 
     async def resolve_approval(self, approval_id: str, approved: bool, approver_id: str = "") -> dict:
-        """APPROVE stage: delegate to the shared gateway approval engine."""
+        """APPROVE stage: delegate to the shared gateway approval engine.
+
+        ``approval_id`` is the mission id; the engine's signature is
+        ``(platform, user_id, mission_id, action)`` so keyword args are
+        mandatory — positional mapping here once routed the approver id into
+        the mission lookup and made reject unreachable.
+        """
         from aja.gateway.approvals import resolve_approval
 
-        return await _maybe_await(resolve_approval(approval_id, approved, approver_id))
+        handled, message = await _maybe_await(
+            resolve_approval(
+                platform="cli",
+                user_id=approver_id,
+                mission_id=approval_id,
+                action="approve" if approved else "reject",
+            )
+        )
+        return {"handled": handled, "message": message}

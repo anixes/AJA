@@ -12,13 +12,37 @@ class VisionBridge:
     """
     Enriches incoming media with semantic descriptions.
     Enables 'Vision-to-Text' bridge for the AJA Gateway.
+
+    NOTE (unused-but-retained): VisionBridge is instantiated by the gateway
+    orchestrator but its describe/download methods are NOT called anywhere in
+    the live pipeline yet (describe_image returns a placeholder). It is kept
+    as the future fallback describer for non-vision models. The on-disk image
+    cache is bounded: at most ``MAX_CACHE_FILES`` files are retained; older
+    files are swept on every write.
     """
+
+    MAX_CACHE_FILES = 50
 
     def __init__(self, cache_dir: Optional[str] = None):
         if cache_dir is None:
             cache_dir = str(DATA_DIR / "gateway" / "cache" / "images")
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _sweep_cache(self) -> None:
+        """Best-effort eviction keeping only the newest MAX_CACHE_FILES files."""
+        try:
+            files = sorted(
+                (p for p in self.cache_dir.glob("*") if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for stale in files[self.MAX_CACHE_FILES:]:
+                stale.unlink(missing_ok=True)
+                logger.debug("Vision cache sweep removed %s", stale.name)
+        except Exception as e:
+            # best-effort: never fail an image capture over cache hygiene
+            logger.debug("Vision cache sweep skipped: %s", e)
 
     async def describe_image(self, image_data: bytes, ext: str = ".jpg") -> str:
         """
@@ -34,6 +58,7 @@ class VisionBridge:
                 f.write(image_data)
             
             logger.info(f"AJA Gateway: Image cached at {filepath}")
+            self._sweep_cache()
             
             # Placeholder for VLM integration
             # In a real scenario, we'd call Gemini/Claude-Vision here.

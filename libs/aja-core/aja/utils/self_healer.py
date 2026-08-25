@@ -2,6 +2,7 @@ import sys
 import os
 from aja.utils.health_check import run_health_check
 from aja.orchestration.gateway import LLMGateway
+from aja.llm import run_async_synchronously
 from pathlib import Path
 
 # Config
@@ -47,11 +48,17 @@ def heal_system(territory="src/prod"):
         print(f"[AI] Calling AI to diagnose and repair {file_path.name}...")
         
         if KEY != "dummy":
-            fixed_code = gateway.chat(MODEL, prompt)
+            fixed_code = run_async_synchronously(gateway.chat(MODEL, prompt))
         else:
             # Dummy Mode: Simulated Fix for the typo
             fixed_code = code.replace("return finaPrice;", "return finalPrice;")
             print("  - [DUMMY MODE] Applying pre-programmed fix...")
+
+        if not fixed_code:
+            # Never write a falsy result: an LLM outage must not truncate the
+            # production file to empty.
+            print("[!] AI returned no fix (provider failure). Skipping write; escalating to operator.")
+            return
 
         # 3. REPAIR
         print("[FS] Applying repairs to filesystem...")

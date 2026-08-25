@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from aja.utils.redact import redact_secrets
@@ -49,6 +50,23 @@ _PROVIDER_ENV_KEYS: Dict[str, tuple] = {
 
 # Deterministic client errors that will fail identically on retry.
 _NON_RETRYABLE_STATUS = (400, 404, 422)
+
+
+def _llm_timeout_s() -> float:
+    """Per-request LLM timeout (seconds). The openai SDK default is 600s."""
+    try:
+        return float(os.getenv("AJA_LLM_TIMEOUT_S", "120"))
+    except ValueError:
+        return 120.0
+
+
+def _backoff_sleep_seconds(attempt: int) -> float:
+    """Jittered exponential backoff in [0.5x, 1.0x] of min(30, 2**attempt)."""
+    return min(30.0, 2.0 ** attempt) * (0.5 + random.random() / 2.0)
+
+
+async def _backoff_sleep(attempt: int) -> None:
+    await asyncio.sleep(_backoff_sleep_seconds(attempt))
 
 
 class OpenAICompatAdapter:
@@ -152,6 +170,10 @@ class OpenAICompatAdapter:
                 api_key=self.api_key or "dummy-local-key",
                 base_url=self.base_url,
                 default_headers=headers,
+                # Explicit per-request timeout (SDK default is 600s) and
+                # max_retries=0 so the adapter retry loop is the only layer.
+                timeout=_llm_timeout_s(),
+                max_retries=0,
             )
             self._client_loop = loop
         return self._client
@@ -260,7 +282,7 @@ class OpenAICompatAdapter:
                 )
                 if attempt == attempts - 1:
                     return LLMResponse(content="", model=model)
-                await asyncio.sleep(2**attempt)
+                await _backoff_sleep(attempt)
 
         return LLMResponse(content="", model=model)
 

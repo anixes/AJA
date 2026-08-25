@@ -26,6 +26,29 @@ from aja.runtime.event_bus import bus, EVENTS
 
 TELEGRAM_AVAILABLE = True
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+TELEGRAM_MAX_FILE_BYTES = 20 * 1024 * 1024
+
+
+def split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[str]:
+    """Split text into Telegram-sized chunks on newline/space boundaries."""
+    text = text or ""
+    if len(text) <= limit:
+        return [text] if text else [""]
+    chunks: List[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= limit:
+            chunks.append(remaining)
+            break
+        window = remaining[: limit + 1]
+        cut = max(window.rfind("\n"), window.rfind(" "))
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip("\n")
+    return [chunk for chunk in chunks if chunk]
+
 
 class TelegramAdapter(BasePlatformAdapter):
     """
@@ -207,19 +230,38 @@ class TelegramAdapter(BasePlatformAdapter):
         photos = getattr(update.message, "photo", None)
         if photos:
             msg_type = MessageType.PHOTO
-            try:
-                # Highest resolution photo is last in photo array
-                photo = photos[-1]
-                tg_file = await context.bot.get_file(photo.file_id)
-                byte_array = await tg_file.download_as_bytearray()
-                import base64
-                b64_data = base64.b64encode(byte_array).decode("utf-8")
-                data_url = f"data:image/jpeg;base64,{b64_data}"
-                media_urls.append(data_url)
-                if not text_content:
-                    text_content = "What can you see in this image? Please analyze and describe it in detail."
-            except Exception as e:
-                logger.error(f"Failed to download photo from Telegram: {e}")
+            photo = photos[-1]
+            file_size = getattr(photo, "file_size", None) or 0
+            if file_size > TELEGRAM_MAX_FILE_BYTES:
+                # Telegram's getFile endpoint refuses files > 20 MiB; reject
+                # up-front with a user-visible message instead of a cryptic
+                # download failure.
+                logger.warning(
+                    "Skipping Telegram photo download: %s bytes exceeds the 20 MiB getFile cap.",
+                    file_size,
+                )
+                try:
+                    await self.send_message(
+                        str(update.message.chat_id),
+                        f"⚠️ Image skipped: it is too large for Telegram's file API "
+                        f"({file_size / (1024 * 1024):.1f} MB > 20 MB limit). "
+                        f"I'll continue with your text.",
+                    )
+                except Exception as notify_err:
+                    logger.error("Failed to deliver oversized-photo notice: %s", notify_err)
+            else:
+                try:
+                    # Highest resolution photo is last in photo array
+                    tg_file = await context.bot.get_file(photo.file_id)
+                    byte_array = await tg_file.download_as_bytearray()
+                    import base64
+                    b64_data = base64.b64encode(byte_array).decode("utf-8")
+                    data_url = f"data:image/jpeg;base64,{b64_data}"
+                    media_urls.append(data_url)
+                    if not text_content:
+                        text_content = "What can you see in this image? Please analyze and describe it in detail."
+                except Exception as e:
+                    logger.error(f"Failed to download photo from Telegram: {e}")
 
         if not text_content and not media_urls:
             return
@@ -561,22 +603,32 @@ class TelegramAdapter(BasePlatformAdapter):
             text = ""
         processed_text = self._prepare_text_for_mobile(str(text))
         parse_mode = kwargs.pop("parse_mode", None)
+        reply_markup = kwargs.pop("reply_markup", None)
 
-        try:
-            result = await self._bot.send_message(
-                chat_id=chat_id,
-                text=processed_text,
-                parse_mode=parse_mode, 
-                **kwargs,
-            )
-            self.metrics["messages_sent"] += 1
-            return result
-        except Exception as e:
-            logger.error(f"Failed to send Telegram message: {e}")
-            self.metrics["send_failures"] += 1
-            self.metrics["last_error"] = str(e)
-            self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
-            return None
+        # Telegram hard-rejects any message >4096 chars (400 TEXT_TOO_LONG).
+        # The old single-shot send silently dropped long final replies, so
+        # split on newline/space boundaries and send every part. Decorations
+        # (parse_mode / reply_markup) ride only on the final chunk.
+        chunks = split_for_telegram(processed_text)
+        result = None
+        for index, chunk in enumerate(chunks):
+            chunk_kwargs = dict(kwargs)
+            if index == len(chunks) - 1:
+                chunk_kwargs["reply_markup"] = reply_markup
+            try:
+                result = await self._bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode=parse_mode,
+                    **chunk_kwargs,
+                )
+                self.metrics["messages_sent"] += 1
+            except Exception as e:
+                logger.error(f"Failed to send Telegram message: {e}")
+                self.metrics["send_failures"] += 1
+                self.metrics["last_error"] = str(e)
+                self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
+        return result
 
     async def send_notification(
         self, chat_id: str, text: str, importance: str = "normal"

@@ -201,7 +201,8 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
                 if not is_user_authorized("discord", user_id):
                     self.metrics["events_rejected"] += 1
                     await interaction.response.edit_message(
-                        content="⛔ You are not authorized to use these controls."
+                        content="⛔ You are not authorized to use these controls.",
+                        view=None,
                     )
                     return
                 parts = action_id.split(":")
@@ -219,7 +220,9 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
                 handled, text = await resolve_approval(
                     "discord", user_id, mission_id, action=action
                 )
-                await interaction.response.edit_message(content=text)
+                # view=None detaches the buttons so resolved approvals can't
+                # keep collecting phantom clicks.
+                await interaction.response.edit_message(content=text, view=None)
             except Exception as e:
                 logger.error("[DiscordEnvelope] Button callback failed: %s", e)
                 try:

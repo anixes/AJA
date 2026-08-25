@@ -35,6 +35,17 @@ except Exception:  # pragma: no cover - soft dependency
     TELEGRAM_AVAILABLE = False
 
 STREAM_MIN_INTERVAL_SECONDS = 1.0
+STREAM_STATE_TTL_SECONDS = 1800.0
+STREAM_MAX_CONSECUTIVE_ERRORS = 3
+TELEGRAM_TEXT_LIMIT = 4096
+_TRUNCATION_MARKER = " …[truncated]"
+
+
+def _cap_stream_text(text: str) -> str:
+    """Clamp streamed text to Telegram's 4096-char message limit."""
+    if len(text) <= TELEGRAM_TEXT_LIMIT:
+        return text
+    return text[: TELEGRAM_TEXT_LIMIT - len(_TRUNCATION_MARKER)] + _TRUNCATION_MARKER
 
 
 @dataclass
@@ -218,31 +229,105 @@ class TelegramEnvelopeAdapter(BasePlatformAdapter):
 
     async def _handle_stream_chunk(self, env: Envelope) -> Any:
         key = env.correlation_id or env.chat_id
-        state = self._stream_states.setdefault(
-            key, {"buffer": "", "message_id": None, "last_edit": float("-inf")}
-        )
+        self._prune_stale_stream_states()
+        state = self._stream_states.get(key)
+        if state is None:
+            state = {
+                "buffer": "",
+                "message_id": None,
+                "last_edit": float("-inf"),
+                "consecutive_edit_errors": 0,
+                "created_at": self._clock(),
+            }
+            self._stream_states[key] = state
         state["buffer"] = (state["buffer"] or "") + (env.text or "")
         now = self._clock()
-        if state["message_id"] is None:
-            if not self._bot:
-                return None
-            result = await self._bot.send_message(chat_id=env.chat_id, text=state["buffer"])
-            state["message_id"] = getattr(result, "message_id", None)
-            state["last_edit"] = now
-            self.metrics["messages_sent"] += 1
-            return result
-        if now - state["last_edit"] < STREAM_MIN_INTERVAL_SECONDS:
+        is_edit = state["message_id"] is not None
+        if is_edit and now - state["last_edit"] < STREAM_MIN_INTERVAL_SECONDS:
             return None
         if not self._bot:
             return None
-        result = await self._bot.edit_message_text(
-            text=state["buffer"],
-            chat_id=env.chat_id,
-            message_id=state["message_id"],
-        )
-        state["last_edit"] = now
-        self.metrics["messages_sent"] += 1
-        return result
+        text = _cap_stream_text(state["buffer"])
+
+        async def _call() -> Any:
+            if is_edit:
+                return await self._bot.edit_message_text(
+                    text=text, chat_id=env.chat_id, message_id=state["message_id"]
+                )
+            result = await self._bot.send_message(chat_id=env.chat_id, text=text)
+            state["message_id"] = getattr(result, "message_id", None)
+            return result
+
+        def _succeed(result: Any) -> Any:
+            state["last_edit"] = now
+            state["consecutive_edit_errors"] = 0
+            self.metrics["messages_sent"] += 1
+            return result
+
+        try:
+            return _succeed(await _call())
+        except Exception as exc:
+            retry_after = getattr(exc, "retry_after", None)
+            if retry_after is not None:
+                logger.warning(
+                    "Telegram stream %s rate-limited (429); sleeping %ss once.",
+                    "edit" if is_edit else "send",
+                    retry_after,
+                )
+                await asyncio.sleep(float(retry_after))
+                try:
+                    return _succeed(await _call())
+                except Exception as retry_exc:
+                    exc = retry_exc
+            lowered = str(exc).lower()
+            if "message is not modified" in lowered or "message to edit not found" in lowered:
+                # Terminal: the preview message is gone/identical; drop the
+                # state so the next chunk starts a fresh message.
+                logger.info("Finalizing Telegram stream state %r (%s).", key, lowered.strip())
+                self._stream_states.pop(key, None)
+                return None
+            state["consecutive_edit_errors"] = state.get("consecutive_edit_errors", 0) + 1
+            self.metrics["send_failures"] += 1
+            self.metrics["last_error"] = str(exc)
+            self.metrics["last_error_at"] = self._utc_now_iso()
+            logger.error(
+                "Telegram stream %s failed (%d consecutive): %s",
+                "edit" if is_edit else "send",
+                state["consecutive_edit_errors"],
+                exc,
+            )
+            if state["consecutive_edit_errors"] >= STREAM_MAX_CONSECUTIVE_ERRORS:
+                logger.warning(
+                    "Telegram stream circuit breaker tripped for %r; sending a fresh final message.",
+                    key,
+                )
+                try:
+                    fresh = await self._bot.send_message(
+                        chat_id=env.chat_id, text=_cap_stream_text(state["buffer"])
+                    )
+                    self.metrics["messages_sent"] += 1
+                    self._stream_states.pop(key, None)
+                    return fresh
+                except Exception as fresh_err:
+                    logger.error("Telegram fresh-message fallback failed: %s", fresh_err)
+                    self._stream_states.pop(key, None)
+                return None
+            if is_edit:
+                # Consume the throttle window even on failure so retries are
+                # naturally spaced instead of hammering the API.
+                state["last_edit"] = now
+            return None
+
+    def _prune_stale_stream_states(self) -> None:
+        now = self._clock()
+        stale = [
+            key
+            for key, state in self._stream_states.items()
+            if now - float(state.get("created_at", now)) > STREAM_STATE_TTL_SECONDS
+        ]
+        for key in stale:
+            logger.debug("Pruning aged Telegram stream state %r.", key)
+            self._stream_states.pop(key, None)
 
     async def _handle_update(self, update: Any, context: Any = None) -> None:
         query = getattr(update, "callback_query", None)

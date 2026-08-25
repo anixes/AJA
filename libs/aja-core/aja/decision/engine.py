@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List
-from aja.llm import get_gateway
+from aja.llm import get_gateway, run_async_synchronously
 
 logger = logging.getLogger("agent.decision")
 
@@ -93,12 +93,26 @@ class DecisionEngine:
             # Phase 16: Local gemma model for offline inference
             _model = "llama_cpp:gemma-4-e2b"
             prompt = self._build_prompt(objective, context)
-            raw_response = self.gateway.chat(
+            raw_response = run_async_synchronously(self.gateway.chat(
                 model=_model,
                 prompt=prompt,
                 system=self.SYSTEM_PROMPT
-            )
-            
+            ))
+
+            if not raw_response:
+                # Distinguish "provider returned nothing" from "bad JSON" —
+                # never mask an LLM outage as a parse error.
+                logger.error(
+                    "[Engine] LLM gateway returned no response "
+                    "(outage or exhausted retries); falling back to NEW."
+                )
+                return {
+                    "type": "NEW",
+                    "confidence": 0.0,
+                    "reason": "No response from LLM gateway.",
+                    "evidence": [],
+                }
+
             decision = self._parse_and_validate(raw_response, context)
             if "evidence" not in decision:
                 decision["evidence"] = []

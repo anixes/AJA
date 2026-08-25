@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import asyncio
 import threading
@@ -9,8 +10,13 @@ import aja.config
 from aja.orchestration.gateway import LLMGateway
 from aja.api.interfaces import BaseModelProvider
 
+logger = logging.getLogger(__name__)
+
 # Gateway instance cache: cache_key -> LLMGateway
 _gateway_cache: Dict[str, LLMGateway] = {}
+# BaseModelProvider gateway cache (bounded): cache_key -> LLMGateway
+_provider_gateway_cache: Dict[str, LLMGateway] = {}
+_PROVIDER_GATEWAY_CACHE_MAX = 16
 # Default gateway singleton (lazily initialized by get_gateway())
 _gateway = None
 
@@ -19,7 +25,63 @@ def clear_gateway_cache():
     """Clear cached gateway instances (e.g. after config or token changes)."""
     global _gateway_cache, _gateway
     _gateway_cache.clear()
+    _provider_gateway_cache.clear()
     _gateway = None
+
+
+def _get_cached_provider_gateway(provider, api_key, base_url=None, extra_headers=None):
+    """Return a shared LLMGateway for a BaseModelProvider call.
+
+    Reusing one gateway per (provider, key, base_url) avoids the previous
+    per-call construction that leaked an unclosed gateway on every request.
+    """
+    import hashlib
+
+    key_fragment = (
+        hashlib.sha256((api_key or "").encode()).hexdigest()[:12] if api_key else ""
+    )
+    cache_key = f"{provider}:{key_fragment}:{base_url or ''}"
+    gw = _provider_gateway_cache.get(cache_key)
+    if gw is None:
+        if len(_provider_gateway_cache) >= _PROVIDER_GATEWAY_CACHE_MAX:
+            _provider_gateway_cache.pop(next(iter(_provider_gateway_cache)))
+        kwargs = {"extra_headers": extra_headers} if extra_headers else {}
+        gw = LLMGateway(
+            provider=provider, api_key=api_key or "", base_url=base_url, **kwargs
+        )
+        _provider_gateway_cache[cache_key] = gw
+    return gw
+
+
+def _choices_from_chat_result(res):
+    """Shape a gateway.chat() result into an OpenAI-style choices dict.
+
+    ``res`` is a plain string when no tools were requested; when tools were
+    forwarded and the provider surfaced tool calls, it is a dict with
+    ``content``/``tool_calls``.
+    """
+    if isinstance(res, dict):
+        message = {"role": "assistant", "content": res.get("content") or ""}
+        tool_calls = res.get("tool_calls") or []
+        if tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": tc.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": tc.get("name", ""),
+                        "arguments": tc.get("arguments", ""),
+                    },
+                }
+                for tc in tool_calls
+                if isinstance(tc, dict)
+            ]
+        return {"choices": [{"message": message}]}
+    if not res:
+        # Failure sentinel (None) or empty completion — log it instead of
+        # silently shaping the outage into a legitimate-looking empty message.
+        logger.warning("[LLM] gateway.chat returned no content for provider call")
+    return {"choices": [{"message": {"role": "assistant", "content": res or ""}}]}
 
 
 def get_gateway():
@@ -212,8 +274,8 @@ class GoogleModelProvider(BaseModelProvider):
         base_url = self.config.get("base_url")
         model = self.config.get("model", "gemini-2.5-flash")
         temperature = self.config.get("temperature")
-        
-        gw = LLMGateway(provider="google", api_key=api_key, base_url=base_url)
+
+        gw = _get_cached_provider_gateway("google", api_key, base_url)
         system = "You are a helpful assistant."
         contents = []
         for m in messages:
@@ -221,23 +283,19 @@ class GoogleModelProvider(BaseModelProvider):
                 system = m.get("content", m.get("text", ""))
             else:
                 contents.append(m)
-        
+
         res = run_async_synchronously(gw._google_generate_content(
             model=model,
             prompt=contents,
             system=system,
-            temperature=temperature
+            temperature=temperature,
+            tools=tools,
         ))
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res
-                    }
-                }
-            ]
-        }
+        if not res:
+            logger.warning(
+                "[LLM] Google generate-content returned no content (model=%s)", model
+            )
+        return _choices_from_chat_result(res or "")
 
     def check_requirements(self) -> bool:
         api_key = self.config.get("api_key") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("AI_KEY", "")
@@ -254,8 +312,8 @@ class OpenAIModelProvider(BaseModelProvider):
         base_url = self.config.get("base_url")
         model = self.config.get("model", "gpt-4")
         temperature = self.config.get("temperature")
-        
-        gw = LLMGateway(provider="openai", api_key=api_key, base_url=base_url)
+
+        gw = _get_cached_provider_gateway("openai", api_key, base_url)
         system = "You are a helpful assistant."
         contents = []
         for m in messages:
@@ -263,23 +321,15 @@ class OpenAIModelProvider(BaseModelProvider):
                 system = m.get("content", m.get("text", ""))
             else:
                 contents.append(m)
-        
+
         res = run_async_synchronously(gw.chat(
             model=model,
             prompt=contents,
             system=system,
-            temperature=temperature
+            temperature=temperature,
+            tools=tools
         ))
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res
-                    }
-                }
-            ]
-        }
+        return _choices_from_chat_result(res)
 
     def check_requirements(self) -> bool:
         api_key = self.config.get("api_key") or os.getenv("OPENAI_API_KEY", "")
@@ -296,8 +346,8 @@ class OpenRouterModelProvider(BaseModelProvider):
         base_url = self.config.get("base_url")
         model = self.config.get("model", "google/gemini-2.5-flash")
         temperature = self.config.get("temperature")
-        
-        gw = LLMGateway(provider="openrouter", api_key=api_key, base_url=base_url)
+
+        gw = _get_cached_provider_gateway("openrouter", api_key, base_url)
         system = "You are a helpful assistant."
         contents = []
         for m in messages:
@@ -305,23 +355,15 @@ class OpenRouterModelProvider(BaseModelProvider):
                 system = m.get("content", m.get("text", ""))
             else:
                 contents.append(m)
-        
+
         res = run_async_synchronously(gw.chat(
             model=model,
             prompt=contents,
             system=system,
-            temperature=temperature
+            temperature=temperature,
+            tools=tools
         ))
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res
-                    }
-                }
-            ]
-        }
+        return _choices_from_chat_result(res)
 
     def check_requirements(self) -> bool:
         api_key = self.config.get("api_key") or os.getenv("OPENROUTER_API_KEY", "")
@@ -338,8 +380,8 @@ class LlamaCppModelProvider(BaseModelProvider):
         base_url = self.config.get("base_url")
         model = self.config.get("model", "gemma-4-e2b")
         temperature = self.config.get("temperature")
-        
-        gw = LLMGateway(provider="llama_cpp", api_key=api_key, base_url=base_url)
+
+        gw = _get_cached_provider_gateway("llama_cpp", api_key, base_url)
         system = "You are a helpful assistant."
         contents = []
         for m in messages:
@@ -347,23 +389,15 @@ class LlamaCppModelProvider(BaseModelProvider):
                 system = m.get("content", m.get("text", ""))
             else:
                 contents.append(m)
-        
+
         res = run_async_synchronously(gw.chat(
             model=model,
             prompt=contents,
             system=system,
-            temperature=temperature
+            temperature=temperature,
+            tools=tools
         ))
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res
-                    }
-                }
-            ]
-        }
+        return _choices_from_chat_result(res)
 
     def check_requirements(self) -> bool:
         return True
@@ -432,9 +466,11 @@ class CopilotModelProvider(BaseModelProvider):
                 extra_body["reasoning"] = {"effort": effort}
                 
         temperature = self.config.get("temperature")
-        
-        gw = LLMGateway(provider="copilot", api_key=api_token, base_url=base_url, extra_headers=headers)
-        
+
+        gw = _get_cached_provider_gateway(
+            "copilot", api_token, base_url, extra_headers=headers
+        )
+
         system = "You are a helpful assistant."
         contents = []
         for m in messages:
@@ -442,24 +478,16 @@ class CopilotModelProvider(BaseModelProvider):
                 system = m.get("content", m.get("text", ""))
             else:
                 contents.append(m)
-        
+
         res = run_async_synchronously(gw.chat(
             model=model,
             prompt=contents,
             system=system,
             temperature=temperature,
+            tools=tools,
             extra_body=extra_body if extra_body else None
         ))
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res
-                    }
-                }
-            ]
-        }
+        return _choices_from_chat_result(res)
 
     def check_requirements(self) -> bool:
         return True
@@ -514,10 +542,14 @@ discover_providers()
 
 # --- Core completion API ---
 
-def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None):
+def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[str]:
     """
     Standard completion interface used across AJA.
     Enforces operating_mode (online/offline/hybrid) from aja.json.
+
+    Returns:
+        str content on success; ``None`` on provider failure/empty output
+        (callers must handle None — no "" coercion happens here).
     """
     if model is None:
         try:
@@ -560,18 +592,31 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
             res = provider_inst.chat_completions(messages)
             choices = res.get("choices", [])
             if choices:
-                return choices[0].get("message", {}).get("content", "") or ""
-            return ""
+                content = choices[0].get("message", {}).get("content")
+                if not content:
+                    logger.warning(
+                        "[LLM] Registered provider '%s' returned no content", provider
+                    )
+                return content or None
+            logger.warning(
+                "[LLM] Registered provider '%s' returned no choices", provider
+            )
+            return None
         except Exception as e:
             print(f"[LLM] Error using registered provider '{provider}': {e}. Falling back to LLMGateway.")
 
-    # Gateway execution path
-    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)) or ""
+    # Gateway execution path. NOTE: gateway.chat now returns None on failure /
+    # empty content and str on success — the old `or ""` coercion is gone, so
+    # CALLERS MUST HANDLE None instead of assuming a str return.
+    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools))
 
 
-async def completion_async(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None):
+async def completion_async(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[str]:
     """
     Native async completion interface without OS thread-switching overhead.
+
+    Returns:
+        str content on success; ``None`` on provider failure/empty output.
     """
     if model is None:
         try:
@@ -583,7 +628,8 @@ async def completion_async(prompt, system_prompt="You are a helpful assistant.",
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
     gw, model_name = get_gateway_for_model(model)
-    return await gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools) or ""
+    # NOTE: gateway.chat returns None on failure — callers must handle it.
+    return await gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)
 
 
 async def completion_stream(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None):
