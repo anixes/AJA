@@ -90,6 +90,21 @@ class MemoryManager:
     def get_table(self, name: str):
         return self.db.open_table(name)
 
+    def compact_table(self, name: str) -> bool:
+        """Compacts table files and cleans up old versions to maintain LanceDB performance."""
+        try:
+            existing = list_tables_defensive(self.db)
+            if name not in existing:
+                return False
+            table = self.db.open_table(name)
+            if hasattr(table, "compact_files"):
+                table.compact_files()
+            if hasattr(table, "cleanup_old_versions"):
+                table.cleanup_old_versions()
+            return True
+        except Exception:
+            return False
+
 
 # ── Singleton Factory ─────────────────────────────────────────────────────────
 # All modules must call get_memory_manager() instead of MemoryManager() directly.

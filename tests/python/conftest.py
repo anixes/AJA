@@ -12,21 +12,23 @@ os.environ["AJA_MOCK_EMBEDDINGS"] = "1"
 os.environ["AJA_FAST_SANDBOX"] = "1"
 
 # ---------------------------------------------------------------------------
-# Parallel-run (pytest-xdist) data isolation.
+# Test run data isolation (both serial and pytest-xdist).
 #
 # MUST run before any `aja` import: aja.config reads AJA_DATA_DIR at import
-# time. Each xdist worker gets its own throwaway data directory so LanceDB
+# time. Each test runner process gets its own throwaway data directory so LanceDB
 # tables, mission journals, daemon PID files, and goal-engine state files are
-# never shared between concurrently executing tests.
+# never shared with production or between concurrently executing tests.
 # ---------------------------------------------------------------------------
 _XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER") or os.environ.get("_PYTEST_XDIST_WORKER")
-if _XDIST_WORKER:
-    _isolated_root = Path(tempfile.gettempdir()) / f"aja_xdist_{_XDIST_WORKER}_{os.getpid()}"
-    _isolated_data = _isolated_root / "data"
-    _isolated_data.mkdir(parents=True, exist_ok=True)
+_worker_label = f"xdist_{_XDIST_WORKER}" if _XDIST_WORKER else "serial"
+_isolated_root = Path(tempfile.gettempdir()) / f"aja_test_{_worker_label}_{os.getpid()}"
+_isolated_data = _isolated_root / "data"
+_isolated_data.mkdir(parents=True, exist_ok=True)
+if "AJA_DATA_DIR" not in os.environ:
     os.environ["AJA_DATA_DIR"] = str(_isolated_data)
-    # Keep trace writes off the shared project traces/ directory as well.
+if "AJA_TRACE_DIR" not in os.environ:
     os.environ["AJA_TRACE_DIR"] = str(_isolated_root / "traces")
+os.environ.setdefault("AJA_TEST_MODE", "1")
 
 if sys.platform == "win32":
     # ProactorEventLoop is required on Windows for async subprocess support.
