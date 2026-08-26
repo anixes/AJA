@@ -17,7 +17,7 @@ class VectorMemory:
     High-performance Semantic Memory powered by LanceDB and Apache Arrow.
     Provides O(1) retrieval and zero-copy data handling to keep hardware costs low.
     """
-    def __init__(self, table_name: str = "agent_memory"):
+    def __init__(self, table_name: str):
         mgr = get_memory_manager()
         self.db = mgr.db
         self.table_name = table_name

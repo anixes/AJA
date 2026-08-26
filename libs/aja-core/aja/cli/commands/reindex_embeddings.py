@@ -24,7 +24,7 @@ def _reindex_vector_memory_tables(db) -> dict[str, int]:
     service = get_embedding_service()
     counts: dict[str, int] = {}
     existing = list_tables_defensive(db)
-    for table_name in ("mission_semantic", "agent_memory"):
+    for table_name in ("mission_semantic",):
         if table_name not in existing:
             counts[table_name] = -1  # not present, skipped
             continue

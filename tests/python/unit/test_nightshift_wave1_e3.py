@@ -287,7 +287,7 @@ def _fake_vector_memory(rows):
     from aja.memory.vector import VectorMemory
 
     vm = object.__new__(VectorMemory)
-    vm.table_name = "agent_memory"
+    vm.table_name = "test_vector_table"
 
     arrow_result = SimpleNamespace(to_pylist=lambda: rows)
     query = SimpleNamespace(
