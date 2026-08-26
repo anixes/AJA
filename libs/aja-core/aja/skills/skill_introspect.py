@@ -16,7 +16,10 @@ Public API
 """
 
 import json
+import logging
 from aja.skills.skill_store import get_skill, get_skill_sources, _get_conn
+
+logger = logging.getLogger(__name__)
 
 
 def explain_skill(skill_id: str) -> str:
@@ -52,7 +55,8 @@ def explain_skill(skill_id: str) -> str:
                 out.append(f"- {p}")
         else:
             out.append("- None")
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed parsing prerequisites JSON for skill %s: %s", skill_id, exc)
         out.append("- None")
     out.append("")
 
@@ -64,7 +68,8 @@ def explain_skill(skill_id: str) -> str:
             args = step.get("args_schema", {})
             if args:
                 out.append(f"     Params: {list(args.keys())}")
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed parsing tool_sequence JSON for skill %s: %s", skill_id, exc)
         out.append("  [Invalid tool sequence data]")
     out.append("")
 
@@ -77,7 +82,8 @@ def explain_skill(skill_id: str) -> str:
                 out.append(f"- `[{pc.get('type')}]` {pc.get('target')} ⟶ {pc.get('expected')} {req}")
         else:
             out.append("- None defined.")
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed parsing postconditions JSON for skill %s: %s", skill_id, exc)
         out.append("- None defined.")
 
     return "\n".join(out)
@@ -109,7 +115,7 @@ def compare_versions(family_id: str, v1: int, v2: int) -> str:
         out.append(f"- **v{v2}:** {' ⟶ '.join(tools2)}")
         return "\n".join(out)
     except Exception as e:
-        import traceback
+        logger.debug("Error comparing versions for family %s: %s", family_id, e)
         return f"[!] Diff error: {e}"
 
 
@@ -126,8 +132,8 @@ def format_ambiguity_prompt(query: str, skills: list) -> str:
             seq = json.loads(s.get("tool_sequence", "[]"))
             tools = [step.get("tool_name") for step in seq]
             out.append(f"     Tools:   {' ⟶ '.join(tools)}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed parsing tool_sequence for skill in ambiguity prompt: %s", exc)
         out.append("")
     
     out.append(f"  0) None of the above (fallback to normal execution)\n")

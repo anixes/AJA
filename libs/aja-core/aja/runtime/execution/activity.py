@@ -1,11 +1,14 @@
 import asyncio
 import functools
 import json
+import logging
+import sys
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, Optional, TypeVar
 
 from aja.runtime.execution.sequencer import TelemetryEmitter
-import sys
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -31,7 +34,9 @@ class ActivityContext:
             # sys._getframe(2) targets the caller of the @durable_activity wrapper
             frame = sys._getframe(2)
             frame_id = f"{frame.f_code.co_filename}:{frame.f_lineno}"
-        except Exception:
+        except Exception as exc:
+            # Best-effort fallback when frame introspection is unavailable
+            logger.debug("Failed getting caller frame for activity %s: %s", name, exc)
             frame_id = "unknown"
             
         key = f"{name}_{frame_id}"
@@ -81,14 +86,16 @@ def _safe_serialize(obj: Any) -> Any:
             return obj.to_dict()
         if type(obj).__module__ in ("builtins", "datetime", "pathlib", "enum"):
             return str(obj)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Best-effort object serialization fallback
+        logger.debug("Failed serializing object of type %s: %s", type(obj).__name__, exc)
     return f"<{type(obj).__name__}>"
 
 def _safe_format_args(args: Any, kwargs: Any) -> tuple[Any, Any]:
     try:
         return [f"<{type(a).__name__}>" for a in args], {k: f"<{type(v).__name__}>" for k, v in kwargs.items()}
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed formatting args/kwargs: %s", exc)
         return "<args_error>", "<kwargs_error>"
 
 def durable_activity(name: str):
@@ -140,7 +147,8 @@ def durable_activity(name: str):
                     safe_args = json.loads(json.dumps(args, default=_safe_serialize))
                     safe_kwargs = json.loads(json.dumps(kwargs, default=_safe_serialize))
                     safe_result = json.loads(json.dumps(serializable_result, default=_safe_serialize))
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed serializing async activity %s args/result: %s", name, exc)
                     s_args, s_kwargs = _safe_format_args(args, kwargs)
                     safe_args, safe_kwargs, safe_result = s_args, s_kwargs, f"<{type(result).__name__}>"
                 
@@ -200,7 +208,8 @@ def durable_activity(name: str):
                     safe_args = json.loads(json.dumps(args, default=_safe_serialize))
                     safe_kwargs = json.loads(json.dumps(kwargs, default=_safe_serialize))
                     safe_result = json.loads(json.dumps(serializable_result, default=_safe_serialize))
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed serializing sync activity %s args/result: %s", name, exc)
                     s_args, s_kwargs = _safe_format_args(args, kwargs)
                     safe_args, safe_kwargs, safe_result = s_args, s_kwargs, f"<{type(result).__name__}>"
                 

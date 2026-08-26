@@ -91,7 +91,8 @@ def _inject_context(step: dict, context: dict) -> dict:
     replaced = re.sub(r'\{\{([^}]+)\}\}', replacer, raw)
     try:
         return json.loads(replaced)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed parsing replaced context JSON in _inject_context: %s", exc)
         return step  # return original on parse error
 
 
@@ -202,8 +203,8 @@ def _log_skill_status(run_id: str, skill_id: str, status: str,
         else:
             t.add([{"run_id": run_id, "skill_id": skill_id, "status": status,
                     "position": position, "total": total, "logged_at": now_iso}])
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to log skill status for %s/%s (%s): %s", run_id, skill_id, status, exc)
 
 
 # ---------------------------------------------------------------------------

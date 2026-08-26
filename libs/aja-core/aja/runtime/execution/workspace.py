@@ -157,7 +157,8 @@ class WorkspaceManager:
                 timeout=10,
             )
             return res.returncode == 0 and res.stdout.strip() == "true"
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed checking git worktree capability on %s: %s", self.project_root, exc)
             return False
 
     def _create_worktree(self, execution_root: Path) -> bool:
@@ -169,8 +170,11 @@ class WorkspaceManager:
                 text=True,
                 timeout=30,
             )
+            if res.returncode != 0:
+                logger.debug("git worktree add failed (exit %s): %s", res.returncode, res.stderr)
             return res.returncode == 0
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed creating git worktree at %s: %s", execution_root, exc)
             return False
 
     def _copy_workspace(self, execution_root: Path) -> None:
@@ -205,8 +209,11 @@ class WorkspaceManager:
                 text=True,
                 timeout=20,
             )
+            if res.returncode != 0:
+                logger.debug("git %s in %s exited with %s: %s", " ".join(args), cwd, res.returncode, res.stderr)
             return res.stdout if res.returncode == 0 else ""
-        except Exception:
+        except Exception as exc:
+            logger.debug("git %s in %s failed: %s", " ".join(args), cwd, exc)
             return ""
 
     def _list_relative_files(self, root: Path) -> List[str]:

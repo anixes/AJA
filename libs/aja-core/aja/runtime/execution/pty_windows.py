@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import os
 import threading
 from typing import Optional
 from aja.runtime.execution.transport import ExecutionTransport
+
+logger = logging.getLogger(__name__)
 
 try:
     import pywinpty
@@ -65,6 +68,7 @@ class WindowsPTYTransport(ExecutionTransport):
                 try:
                     self.pty.write(data.decode('utf-8'))
                 except Exception:
+                    # Best effort: PTY handle may already be closed if process terminated
                     pass
             async def drain(self):
                 pass
@@ -86,7 +90,9 @@ class WindowsPTYTransport(ExecutionTransport):
                     await asyncio.sleep(0.05)
                     continue
                 self.stdout.feed_data(data.encode('utf-8'))
-            except Exception:
+            except Exception as exc:
+                # Expected on process exit / handle closure
+                logger.debug("ConPTY read loop terminated: %s", exc)
                 break
         self.stdout.feed_eof()
 
@@ -99,6 +105,7 @@ class WindowsPTYTransport(ExecutionTransport):
             try:
                 return self.pty.read(4096, False)
             except Exception:
+                # Best effort: PTY handle closed or I/O error during teardown
                 return None
 
     async def _poll_loop(self) -> None:
@@ -110,6 +117,7 @@ class WindowsPTYTransport(ExecutionTransport):
                 exit_code = self.pty.get_exitstatus()
                 self.returncode = -1 if exit_code is None else exit_code
             except Exception:
+                # Best effort: fallback returncode when exitstatus query fails
                 self.returncode = 1
         else:
             self.returncode = -1
@@ -143,6 +151,7 @@ class WindowsPTYTransport(ExecutionTransport):
                 try:
                     pty.close()
                 except Exception:
+                    # Best effort: handle may already be invalid or closed
                     pass
             finally:
                 if locked:

@@ -419,6 +419,7 @@ class BatonManager(HandoverManager):
             with open(baton_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f)
         except Exception:
+            logger.exception("Failed to write baton metadata for %s", code)
             arrow_path.unlink(missing_ok=True)
             raise
 

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 from aja.runtime.event_bus import bus
 from aja.runtime.execution.contracts import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 class StreamNormalizer:
@@ -85,8 +88,8 @@ class TelemetryEmitter:
         # Distribute dynamically onto AJA event bus
         try:
             bus.publish(event_type, sequenced)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed publishing event %s to bus: %s", event_type, exc)
 
         return sequenced
 

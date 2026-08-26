@@ -110,8 +110,8 @@ def _refresh_last_used(skill_id: str) -> None:
         from aja.skills.skill_store import touch_skill
 
         touch_skill(skill_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed touching skill %s: %s", skill_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -564,8 +564,8 @@ def execute_skill(
         if tracker:
             try:
                 tracker.log_event(event, payload)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tracker.log_event failed in _log for %s: %s", skill_id, exc)
 
     try:
         # ── Gap 3: touch last_used_at (resets stale flag) ────────────────────
@@ -702,6 +702,7 @@ def execute_skill(
         _log("SKILL_FALLBACK")
         try:
             _update_skill_metrics(skill_id, success=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort metrics update failure on skill execution fallback
+            logger.debug("Failed updating skill failure metrics for %s: %s", skill_id, exc)
         return False

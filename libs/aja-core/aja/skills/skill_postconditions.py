@@ -51,8 +51,11 @@ Public API
 """
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +240,13 @@ def validate_postconditions(
         if log_fn:
             try:
                 log_fn(event, extra or {})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("log_fn failed in postconditions _emit for %s: %s", skill_id, exc)
         if tracker:
             try:
                 tracker.log_event(event, payload)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tracker.log_event failed in postconditions _emit for %s: %s", skill_id, exc)
 
     postconditions = parse_postconditions(skill.get("postconditions"))
 

@@ -456,15 +456,19 @@ class ExecutionManager:
                 await asyncio.wait_for(session.process.wait(), timeout=2.0)
                 session.state = reason
                 return
-        except Exception:
+        except asyncio.TimeoutError:
             pass
+        except Exception:
+            logger.warning("Unexpected error during graceful process shutdown on session %s", session.session_id, exc_info=True)
         await self._set_state(session, "force_kill", f"Execution {reason}: force cleanup")
         terminate_tree(session.pid, force=True)
         if session.process:
             try:
                 await asyncio.wait_for(session.process.wait(), timeout=2.0)
-            except Exception:
+            except asyncio.TimeoutError:
                 pass
+            except Exception:
+                logger.warning("Unexpected error during force kill on session %s", session.session_id, exc_info=True)
         session.state = reason
 
     async def _set_state(self, session: ExecutionSession, state: ExecutionState, message: str) -> None:
@@ -542,6 +546,7 @@ class ExecutionManager:
                 if mapped.exists():
                     return str(mapped)
             except Exception:
+                # Best effort: requested cwd outside project root falls back to execution_root
                 pass
             return workspace.execution_root
         return str(requested)

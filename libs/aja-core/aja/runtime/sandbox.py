@@ -45,6 +45,7 @@ def _check_docker() -> bool:
         )
         _DOCKER_AVAILABLE = (result.returncode == 0)
     except Exception:
+        # Best effort: Docker CLI timeout, daemon unreachable or not installed
         _DOCKER_AVAILABLE = False
     return _DOCKER_AVAILABLE
 
