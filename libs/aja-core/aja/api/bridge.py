@@ -26,9 +26,19 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from aja.api.app_context import (
+    AppContext,
+    get_app_context as _get_app_context,  # noqa: F401
+    set_app_context,  # noqa: F401
+)
 from aja.api.routes import attach_route_groups
 from aja.api.services.command_policy import (
     analyze_shell_command as analyze_shell_command_policy,
+)
+from aja.api.services.config_store import (  # noqa: E402,F401
+    load_config as _load_config_store,
+    mask_api_key,
+    save_config as _save_config_store,
 )
 from aja.api.services.legacy_dashboard import dashboard_unavailable_payload
 from aja.config import DATA_DIR, PROJECT_ROOT
@@ -102,17 +112,20 @@ app.add_middleware(
 )
 
 
-RUNTIME_STATE_PATH = DATA_DIR / "runtime-state.json"  # debug export only
-BATON_DIR = DATA_DIR / "batons"
-DEFAULT_API_TOKEN = "dev-token-123"
-API_TOKEN = os.getenv("AJA_API_TOKEN", DEFAULT_API_TOKEN)
-TELEGRAM_HISTORY_PATH = DATA_DIR / "telegram-history.jsonl"
-TELEGRAM_PENDING_PATH = DATA_DIR / "telegram-pending.json"  # debug export only
-APPROVAL_AUDIT_PATH = DATA_DIR / "approval-audit.jsonl"  # debug export only
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
-TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-TELEGRAM_COMMAND_TIMEOUT = int(os.getenv("TELEGRAM_COMMAND_TIMEOUT", "60"))
+# Bridge constants are aliases of the AppContext snapshot so services and
+# routes read one source of truth while preserving import-time env reads.
+_ctx = _get_app_context()
+RUNTIME_STATE_PATH = _ctx.runtime_state_path  # debug export only
+BATON_DIR = _ctx.baton_dir
+DEFAULT_API_TOKEN = _ctx.default_api_token
+API_TOKEN = _ctx.api_token
+TELEGRAM_HISTORY_PATH = _ctx.history_path
+TELEGRAM_PENDING_PATH = _ctx.pending_path  # debug export only
+APPROVAL_AUDIT_PATH = _ctx.audit_path  # debug export only
+TELEGRAM_BOT_TOKEN = _ctx.telegram_bot_token
+TELEGRAM_ALLOWED_USER_ID = _ctx.telegram_allowed_user_id
+TELEGRAM_WEBHOOK_SECRET = _ctx.telegram_webhook_secret
+TELEGRAM_COMMAND_TIMEOUT = _ctx.telegram_command_timeout
 AJA_MEMORY_DIR = DATA_DIR / "lancedb"
 
 logger = logging.getLogger(__name__)
@@ -2588,29 +2601,22 @@ def get_safety_history():
     return {"events": state.get("events", [])[:10]}
 
 
-CONFIG_PATH = DATA_DIR / "config.json"
+CONFIG_PATH = _get_app_context().config_path
 
 
 def load_config():
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning("Failed to parse %s; returning defaults: %s", CONFIG_PATH, e)
-    return {"provider": "openrouter", "api_key": "", "model": ""}
+    return _load_config_store(CONFIG_PATH)
 
 
 def save_config(data: dict):
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    _save_config_store(data, CONFIG_PATH)
 
 
 @app.get("/config", dependencies=[Depends(verify_token)])
 def get_config():
     cfg = load_config()
-    # Mask the API key for safety — only show last 4 chars
     key = cfg.get("api_key", "")
-    masked = ("*" * max(0, len(key) - 4)) + key[-4:] if len(key) > 4 else key
+    masked = mask_api_key(key)
     return {
         "provider": cfg.get("provider", "openrouter"),
         "api_key_masked": masked,
