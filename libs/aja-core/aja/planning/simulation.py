@@ -70,7 +70,80 @@ Return JSON ONLY:
         print(f"[Simulator] Error: {e}")
         return SimulationResult(0.5, 0.5, 0.5, 0.5, "Simulation failed.")
 
-def select_best_simulated_plan(plans: List[PlanGraph], strategies: List[Dict[str, Any]] = None) -> PlanGraph:
+async def simulate_plan_async(plan: PlanGraph, strategy: Optional[Dict[str, Any]] = None) -> SimulationResult:
+    """
+    Async mirror of simulate_plan.
+    """
+    from aja.llm import completion_async
+
+    model_name = aja.config.AJA_PLANNER_MODEL
+
+    plan_json = json.dumps(plan.to_dict(), indent=2)
+    strategy_info = f"\nApplied Strategy: {json.dumps(strategy, indent=2)}" if strategy else ""
+
+    system = """You are Agent Plan Simulator.
+Predict the outcome of the given plan before it is executed.
+Analyze dependencies, tool requirements, and potential failure points.
+Return JSON ONLY:
+{
+    "success_probability": 0.0-1.0,
+    "risk": 0.0-1.0,
+    "latency": 0.0-1.0 (estimated execution time normalized),
+    "complexity": 0.0-1.0,
+    "predicted_failures": ["list of what might go wrong"],
+    "feedback": "overall reasoning"
+}"""
+    prompt = f"Plan to simulate: {plan_json}{strategy_info}"
+
+    try:
+        raw = await completion_async(prompt=prompt, system_prompt=system, model=model_name)
+        if raw and "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif raw and "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+
+        data = json.loads(raw)
+        return SimulationResult(
+            success_probability=data.get("success_probability", 0.5),
+            risk=data.get("risk", 0.5),
+            latency=data.get("latency", 0.5),
+            complexity=data.get("complexity", 0.5),
+            feedback=data.get("feedback", "")
+        )
+    except Exception as e:
+        print(f"[Simulator] Error: {e}")
+        return SimulationResult(0.5, 0.5, 0.5, 0.5, "Simulation failed.")
+
+async def select_best_simulated_plan_async(plans: List[PlanGraph], strategies: List[Dict[str, Any]] = None) -> Optional[PlanGraph]:
+    """
+    Async mirror of select_best_simulated_plan.
+    Sequential on purpose: parallel LLM calls would contend for the local llama.cpp server.
+    """
+    if not plans:
+        return None
+    if len(plans) == 1:
+        return plans[0]
+
+    results = []
+    for i, plan in enumerate(plans):
+        strategy = strategies[i] if strategies and len(strategies) > i else None
+        sim = await simulate_plan_async(plan, strategy)
+
+        threshold = 0.4  # success_probability threshold
+        if sim.success_probability < threshold:
+            print(f"[Simulator] Rejecting candidate {i+1} due to high failure prediction ({sim.success_probability:.2f})")
+            continue
+
+        results.append((plan, sim.score()))
+        print(f"[Simulator] Candidate {i+1} simulated score: {results[-1][1]:.2f}")
+
+    if not results:
+        return None
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results[0][0]
+
+async def _unused():  # pragma: no cover
     """
     Part D & G — Select best plan & Diversity
     """

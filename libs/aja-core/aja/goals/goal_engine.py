@@ -202,6 +202,55 @@ class GoalEngine:
         }
         return self.planner.decompose(goal.objective, current_state=state)
 
+    async def expand_goal_async(self, goal: Goal):
+        """
+        Async mirror of expand_goal. Runs the async-native planner path so no
+        thread-join bridge is needed; strategy_store search is off-loaded to a
+        worker thread for safety (may touch disk/JSON).
+        """
+        import asyncio
+        from aja.planning.scorer import COMPLEXITY_LOW, estimate_complexity
+
+        # Partially-constructed engines (tests, edge cases) may lack a planner;
+        # defer to their expand_goal hook (which may itself be async).
+        if not hasattr(self, "planner"):
+            result = self.expand_goal(goal)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+
+        force_swarm = getattr(goal, "metadata", {}).get("force_swarm", False)
+        if not force_swarm and estimate_complexity(goal.objective) == COMPLEXITY_LOW:
+            print(
+                f"[GoalEngine] Goal complexity is LOW: {goal.objective}. Bypassing LLM decomposition."
+            )
+            from aja.planning.planner import _fallback_graph
+
+            return _fallback_graph(goal.objective)
+
+        try:
+            from aja.learning.strategy_store import strategy_store
+
+            similar_strategies = await asyncio.to_thread(strategy_store.search, goal.objective)
+            trusted = [
+                s
+                for s in similar_strategies
+                if strategy_store.score_experience(s) >= 0.7 and s["executions"] > 2
+            ]
+            experimental = [s for s in similar_strategies if s not in trusted]
+            self.planner.bias_with_strategies(
+                trusted, experimental, is_sandbox=goal.is_sandbox, risk_level=0.1
+            )
+        except Exception as e:
+            print(f"[GoalEngine] Strategy Search error: {e}")
+
+        state = {
+            "completed_steps": goal.progress.get("completed_steps", []),
+            "current_objective": goal.objective,
+            "system_operational": True,
+        }
+        return await self.planner.decompose_async(goal.objective, current_state=state)
+
     def update_goal_state(self, goal: Goal, result: Any, node_id: str):
         success = (
             getattr(result, "success", False)
@@ -412,14 +461,12 @@ class GoalEngine:
             await self._step_verifying(goal)
 
     async def _step_planning(self, goal: Goal):
+        import asyncio
+
         print(f"\n[GoalEngine] Planning for goal: {goal.objective}")
         try:
-            # expand_goal bottoms out in the sync planner (run_async_synchronously
-            # thread-join). Run it in a worker thread so the shared event loop
-            # stays responsive during the multi-second LLM planning round-trip.
-            import asyncio as _asyncio
-
-            goal.plan = await _asyncio.to_thread(self.expand_goal, goal)
+            # Async-native planning path: awaited directly on this loop (no threads).
+            goal.plan = await self.expand_goal_async(goal)
             goal.current_node_index = 0
             plan = goal.plan
 
@@ -432,14 +479,15 @@ class GoalEngine:
                     plan_summary += f"\n  ...and {len(plan.nodes) - 3} more"
 
             bus.publish(EVENTS["PLAN_CREATED"], {"plan_summary": plan_summary})
-            import asyncio as _asyncio
-            await _asyncio.to_thread(
-                self.memory.record_scheduler_event,
+            # Inline await (no worker thread): planning must not spawn threads.
+            record_result = self.memory.record_scheduler_event(
                 kind="PLAN_CREATED",
                 target=goal.id,
                 metadata={"plan_summary": plan_summary, "message": plan_summary},
                 status=True,
             )
+            if asyncio.iscoroutine(record_result):
+                await record_result
             goal.status = "PLANNING"
             self.save_state()
         except Exception as e:
