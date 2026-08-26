@@ -165,7 +165,30 @@ async def serve(host_stop_event: Optional[asyncio.Event] = None) -> None:
     stop_waiter = asyncio.create_task(stop_event.wait(), name="aja-serve-stop-waiter")
     children: Set[asyncio.Task] = {gateway_task, autonomy_task}
 
-    print("[*] AJA serving: gateway + scheduler + autonomy")
+    # Web Dashboard & API Bridge Server
+    bridge_server = None
+    try:
+        import uvicorn
+        from aja.api.bridge import app as bridge_app, resolve_bridge_bind
+        import os
+
+        os.environ["AJA_BRIDGE_BACKGROUND_DISABLED"] = "1"
+        b_host, b_port = resolve_bridge_bind()
+        uv_config = uvicorn.Config(
+            bridge_app,
+            host=b_host,
+            port=b_port,
+            log_level="warning",
+            access_log=False,
+        )
+        bridge_server = uvicorn.Server(uv_config)
+        bridge_task = asyncio.create_task(bridge_server.serve(), name="aja-serve-bridge")
+        children.add(bridge_task)
+        print(f"[*] AJA Web Dashboard & API Bridge: http://{b_host}:{b_port}/app")
+    except Exception as exc:
+        logger.warning("AJA Web Dashboard startup skipped: %s", exc)
+
+    print("[*] AJA serving: gateway + scheduler + autonomy + web dashboard")
     try:
         await asyncio.wait(
             {stop_waiter, *children},
@@ -174,6 +197,8 @@ async def serve(host_stop_event: Optional[asyncio.Event] = None) -> None:
     finally:
         restore_signals()
         stop_waiter.cancel()
+        if bridge_server is not None:
+            bridge_server.should_exit = True
         if file_watcher is not None:
             file_watcher.stop()
         for task in children:
