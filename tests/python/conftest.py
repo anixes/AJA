@@ -57,3 +57,57 @@ def clear_activity_context():
     yield
     # Clear context after test runs
     set_activity_context(None)
+
+
+# ---------------------------------------------------------------------------
+# Memory-leak containment (see docs/plans/MEMORY_LEAK_FINDINGS.md).
+#
+# Long test sessions ratcheted a single worker process to 18-22GB virtual:
+# cached LLMGateways pin event loops + connection pools, the global event bus
+# accumulates subscribers, and experience_store retains whole plan/result
+# object graphs. Cheap in-memory resets run after EVERY test; LanceDB-backed
+# singletons (secretary/manager) reset SESSION-scoped only — per-test resets
+# there forced expensive re-init disk IO that hung planning tests.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_leaky_singletons():
+    yield
+    # Each step individually guarded: a missing/renamed hook must never fail
+    # the suite — this fixture is hygiene, not behavior.
+    try:
+        from aja.llm import clear_gateway_cache
+
+        clear_gateway_cache()
+    except Exception:
+        pass
+    try:
+        from aja.runtime.event_bus import bus
+
+        bus.reset()
+    except Exception:
+        pass
+    try:
+        from aja.memory.experience_store import experience_store
+
+        experience_store.store.clear()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reset_lancedb_singletons_session():
+    yield
+    try:
+        from aja.memory import secretary as _secretary
+
+        _secretary._instance = None
+    except Exception:
+        pass
+    try:
+        from aja.memory import manager as _memmgr
+
+        _memmgr._instance = None
+    except Exception:
+        pass
