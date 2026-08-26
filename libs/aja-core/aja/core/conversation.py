@@ -453,9 +453,16 @@ class ConversationCore:
         history = session["_working_history"]
         recall_block = session.get("_recall_block", "")
         system_prompt = self._system_prompt
+        if not system_prompt:
+            try:
+                from aja.cognitive.prompts import build_system_prompt
+
+                system_prompt = build_system_prompt(goal=intent.task)
+            except Exception:
+                pass
         if recall_block:
             system_prompt = (
-                f"{self._system_prompt}\n\n{recall_block}" if system_prompt else recall_block
+                f"{system_prompt}\n\n{recall_block}" if system_prompt else recall_block
             )
 
         async def runner():

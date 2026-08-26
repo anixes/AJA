@@ -90,9 +90,12 @@ class VectorMemory:
             # Rows indexed under a different embedding model live in a
             # different vector space — their distances are meaningless, so
             # they are filtered out (reindex with 'aja reindex-embeddings').
-            if rec_model and rec_model != model_name:
-                mismatched_models.add(rec_model)
-                continue
+            if rec_model:
+                clean_rec = rec_model.replace("fastembed/", "")
+                clean_curr = model_name.replace("fastembed/", "")
+                if clean_rec != clean_curr:
+                    mismatched_models.add(rec_model)
+                    continue
             if not rec_model:
                 # Legacy rows written before model stamping existed.
                 rec_metadata["embedding_model"] = "unknown"

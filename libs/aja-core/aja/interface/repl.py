@@ -212,10 +212,13 @@ class TerminalREPL:
 
         gateway, tools_registry, executor = _resolve_production_stack()
         model = None
+        system_prompt = None
         try:
             from aja.config import AJA_PLANNER_MODEL
+            from aja.cognitive.prompts import build_system_prompt
 
             model = AJA_PLANNER_MODEL or None
+            system_prompt = build_system_prompt()
         except Exception:  # best-effort: gateway falls back to its default model
             pass
         return ConversationCore(
@@ -224,6 +227,7 @@ class TerminalREPL:
             executor=executor,
             recall_fn=_recall,
             model=model,
+            system_prompt=system_prompt,
         )
 
     def _get_session(self) -> Any:

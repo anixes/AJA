@@ -126,6 +126,14 @@ async def run_direct_loop(
     truncator = result_truncator or _default_result_truncator
     trace_id_getter = trace_id_fn or _default_trace_id_fn
 
+    if not system_prompt:
+        try:
+            from aja.cognitive.prompts import build_system_prompt
+
+            system_prompt = build_system_prompt(goal=objective)
+        except Exception:
+            pass
+
     if session_history is not None:
         history = session_history
     else:
