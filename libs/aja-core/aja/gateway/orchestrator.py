@@ -519,6 +519,22 @@ class UnifiedGateway:
 
         session = await asyncio.to_thread(self.gateway_state.get_session, chat_id)
 
+        # Status bubble: silent "working" indicator edited in place while the
+        # turn runs; finalized into the reply (or deleted) at send time.
+        status_bubble = None
+        try:
+            from aja.gateway.tg_client import StatusBubble
+
+            responder = self._responder()
+            bot = getattr(responder, "bot", None) or getattr(
+                getattr(responder, "target_adapter", None), "bot", None
+            )
+            if bot is not None and event.platform == "telegram":
+                status_bubble = StatusBubble(bot, chat_id)
+                await status_bubble.start()
+        except Exception:
+            logger.debug("status bubble unavailable; continuing without it")
+
         # 1. Media Enrichment (AJA Vision)
         content = event.text or "What can you see in this image?"
         image_url = None
@@ -805,8 +821,20 @@ class UnifiedGateway:
             else:
                 response = await self._chat_via_core(event, content_stripped)
 
-        # 4. AJA Response
-        await self._responder().send_message(chat_id, response)
+        # 4. AJA Response — finalize the bubble into the reply when possible;
+        # fall back to a plain send otherwise. reply_to_message_id lets the
+        # adapter swap the 👀 ack reaction to ✅ on the user's message.
+        sent_via_bubble = False
+        if status_bubble is not None:
+            sent_via_bubble = await status_bubble.finalize(response)
+        if not sent_via_bubble:
+            kwargs = {}
+            if event.platform == "telegram" and event.message_id:
+                try:
+                    kwargs["reply_to_message_id"] = int(event.message_id)
+                except (TypeError, ValueError):
+                    pass
+            await self._responder().send_message(chat_id, response, **kwargs)
         logger.info(
             "telegram_event_replied",
             extra={

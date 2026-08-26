@@ -22,12 +22,118 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+try:
+    from telegram import ReactionTypeEmoji
+except ImportError:  # very old PTB
+    ReactionTypeEmoji = None
 from aja.runtime.event_bus import bus, EVENTS
 
 TELEGRAM_AVAILABLE = True
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_MAX_FILE_BYTES = 20 * 1024 * 1024
+
+ACK_REACTION_EMOJI = "👀"
+DONE_REACTION_EMOJI = "✅"
+DONE_REACTION_FALLBACK_EMOJI = "👍"  # ✅ is not in Telegram's allowed reaction set
+ERROR_REACTION_EMOJI = "👎"
+STATUS_BUBBLE_INITIAL_TEXT = "🔧 Working…"
+
+
+class StatusBubble:
+    """Single in-place '🔧 Working…' progress message for one turn.
+
+    Sent silently (disable_notification=True) at turn start, edited as tools
+    run, then either edited into the final answer or deleted when the final
+    answer is sent as a separate message.
+
+    NOTE: not yet wired — the turn lifecycle lives in
+    UnifiedGateway.handle_gateway_event (libs/aja-core/aja/gateway/orchestrator.py).
+    Wiring point: create the bubble right before intent dispatch (~L520) and
+    finalize/delete around the final send_message at ~L809.
+    """
+
+    def __init__(self, bot: Any, chat_id: str):
+        self._bot = bot
+        self.chat_id = str(chat_id)
+        self.message_id: Optional[int] = None
+        self._finalized = False
+
+    @property
+    def active(self) -> bool:
+        return self.message_id is not None and not self._finalized
+
+    async def start(self) -> "StatusBubble":
+        try:
+            msg = await self._bot.send_message(
+                chat_id=self.chat_id,
+                text=STATUS_BUBBLE_INITIAL_TEXT,
+                disable_notification=True,
+            )
+            self.message_id = getattr(msg, "message_id", None)
+        except Exception as e:
+            logger.debug("StatusBubble start failed (cosmetic): %s", e)
+            self.message_id = None
+        return self
+
+    async def update(self, text: str) -> None:
+        if not self.active:
+            return
+        try:
+            await self._bot.edit_message_text(
+                chat_id=self.chat_id,
+                message_id=self.message_id,
+                text=text,
+                disable_notification=True,
+            )
+        except Exception as e:
+            logger.debug("StatusBubble update failed (cosmetic): %s", e)
+
+    async def finalize(self, final_text: Optional[str] = None) -> bool:
+        """Edit the bubble into the final answer, or delete it when the final
+        answer is delivered by a separate send. Returns True when the final
+        text was delivered via this bubble (caller should skip its own send)."""
+        if not self.active:
+            return False
+        self._finalized = True
+        try:
+            if final_text:
+                await self._bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    text=final_text,
+                )
+                return True
+            await self._bot.delete_message(
+                chat_id=self.chat_id, message_id=self.message_id
+            )
+        except Exception as e:
+            logger.debug("StatusBubble finalize failed (cosmetic): %s", e)
+        return False
+
+    async def fail(self, error_text: str = "❌ Something went wrong.") -> None:
+        await self.finalize(error_text)
+
+
+async def _safe_set_reaction(bot: Any, chat_id: str, message_id: Any, emoji: str) -> bool:
+    """Best-effort message reaction; never raises (groups may forbid them,
+    old PTB may lack the API). Returns True if applied."""
+    if bot is None or message_id is None:
+        return False
+    setter = getattr(bot, "set_message_reaction", None)
+    if setter is None:
+        logger.debug("Bot lacks set_message_reaction; skipping ack reaction.")
+        return False
+    try:
+        if ReactionTypeEmoji is not None:
+            reaction = [ReactionTypeEmoji(emoji)]
+        else:
+            reaction = [emoji]
+        await setter(chat_id=chat_id, message_id=int(message_id), reaction=reaction)
+        return True
+    except Exception as e:
+        logger.debug("setMessageReaction failed (cosmetic): %s", e)
+        return False
 
 
 def split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[str]:
@@ -143,6 +249,12 @@ class TelegramAdapter(BasePlatformAdapter):
                 # Start background polling of LanceDB events + telemetry dispatcher
                 self._poll_task = asyncio.create_task(self._poll_lancedb_events())
                 self._dispatcher_task = asyncio.create_task(self._dispatch_telemetry())
+                # Fire-and-forget: menu registration must never block/fail startup.
+                try:
+                    from aja.gateway.telegram_menu import register_command_menu
+                    asyncio.create_task(register_command_menu(self._bot))
+                except Exception as e:
+                    logger.debug("Menu registration scheduling failed: %s", e)
                 print("AJA Telegram Gateway started successfully.")
                 break
             except Exception as e:
@@ -277,6 +389,14 @@ class TelegramAdapter(BasePlatformAdapter):
             raw_event=update,
         )
         logger.info(f"Received message ({msg_type.value}) from {event.user_id}: {event.text[:50]}")
+        # Ack reaction: cosmetic "seen" signal; silently degrades in groups
+        # that disallow reactions or on any API error.
+        await _safe_set_reaction(
+            self._bot,
+            str(update.message.chat_id),
+            update.message.message_id,
+            ACK_REACTION_EMOJI,
+        )
         self.metrics["events_received"] += 1
         self.metrics["queue_size"] = self._queue.qsize() + 1
         self.metrics["queue_lag_seconds"] = 0.0
@@ -599,6 +719,12 @@ class TelegramAdapter(BasePlatformAdapter):
         if not self._bot:
             return None
 
+        reply_to = kwargs.pop("reply_to_message_id", None)
+        success_emoji = None
+        if reply_to is not None:
+            # Final reply to a specific user message: swap the 👀 ack for ✅.
+            success_emoji = DONE_REACTION_EMOJI
+
         if text is None:
             text = ""
         processed_text = self._prepare_text_for_mobile(str(text))
@@ -623,6 +749,15 @@ class TelegramAdapter(BasePlatformAdapter):
                     **chunk_kwargs,
                 )
                 self.metrics["messages_sent"] += 1
+                if index == len(chunks) - 1 and reply_to is not None and success_emoji:
+                    # ✅ is not always in Telegram's allowed reaction set;
+                    # retry once with 👍, then give up silently.
+                    if not await _safe_set_reaction(
+                        self._bot, chat_id, reply_to, success_emoji
+                    ):
+                        await _safe_set_reaction(
+                            self._bot, chat_id, reply_to, DONE_REACTION_FALLBACK_EMOJI
+                        )
             except Exception as e:
                 logger.error(f"Failed to send Telegram message: {e}")
                 self.metrics["send_failures"] += 1
