@@ -672,6 +672,38 @@ class TelegramAdapter(BasePlatformAdapter):
         await query.answer()
 
         data = query.data or ""
+        callback_user_id = str(query.from_user.id) if query.from_user else ""
+
+        # ── Per-command exec approvals (execok_<token> / execno_<token>) ──
+        if data.startswith(("execok_", "execno_")):
+            self.metrics["callback_handled"] += 1
+            allowed_user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID") or getattr(
+                __import__("aja.config", fromlist=["TELEGRAM_ALLOWED_USER_ID"]),
+                "TELEGRAM_ALLOWED_USER_ID",
+                "",
+            )
+            if (
+                not allowed_user_id
+                or str(allowed_user_id).strip() in ("", "*")
+                or callback_user_id != str(allowed_user_id).strip()
+            ):
+                logger.critical(
+                    "Security Alert: unauthorized exec-approval callback by %s",
+                    callback_user_id,
+                )
+                await query.edit_message_text(text="🚫 Unauthorized callback action.")
+                return
+
+            from aja.security.pending_commands import get_pending_command_store
+
+            approved = data.startswith("execok_")
+            token = data.split("_", 1)[1]
+            handled, message = await get_pending_command_store().resolve(
+                token, approved, callback_user_id
+            )
+            await query.edit_message_text(text=message)
+            return
+
         if not data.startswith(("approve_", "reject_")):
             logger.warning("Ignoring malformed callback data: %r", data[:50])
             try:
@@ -687,7 +719,6 @@ class TelegramAdapter(BasePlatformAdapter):
             "TELEGRAM_ALLOWED_USER_ID",
             "",
         )
-        callback_user_id = str(query.from_user.id) if query.from_user else ""
         if not allowed_user_id or str(allowed_user_id).strip() in ("", "*") or callback_user_id != str(allowed_user_id).strip():
             logger.critical(f"Security Alert: Unauthorized Telegram callback attempt by user {callback_user_id}")
             await query.edit_message_text(text="🚫 Unauthorized callback action.")
