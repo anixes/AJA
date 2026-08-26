@@ -83,6 +83,9 @@ class UnifiedGateway:
         self.telegram_adapter: Optional[TelegramAdapter] = None
         self.active_telemetry_bridges: Set[str] = set()
 
+        from aja.gateway.reply_extras import ErrorPolicy
+        self.error_policy = ErrorPolicy(policy=os.getenv("AJA_ERROR_POLICY", "once"))
+
     async def initialize(self, semantic_db_path: str = str(DATA_DIR / "memory.lancedb")):
         """Initializes the AJA native Rust semantic store."""
         try:
@@ -517,10 +520,6 @@ class UnifiedGateway:
             await self._responder().send_message(chat_id, msg)
             return
 
-        session = await asyncio.to_thread(self.gateway_state.get_session, chat_id)
-
-        # Status bubble: silent "working" indicator edited in place while the
-        # turn runs; finalized into the reply (or deleted) at send time.
         status_bubble = None
         try:
             from aja.gateway.tg_client import StatusBubble
@@ -534,6 +533,49 @@ class UnifiedGateway:
                 await status_bubble.start()
         except Exception:
             logger.debug("status bubble unavailable; continuing without it")
+
+        try:
+            await self._process_gateway_event(event, chat_id, correlation_id, status_bubble)
+        except Exception as exc:
+            logger.exception(
+                "telegram_event_error",
+                extra={
+                    "correlation_id": correlation_id,
+                    "chat_id": str(chat_id),
+                    "user_id": str(event.user_id),
+                    "error": str(exc),
+                },
+            )
+            from aja.gateway.reply_extras import format_error_reply
+
+            err_reply = format_error_reply(exc, context="AJA Gateway")
+            if getattr(self, "error_policy", None) is None or self.error_policy.should_send(err_reply):
+                sent_via_bubble = False
+                if status_bubble is not None:
+                    try:
+                        sent_via_bubble = await status_bubble.finalize(err_reply)
+                    except Exception:
+                        pass
+                if not sent_via_bubble:
+                    kwargs = {}
+                    if event.platform == "telegram" and event.message_id:
+                        try:
+                            kwargs["reply_to_message_id"] = int(event.message_id)
+                        except (TypeError, ValueError):
+                            pass
+                    try:
+                        await self._responder().send_message(chat_id, err_reply, **kwargs)
+                    except Exception as send_err:
+                        logger.error("Failed to deliver error response: %s", send_err)
+
+    async def _process_gateway_event(
+        self,
+        event: MessageEvent,
+        chat_id: Any,
+        correlation_id: str,
+        status_bubble: Optional[Any],
+    ) -> None:
+        session = await asyncio.to_thread(self.gateway_state.get_session, chat_id)
 
         # 1. Media Enrichment (AJA Vision)
         content = event.text or "What can you see in this image?"
@@ -979,9 +1021,15 @@ class UnifiedGateway:
             text=text,
         )
         final_text = ""
-        async for ev in self._get_conversation_core().handle(msg):
-            if isinstance(ev, Final):
-                final_text = ev.text
+        try:
+            async for ev in self._get_conversation_core().handle(msg):
+                if isinstance(ev, Final):
+                    final_text = ev.text
+        except Exception as exc:
+            logger.exception("ConversationCore handle error: %s", exc)
+            from aja.gateway.reply_extras import format_error_reply
+
+            return format_error_reply(exc, context="Brain Chat")
         return final_text or (
             "⚠️ **AJA Warning**: Unable to generate response. "
             "Please verify that your LLM provider endpoint is online and accessible."

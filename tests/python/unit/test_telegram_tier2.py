@@ -143,8 +143,53 @@ async def test_tg_client_send_message_strips_media_tags(tmp_path):
     f = tmp_path / "out.txt"
     f.write_text("data")
 
-    # With no bot this returns None but must not crash on the MEDIA path.
     result = await adapter.send_message(
         "100", f"report ready\nMEDIA:{f}", reply_to_message_id=5
     )
     assert result is None
+
+
+@pytest.mark.anyio
+async def test_unified_gateway_error_policy_gates_reply(monkeypatch):
+    from aja.gateway.orchestrator import UnifiedGateway
+    from aja.gateway.base import MessageEvent, MessageType
+    from aja.gateway.reply_extras import ErrorPolicy
+
+    gw = UnifiedGateway.__new__(UnifiedGateway)
+    gw.error_policy = ErrorPolicy("once")
+    gw.gateway_state = type("State", (), {"get_session": lambda s, c: {"history": []}})()
+    gw._is_telegram_user_authorized = lambda e: True
+    gw.model_id = "test-model"
+
+    sent = []
+
+    class FakeResponder:
+        async def send_message(self, chat_id, text, **kwargs):
+            sent.append((chat_id, text))
+
+    gw._responder = lambda: FakeResponder()
+
+    async def exploding_process(*args, **kwargs):
+        raise RuntimeError("database connection failed")
+
+    gw._process_gateway_event = exploding_process
+
+    event = MessageEvent(
+        platform="telegram",
+        chat_id="100",
+        user_id="42",
+        text="do something",
+        message_type=MessageType.TEXT,
+        message_id="msg1",
+    )
+
+    # First event throws -> error policy permits -> friendly reply sent
+    await gw.handle_gateway_event(event)
+    assert len(sent) == 1
+    assert "something went wrong" in sent[0][1]
+    assert "database connection failed" in sent[0][1]
+
+    # Second identical event throws -> error policy deduplicates -> not sent again
+    await gw.handle_gateway_event(event)
+    assert len(sent) == 1
+
