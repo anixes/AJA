@@ -85,12 +85,38 @@ def test_episodic_memory_trajectory_and_recall(temp_memory_manager):
     )
     mgr.save_episode(traj)
 
-    # 2. Recall similar episode
+    # 2. Recall similar episode (Vector/Semantic match)
     recalled = mgr.recall_episodes("nginx gateway 502 error", limit=2)
     assert len(recalled) >= 1
     top = recalled[0]
     assert "Nginx 502" in top["goal"]
     assert "php-fpm" in top["reflection"]["critique"]
+
+    # 3. Recall with empty query or fallback
+    all_episodes = mgr.recall_episodes("", limit=5)
+    assert len(all_episodes) >= 1
+
+
+def test_episodic_memory_keyword_fallback(temp_memory_manager, monkeypatch):
+    mgr, root = temp_memory_manager
+
+    traj = TaskTrajectory(
+        goal="Configure PostgreSQL max connections pool",
+        domain="database",
+    )
+    traj.mark_completed(
+        success=True,
+        critique="Tuned postgresql.conf max_connections to 200.",
+        lessons=["Always check available RAM before setting max_connections."],
+    )
+    mgr.save_episode(traj)
+
+    # Force vector search failure to test keyword fallback
+    monkeypatch.setattr("aja.embeddings.service.get_embedding_service", lambda: None)
+    recalled = mgr.recall_episodes("postgresql pool connections", limit=2)
+    assert len(recalled) >= 1
+    assert "PostgreSQL" in recalled[0]["goal"]
+
 
 
 def test_procedural_memory_skill_lifecycle(temp_memory_manager):

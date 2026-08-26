@@ -200,8 +200,63 @@ class CognitiveMemoryManager:
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
+        # Vector index persistence in aja_episodes table
+        try:
+            from aja.embeddings.service import get_embedding_service
+            from aja.memory.vector import VectorMemory
+
+            critique = (trajectory.reflection.critique if trajectory.reflection else "") or ""
+            lessons = " ".join((trajectory.reflection.lessons_learned if trajectory.reflection else []) or [])
+            summary_text = f"Goal: {trajectory.goal}\nDomain: {trajectory.domain}\nCritique: {critique}\nLessons: {lessons}".strip()
+
+            embed_svc = get_embedding_service()
+            vector = embed_svc.get_embedding(summary_text)
+            if vector:
+                vm = VectorMemory(table_name="aja_episodes")
+                vm.add(
+                    text=summary_text,
+                    vector=vector,
+                    metadata={
+                        "episode_id": trajectory.episode_id,
+                        "goal": trajectory.goal,
+                        "domain": trajectory.domain,
+                        "success": trajectory.reflection.success if trajectory.reflection else True,
+                    },
+                )
+        except Exception as exc:
+            logger.debug("Failed adding episode %s to vector index: %s", trajectory.episode_id, exc)
+
     def recall_episodes(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """Recalls relevant past episodes by keyword and domain matching."""
+        """Recalls relevant past episodes by semantic vector search with keyword fallback."""
+        if query.strip():
+            try:
+                from aja.embeddings.service import get_embedding_service
+                from aja.memory.vector import VectorMemory
+
+                embed_svc = get_embedding_service()
+                query_vector = embed_svc.get_embedding(query)
+                if query_vector:
+                    vm = VectorMemory(table_name="aja_episodes")
+                    hits = vm.search(query_vector, limit=limit)
+                    if hits:
+                        recalled = []
+                        seen_ids = set()
+                        for hit in hits:
+                            meta = hit.get("metadata") or {}
+                            ep_id = meta.get("episode_id")
+                            if ep_id and ep_id not in seen_ids:
+                                seen_ids.add(ep_id)
+                                ep_path = self.episodes_dir / f"episode_{ep_id}.json"
+                                if ep_path.exists():
+                                    try:
+                                        recalled.append(json.loads(ep_path.read_text(encoding="utf-8")))
+                                    except Exception:
+                                        pass
+                        if recalled:
+                            return recalled
+            except Exception as exc:
+                logger.debug("Vector search for episodes failed (%s), falling back to keyword scan", exc)
+
         episodes = []
         q_tokens = set(query.lower().split())
 
