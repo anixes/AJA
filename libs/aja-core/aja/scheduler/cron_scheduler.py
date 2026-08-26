@@ -474,7 +474,8 @@ class CronScheduler:
 
             # Lightweight briefing jobs run fully in-process (no SwarmEngine,
             # no timeout needed) — see aja.assistant.briefing.register_briefing_jobs.
-            if self._read_job_meta(job_id).get("briefing"):
+            # Store read offloaded: LanceDB IO must never run on the loop.
+            if (await asyncio.to_thread(self._read_job_meta, job_id)).get("briefing"):
                 await self._execute_briefing_job(job_id, goal)
                 return
 
@@ -486,9 +487,7 @@ class CronScheduler:
             is_research = is_research_goal(goal)
             if is_research:
                 try:
-                    meta = json.loads(
-                        self.store.get_task(job_id).get("metadata_json") or "{}"
-                    )
+                    meta = await asyncio.to_thread(self._read_job_meta, job_id)
                 except Exception:
                     meta = {}
                 is_research = is_research_goal(goal, meta)
@@ -516,7 +515,10 @@ class CronScheduler:
                 )
 
                 if report:
-                    self._deliver_research_report(job_id, goal, report)
+                    # Bus publish + sink emit are sync; offload off the loop.
+                    await asyncio.to_thread(
+                        self._deliver_research_report, job_id, goal, report
+                    )
 
             except asyncio.CancelledError:
                 self._emit_event(
@@ -554,7 +556,10 @@ class CronScheduler:
                     if report:
                         meta["last_report"] = report
 
-                self._mutate_job_meta(job_id, _finalize)
+                # Store read-modify-write (+ its internal retry sleep) is
+                # blocking; run it in a worker thread. Ordering vs the report
+                # delivery above is preserved: sequential awaits, same task.
+                await asyncio.to_thread(self._mutate_job_meta, job_id, _finalize)
 
     def _read_job_meta(self, job_id: str) -> Dict[str, Any]:
         """Safely reads a job's persistent metadata dict ({} on any failure)."""
@@ -601,7 +606,9 @@ class CronScheduler:
         try:
             from aja.assistant.briefing import send_briefing
 
-            send_briefing()
+            # Briefing compose does calendar reads + bi-temporal graph queries
+            # + store reads synchronously; keep all of it off the loop.
+            await asyncio.to_thread(send_briefing)
             self._emit_event(
                 "SCHEDULER_JOB_SUCCESS",
                 f"Briefing published: {goal}",
@@ -616,7 +623,7 @@ class CronScheduler:
                 metadata={"job_id": job_id},
             )
         finally:
-            self._clear_run_metadata(job_id)
+            await asyncio.to_thread(self._clear_run_metadata, job_id)
 
     def _clear_run_metadata(self, job_id: str) -> None:
         """Clears active run/trace bookkeeping after an in-process job run."""
