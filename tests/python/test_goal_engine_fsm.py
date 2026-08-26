@@ -22,7 +22,11 @@ async def test_goal_progresses_through_fsm_states(monkeypatch):
     n2 = PlanNode(id="n2", task="echo step 2", dependencies=["n1"])
     plan = PlanGraph(goal="Test multi-node task", nodes=[n1, n2])
 
+    async def _async_expand(g):
+        return plan
+
     monkeypatch.setattr(ge, "expand_goal", lambda g: plan)
+    monkeypatch.setattr(ge, "expand_goal_async", _async_expand)
 
     # Add goal
     gid = ge.add_goal("Test multi-node task", priority=1)
