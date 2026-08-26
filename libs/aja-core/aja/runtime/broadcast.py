@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import logging
 from typing import Any, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 
 def make_serializable(obj: Any) -> Any:
@@ -40,4 +43,4 @@ def dispatch_broadcast(coro_factory: Callable[[], Awaitable[None]]) -> None:
     try:
         asyncio.run(coro_factory())
     except Exception:
-        pass
+        logger.debug("Broadcast dispatch failed", exc_info=True)

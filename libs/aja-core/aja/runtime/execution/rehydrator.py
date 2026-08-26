@@ -242,7 +242,12 @@ class EventRehydrator:
                     )
                     workspace_diff = WorkspaceDiff(**wd_data)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Session %s: workspace diff unreadable; result will "
+                        "lack diff",
+                        self.session_id,
+                        exc_info=True,
+                    )
 
             session.result = ExecutionResult(
                 session_id=self.session_id,

@@ -587,6 +587,11 @@ class ExecutionManager:
             try:
                 content = timeline_path.read_text(encoding="utf-8")
             except Exception:
+                logger.warning(
+                    "Could not read timeline for %s; skipping orphan detection",
+                    session_dir.name,
+                    exc_info=True,
+                )
                 continue
             
             has_terminal = False
@@ -640,7 +645,11 @@ class ExecutionManager:
                     with timeline_path.open("a", encoding="utf-8") as f:
                         f.write(framed_line)
                 except Exception:
-                    pass
+                    logger.error(
+                        "Failed to write crashed marker for %s",
+                        session_dir.name,
+                        exc_info=True,
+                    )
 
 
 _DEFAULT_MANAGER: Optional[ExecutionManager] = None
