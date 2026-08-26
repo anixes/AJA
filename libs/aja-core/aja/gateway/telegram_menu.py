@@ -11,14 +11,17 @@ logger = logging.getLogger(__name__)
 
 # (command, description) — descriptions must be 1-256 chars, no newlines.
 CORE_COMMANDS: List[tuple] = [
-    ("start", "Introduce AJA and check the connection"),
-    ("help", "Show what I can do"),
-    ("status", "Mission & system status report"),
-    ("kanban", "Show the mission kanban board"),
-    ("missions", "List missions"),
+    ("start", "Introduce AJA and check connection"),
+    ("help", "Show capabilities and commands"),
+    ("status", "Mission and system metrics"),
+    ("pc", "Autonomous direct multi-step loop"),
+    ("tasks", "List active tasks and missions"),
+    ("skills", "List available procedural skills"),
+    ("review", "Review uncommitted changes and diffs"),
+    ("exec", "Review and approve pending commands"),
     ("models", "List / switch available models"),
-    ("doctor", "Run a system health check"),
-    ("clear", "Clear this chat's session history"),
+    ("doctor", "Run system health check"),
+    ("clear", "Clear chat session history"),
 ]
 
 
@@ -32,12 +35,13 @@ async def register_command_menu(bot: Any) -> bool:
         logger.debug("register_command_menu: no bot instance; skipping.")
         return False
     try:
-        await bot.set_my_commands(
-            [
-                {"command": cmd, "description": desc}
-                for cmd, desc in CORE_COMMANDS
-            ]
-        )
+        try:
+            from telegram import BotCommand
+
+            commands = [BotCommand(cmd, desc) for cmd, desc in CORE_COMMANDS]
+        except Exception:
+            commands = [(cmd, desc) for cmd, desc in CORE_COMMANDS]
+        await bot.set_my_commands(commands)
         logger.info("Telegram command menu registered (%d commands).", len(CORE_COMMANDS))
         return True
     except Exception as e:

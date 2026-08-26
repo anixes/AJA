@@ -51,14 +51,54 @@ from aja.messaging.envelope import InboundMessage
 
 __all__ = ["TerminalREPL", "build_key_bindings"]
 
+from prompt_toolkit.completion import Completer, Completion
+
 InputProvider = Callable[[str], Awaitable[str]]
 ApprovalResolver = Callable[[ApprovalRequested], Awaitable[bool]]
 
-SLASH_COMMANDS: Tuple[str, ...] = (
-    "/help", "/clear", "/exit", "/quit", "/status", "/kanban", "/live",
-    "/missions", "/models", "/tui", "/swarm", "/goal", "/schedule",
-    "/doctor", "/todo", "/doing", "/done", "/failed", "/rmtask",
-)
+SLASH_COMMAND_DESCRIPTIONS: Dict[str, str] = {
+    "/help": "Show help and command palette",
+    "/clear": "Clear the terminal screen",
+    "/exit": "Quit AJA (or press Ctrl+D)",
+    "/status": "Active batons and system metrics",
+    "/pc": "Autonomous direct multi-step execution",
+    "/tasks": "List mission tasks and status",
+    "/skills": "List available procedural skills",
+    "/review": "Review uncommitted changes and diffs",
+    "/exec": "Review and approve pending commands",
+    "/kanban": "Full-screen mission kanban dashboard",
+    "/missions": "List all active and completed missions",
+    "/tui": "Mission Control curses dashboard",
+    "/models": "Copilot / LLM model selector",
+    "/swarm": "Multi-agent swarm mission",
+    "/goal": "Persistent direct mission",
+    "/schedule": "Schedule recurring background task",
+    "/doctor": "System environment diagnostics",
+    "/todo": "Add a task to the mission board",
+    "/doing": "Mark task in-progress",
+    "/done": "Mark task completed",
+    "/failed": "Mark task failed",
+    "/rmtask": "Delete task from board",
+}
+
+SLASH_COMMANDS: Tuple[str, ...] = tuple(SLASH_COMMAND_DESCRIPTIONS.keys())
+
+
+class SlashCompleter(Completer):
+    """Live dropdown completer for prompt_toolkit that triggers on slash commands."""
+
+    def __init__(self, commands: Dict[str, str]):
+        self.commands = commands
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if text.startswith("/"):
+            word = text.split()[0] if " " not in text else ""
+            if word:
+                for cmd, desc in self.commands.items():
+                    if cmd.startswith(word):
+                        yield Completion(cmd, start_position=-len(word), display=cmd, display_meta=desc)
+
 
 _HELP_TEXT = """\
 **Commands**
@@ -67,6 +107,8 @@ _HELP_TEXT = """\
 - `/exit`      — quit AJA (or press Ctrl+D)
 - `/`          — open the command palette
 - `/status`    — active batons and system metrics
+- `/pc <goal>` — autonomous multi-step execution loop
+- `/tasks`     — active mission tasks
 - `/kanban` /missions /live — full-screen mission dashboard
 - `/tui`       — Mission Control curses dashboard
 - `/models [planner worker]` — Copilot model selector
@@ -261,9 +303,12 @@ class TerminalREPL:
                 out.flush()
 
             kb = build_key_bindings(_send, _interrupt, _eof, _tab_complete, _clear)
+            completer = SlashCompleter(SLASH_COMMAND_DESCRIPTIONS)
             self._session = PromptSession(
                 multiline=True,
                 key_bindings=kb,
+                completer=completer,
+                complete_while_typing=True,
                 prompt_continuation=lambda width, line, is_last_input: " " * width,
             )
         return self._session
@@ -458,6 +503,9 @@ class TerminalREPL:
         raw_args = stripped.split(None, 1)[1].strip() if len(parts) > 1 else ""
         if cmd in ("/exit", "/quit"):
             return "exit"
+        if cmd == "/":
+            self.show_palette()
+            return "handled"
         if cmd == "/help":
             self._console.print(Panel(Markdown(_HELP_TEXT), title="AJA Help", border_style="cyan"))
             return "handled"
@@ -470,13 +518,37 @@ class TerminalREPL:
         if cmd == "/tui":
             self._spawn_bg(asyncio.to_thread(self._open_curses_tui))
             return "handled"
-        if cmd == "/status":
+        if cmd == "/pc":
+            if not raw_args:
+                self._console.print("[red]Usage: /pc <objective>[/red]")
+                return "handled"
+            self._spawn_bg(self._run_mission("/goal", raw_args))
+            return "handled"
+        if cmd in ("/status", "/tasks"):
             def _status() -> None:
                 from aja.cli.commands.status import cmd_status
 
                 cmd_status()
 
             self._spawn_bg(asyncio.to_thread(_status))
+            return "handled"
+        if cmd == "/skills":
+            def _skills() -> None:
+                try:
+                    from aja.cognitive.skills_inventory import list_all_skills
+                    skills = list_all_skills()
+                except Exception:
+                    skills = []
+                if not skills:
+                    self._console.print("[dim]No procedural skills found in ~/.aja/skills/[/dim]")
+                else:
+                    self._console.print(f"[bold cyan]Procedural Skills ({len(skills)}):[/bold cyan]")
+                    for sk in skills:
+                        name = getattr(sk, "name", str(sk))
+                        desc = getattr(sk, "description", "")
+                        self._console.print(f"  • [yellow]{name}[/yellow]: {desc}")
+
+            self._spawn_bg(asyncio.to_thread(_skills))
             return "handled"
         if cmd == "/doctor":
             def _doctor() -> None:
