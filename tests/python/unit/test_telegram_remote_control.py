@@ -54,3 +54,54 @@ def test_telegram_local_control_executes_native_tool_calls(monkeypatch):
     finally:
         if journal_path.exists():
             journal_path.unlink()
+
+
+def test_telegram_local_control_executes_direct_loop_for_goals(monkeypatch):
+    import aja.gateway.remote_control as remote_control
+
+    async def fake_parse_intent_async(text, history, system_state=None):
+        return {
+            "type": "goal",
+            "goal": "inspect project files",
+            "response": "Starting direct execution.",
+        }
+
+    monkeypatch.setattr(remote_control, "parse_intent_async", fake_parse_intent_async)
+
+    class FakeGateway:
+        def __init__(self):
+            self.turn = 0
+
+        async def chat(self, model=None, prompt=None, system=None, tools=None):
+            self.turn += 1
+            if self.turn == 1:
+                return "```bash\necho found_file_123\n```"
+            return "Found file: found_file_123. Task complete."
+
+    reply = asyncio.run(
+        execute_local_control(
+            "inspect project files",
+            gateway=FakeGateway(),
+            dry_run=True,
+        )
+    )
+
+    assert "Found file: found_file_123. Task complete." in reply
+
+
+def test_telegram_local_control_direct_loop_flag(monkeypatch):
+    class FakeGateway:
+        async def chat(self, model=None, prompt=None, system=None, tools=None):
+            return "Direct execution completed successfully, Sir."
+
+    reply = asyncio.run(
+        execute_local_control(
+            "run check",
+            gateway=FakeGateway(),
+            direct_loop=True,
+            dry_run=True,
+        )
+    )
+
+    assert "Direct execution completed successfully, Sir." in reply
+

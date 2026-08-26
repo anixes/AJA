@@ -8,6 +8,80 @@ from aja.interface.intent_parser import parse_intent_async
 MAX_TELEGRAM_REPLY_CHARS = 3500
 
 
+async def _run_local_direct_loop(
+    objective: str,
+    *,
+    history: Optional[List[Dict[str, Any]]] = None,
+    mission_id: str,
+    trace_id: str,
+    dry_run: bool = False,
+    gateway: Optional[Any] = None,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    max_turns: int = 10,
+    hooks: Optional[Any] = None,
+    presenter: Optional[Any] = None,
+) -> str:
+    """Runs the multi-step ReAct direct tool loop for local PC control."""
+    from aja.orchestration.tools.executor import ToolExecutor
+    from aja.orchestration.tools.native import NativeToolRegistry
+    from aja.orchestration.direct_loop import run_direct_loop, DirectLoopHooks
+    from aja.gateway.presenter import AJAPresenter, NullPresenter
+    from aja.llm import get_gateway_for_model
+    from aja.runtime.mission_journal import MissionJournal
+
+    journal = MissionJournal(mission_id)
+    executor = ToolExecutor()
+    registry = NativeToolRegistry(engine=None)
+
+    p = presenter or (AJAPresenter() if not dry_run else NullPresenter())
+    system_prompt = p.direct_system_prompt
+    gw = gateway or get_gateway_for_model(model)
+
+    working_history: List[Dict[str, str]] = []
+    if history:
+        for item in history:
+            role = item.get("role", "user")
+            c = item.get("content") or item.get("text") or ""
+            if c:
+                working_history.append({"role": role, "content": str(c)})
+    working_history.append({"role": "user", "content": f"Please execute this task directly: {objective}"})
+
+    outcome = await run_direct_loop(
+        objective,
+        gateway=gw,
+        tools_registry=registry,
+        executor=executor,
+        system_prompt=system_prompt,
+        session_history=working_history,
+        max_turns=max_turns,
+        model=model,
+        provider=provider,
+        dry_run=dry_run,
+        interactive=True,
+        hooks=hooks,
+        trace_id_fn=lambda: trace_id,
+    )
+
+    if outcome and outcome.get("result"):
+        structured = outcome["result"]
+        if isinstance(structured, dict):
+            res_text = structured.get("answer") or structured.get("report") or json.dumps(structured)
+        else:
+            res_text = str(structured)
+        return _truncate(res_text)
+
+    final_text = ""
+    for m in reversed(working_history):
+        if m.get("role") == "assistant":
+            final_text = m.get("content") or ""
+            break
+
+    if final_text:
+        return _truncate(final_text)
+    return _truncate(f"Local PC execution finished ({outcome.get('status', 'done') if outcome else 'done'}).")
+
+
 async def execute_local_control(
     text: str,
     *,
@@ -15,15 +89,36 @@ async def execute_local_control(
     mission_id: Optional[str] = None,
     trace_id: Optional[str] = None,
     dry_run: bool = False,
+    direct_loop: bool = False,
+    gateway: Optional[Any] = None,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    max_turns: int = 10,
+    hooks: Optional[Any] = None,
+    presenter: Optional[Any] = None,
 ) -> str:
     """
-    Execute a Telegram-originated command through the same local intent/tool path as CLI chat.
-    This is intentionally not a raw shell bridge: the intent parser must map the request into
-    trusted NativeToolRegistry tool calls, and ActivityRuntime applies permission policy.
+    Execute a Telegram-originated command through local intent parsing or multi-step agent direct loop.
+    Supports single-turn tool dispatch as well as full multi-step tool execution loops.
     """
     history = history or []
     trace_id = trace_id or f"telegram-{uuid.uuid4().hex[:12]}"
     mission_id = mission_id or f"telegram-{uuid.uuid4().hex[:12]}"
+
+    if direct_loop:
+        return await _run_local_direct_loop(
+            text,
+            history=history,
+            mission_id=mission_id,
+            trace_id=trace_id,
+            dry_run=dry_run,
+            gateway=gateway,
+            model=model,
+            provider=provider,
+            max_turns=max_turns,
+            hooks=hooks,
+            presenter=presenter,
+        )
 
     system_state = _system_state()
     intent = await parse_intent_async(text, history, system_state=system_state)
@@ -54,9 +149,19 @@ async def execute_local_control(
         return _truncate(_control_response(intent["command"]))
 
     if intent_type == "goal" and intent.get("goal"):
-        return _truncate(
-            f"{response}\n\nFor full swarm execution from Telegram, send `/swarm {intent['goal']}`. "
-            "For direct local PC control, send `/pc <request>`."
+        goal = intent.get("goal") or text
+        return await _run_local_direct_loop(
+            goal,
+            history=history,
+            mission_id=mission_id,
+            trace_id=trace_id,
+            dry_run=dry_run,
+            gateway=gateway,
+            model=model,
+            provider=provider,
+            max_turns=max_turns,
+            hooks=hooks,
+            presenter=presenter,
         )
 
     return _truncate(response)
