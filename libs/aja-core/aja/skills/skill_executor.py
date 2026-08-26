@@ -100,7 +100,7 @@ def mark_stale_skills(stale_after_days: int = STALE_AFTER_DAYS) -> int:
     try:
         return mark_skills_stale(stale_after_days)
     except Exception as e:
-        print(f"[SkillExec] mark_stale_skills() error: {e}")
+        logger.warning("mark_stale_skills() error", exc_info=True)
         return 0
 
 
@@ -256,6 +256,10 @@ def _load_completed_steps(skill_id: str, run_id: str) -> dict:
         )
         return {r["step_index"]: r["result"] for r in rows}
     except Exception:
+        logger.warning(
+            "Failed to load checkpoints for %s/%s; steps will re-run",
+            skill_id, run_id, exc_info=True,
+        )
         return {}
 
 
@@ -296,7 +300,7 @@ def _checkpoint_step(
                 ]
             )
     except Exception as e:
-        print(f"[SkillExec] _checkpoint_step() error: {e}")
+        logger.warning("_checkpoint_step() error", exc_info=True)
 
 
 def _clear_checkpoints(skill_id: str, run_id: str) -> None:
@@ -308,7 +312,10 @@ def _clear_checkpoints(skill_id: str, run_id: str) -> None:
             values={"result": "__CLEARED__"},
         )
     except Exception:
-        pass
+        logger.warning(
+            "Failed to clear checkpoints for %s/%s; stale checkpoints may skip steps on next resume",
+            skill_id, run_id, exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------

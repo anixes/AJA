@@ -42,8 +42,11 @@ Public API
   compose_skills(chain, task_id, run_id, objective, tracker, confirm_fn) -> bool
 """
 
+import logging
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +172,7 @@ def _skill_done(run_id: str, skill_id: str) -> bool:
         ).limit(1).to_list()
         return len(results) > 0
     except Exception:
+        logger.exception("Checkpoint check failed for %s/%s; assuming not done", run_id, skill_id)
         return False
 
 
@@ -241,7 +245,8 @@ def validate_chain(chain: list, max_steps: int = 10, simulate: bool = False) -> 
         try:
             tool_sequence = json.loads(skill.get("tool_sequence") or "[]")
         except Exception:
-            tool_sequence = []
+            failures.append(f"[{skill_name}] Invalid tool_sequence JSON")
+            continue
 
         for step in tool_sequence:
             tool_name = step.get("tool_name")
@@ -387,7 +392,10 @@ def compose_skills(
                 skill = dict(skill)  # shallow copy before mutation
                 skill["tool_sequence"] = json.dumps(injected_seq)
             except Exception:
-                pass  # use original if injection fails
+                logger.warning(
+                    "Context injection failed for %s; executing without injected context",
+                    skill_name, exc_info=True,
+                )  # use original if injection fails
 
             # ── Execute skill (risk gate already handled at chain level) ────────
             # Override risk_level to LOW so execute_skill doesn't double-prompt
@@ -437,7 +445,10 @@ def compose_skills(
                     if step_eval.get("decision") == "UNCERTAIN" or step_eval.get("uncertainty_score", 0.0) > 0.4:
                         uncertain_steps += 1
             except Exception:
-                pass
+                logger.warning(
+                    "Step evaluation unavailable for %s; uncertainty not counted",
+                    skill_name, exc_info=True,
+                )
 
             if uncertain_steps >= 2:
                 _emit("CHAIN_UNCERTAINTY_EXCEEDED", {"uncertain_steps": uncertain_steps})

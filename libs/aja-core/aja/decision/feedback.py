@@ -56,6 +56,7 @@ def log_decision_outcome(objective: str, decision_type: str, confidence: float,
 
             vector = get_text_embedding(objective)
         except Exception:
+            logger.warning("Embedding failed; storing zero-vector", exc_info=True)
             vector = [0.0] * 384
         table.add([{
             "objective_hash": obj_hash,
@@ -75,9 +76,9 @@ def log_decision_outcome(objective: str, decision_type: str, confidence: float,
                     from aja.decision.rules import extract_rule_from_failures
                     extract_rule_from_failures(objective, {})
                 except Exception as ex:
-                    print(f"[Feedback] Failed to extract rule: {ex}")
+                    logger.warning("Failed to extract rule", exc_info=True)
     except Exception as e:
-        print(f"[Feedback] Failed to log outcome: {e}")
+        logger.warning("Failed to log outcome", exc_info=True)
 
 
 def get_recent_decisions(objective: str, limit: int = 10):
@@ -88,7 +89,7 @@ def get_recent_decisions(objective: str, limit: int = 10):
         results.sort(key=lambda r: r["created_at"], reverse=True)
         return results
     except Exception as e:
-        print(f"[Feedback] Failed to retrieve history: {e}")
+        logger.warning("Failed to retrieve history", exc_info=True)
         return []
 
 
@@ -113,7 +114,7 @@ def get_similar_decisions(objective: str, limit: int = 10):
                 unique.append(r)
         return unique[:limit]
     except Exception as e:
-        print(f"[Feedback] Failed to get similar decisions: {e}")
+        logger.warning("Failed to get similar decisions", exc_info=True)
         return []
 
 

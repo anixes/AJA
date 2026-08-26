@@ -43,6 +43,7 @@ class DecisionEngine:
         try:
             self.gateway = get_gateway()
         except Exception:
+            logger.warning("LLM gateway initialization failed; decisions will fall back to NEW.", exc_info=True)
             self.gateway = None
 
     def decide(self, objective: str, context: Dict[str, Any]) -> Dict[str, Any]:
