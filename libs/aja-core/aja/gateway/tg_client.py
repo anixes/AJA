@@ -756,6 +756,14 @@ class TelegramAdapter(BasePlatformAdapter):
             # Final reply to a specific user message: swap the 👀 ack for ✅.
             success_emoji = DONE_REACTION_EMOJI
 
+        # MEDIA: tag extraction — ship referenced files as native documents,
+        # strip tags from visible text (Telegram Tier 2 item 6).
+        try:
+            from aja.gateway.reply_extras import extract_media_tags, send_documents
+            text, media_paths = extract_media_tags(text)
+        except Exception:
+            media_paths = []
+
         if text is None:
             text = ""
         processed_text = self._prepare_text_for_mobile(str(text))
@@ -794,6 +802,22 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.metrics["send_failures"] += 1
                 self.metrics["last_error"] = str(e)
                 self.metrics["last_error_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Deliver MEDIA: attachments after the text (Tier 2 item 6).
+        if media_paths:
+            try:
+                from aja.gateway.reply_extras import send_documents
+
+                delivered, failed = await send_documents(
+                    self._bot, chat_id, media_paths
+                )
+                self.metrics["documents_sent"] = (
+                    self.metrics.get("documents_sent", 0) + len(delivered)
+                )
+                for fail in failed:
+                    logger.warning("Document delivery failed: %s", fail)
+            except Exception as e:
+                logger.warning("Document delivery crashed: %s", e)
         return result
 
     async def send_notification(
