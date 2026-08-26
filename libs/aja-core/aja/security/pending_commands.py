@@ -137,22 +137,33 @@ class PendingCommandStore:
             _token_locks.pop(tok, None)
 
     def _journal(self, kind: str, pc: PendingCommand, message: str) -> None:
+        self.journal_event(kind, pc.command, pc.token, message)
+
+    def journal_event(
+        self,
+        kind: str,
+        command: str,
+        target: str,
+        message: str,
+        status: str = "SUCCESS",
+    ) -> None:
         try:
             from aja.memory.secretary import get_aja_memory
 
             row = {
                 "event_id": uuid.uuid4().hex[:8],
                 "kind": kind,
-                "target": pc.token,
-                "status": "SUCCESS",
+                "target": target,
+                "status": status,
                 "message": message,
-                "command": pc.command,
+                "command": command,
                 "metadata_json": "{}",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             get_aja_memory().add_runtime_event(row)
         except Exception as e:
             logger.debug("exec-approval journal write skipped: %s", e)
+
 
 
 _default_store: Optional[PendingCommandStore] = None

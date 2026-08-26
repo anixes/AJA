@@ -695,13 +695,73 @@ class TelegramAdapter(BasePlatformAdapter):
                 return
 
             from aja.security.pending_commands import get_pending_command_store
+            from aja.security.command_guard import classify_command
+            from aja.orchestration.tools.executor import ToolExecutor
+            from aja.utils.redact import redact_secrets
 
             approved = data.startswith("execok_")
             token = data.split("_", 1)[1]
-            handled, message = await get_pending_command_store().resolve(
+            store = get_pending_command_store()
+
+            pc = store.get(token)
+            if pc is None:
+                await query.edit_message_text(text="⚠️ Approval request not found or expired.")
+                return
+
+            saved_command = pc.command
+            handled, message = await store.resolve(
                 token, approved, callback_user_id
             )
-            await query.edit_message_text(text=message)
+            if not handled:
+                await query.edit_message_text(text=message)
+                return
+
+            if not approved:
+                await query.edit_message_text(text=f"❌ Execution rejected for: `{redact_secrets(saved_command)}`")
+                return
+
+            # Re-classify exact byte string at execution time (TOCTOU guard)
+            classification = classify_command(saved_command)
+            if classification["decision"] == "deny":
+                store.journal_event(
+                    "EXEC_DENIED",
+                    saved_command,
+                    token,
+                    f"Denied at execution-time re-classification: {'; '.join(classification.get('reasons', []))}",
+                    status="DENIED",
+                )
+                await query.edit_message_text(
+                    text=f"🚫 **Security Alert**: Command `{redact_secrets(saved_command)}` was re-classified as DENIED at execution time and will not run.\nReasons: {'; '.join(classification.get('reasons', []))}"
+                )
+                return
+
+            await query.edit_message_text(text=f"⏳ Executing approved command: `{redact_secrets(saved_command)}`...")
+
+            executor = ToolExecutor()
+            result = await executor.execute_async(saved_command)
+
+            status_str = result.get("status", "unknown")
+            exit_code = result.get("code", -1)
+            store.journal_event(
+                "EXEC_COMPLETED",
+                saved_command,
+                token,
+                f"Command completed: status={status_str}, exit_code={exit_code}",
+            )
+
+            status_emoji = "✅" if status_str == "success" and exit_code == 0 else "❌"
+            stdout_text = redact_secrets(result.get("stdout", "")).strip()
+            stderr_text = redact_secrets(result.get("stderr", "") or result.get("message", "")).strip()
+
+            out_lines = [f"{status_emoji} **Command Completed** (exit code {exit_code}): `{redact_secrets(saved_command)}`"]
+            if stdout_text:
+                out_lines.append(f"**Stdout**:\n```\n{stdout_text[:2000]}\n```")
+            if stderr_text:
+                out_lines.append(f"**Stderr**:\n```\n{stderr_text[:1000]}\n```")
+            if not stdout_text and not stderr_text:
+                out_lines.append("*(No output)*")
+
+            await query.edit_message_text(text="\n\n".join(out_lines))
             return
 
         if not data.startswith(("approve_", "reject_")):

@@ -665,6 +665,95 @@ class UnifiedGateway:
             )
             return
 
+        # Handle /exec Command
+        if content_stripped.lower() == "/exec":
+            await self._responder().send_message(
+                chat_id,
+                "ℹ️ **AJA Exec Usage**: `/exec <shell command>`\nRuns a command through CommandGuard security policy (with approval for elevated risk).",
+            )
+            return
+
+        if content_stripped.lower().startswith("/exec "):
+            exec_cmd = content_stripped[6:].strip()
+            from aja.security.command_guard import classify_command
+            from aja.security.pending_commands import get_pending_command_store
+            from aja.utils.redact import redact_secrets
+
+            classification = classify_command(exec_cmd)
+            store = get_pending_command_store()
+
+            if classification["decision"] == "deny":
+                store.journal_event(
+                    "EXEC_DENIED",
+                    exec_cmd,
+                    f"tg-{chat_id}",
+                    f"Denied by policy: {'; '.join(classification.get('reasons', []))}",
+                    status="DENIED",
+                )
+                reply = (
+                    f"🚫 **Execution Denied**: Command blocked by security policy.\n\n"
+                    f"**Reasons**: {'; '.join(classification.get('reasons', []))}"
+                )
+                await self._responder().send_message(chat_id, reply)
+                return
+
+            if classification["decision"] == "allow":
+                from aja.orchestration.tools.executor import ToolExecutor
+
+                executor = ToolExecutor()
+                result = await executor.execute_async(exec_cmd)
+                status_str = result.get("status", "unknown")
+                exit_code = result.get("code", -1)
+                store.journal_event(
+                    "EXEC_COMPLETED",
+                    exec_cmd,
+                    f"tg-{chat_id}",
+                    f"Completed: code={exit_code}, status={status_str}",
+                )
+
+                status_emoji = "✅" if status_str == "success" and exit_code == 0 else "❌"
+                stdout_text = redact_secrets(result.get("stdout", "")).strip()
+                stderr_text = redact_secrets(result.get("stderr", "") or result.get("message", "")).strip()
+
+                out_lines = [f"{status_emoji} **Command Completed** (exit code {exit_code}): `{redact_secrets(exec_cmd)}`"]
+                if stdout_text:
+                    out_lines.append(f"**Stdout**:\n```\n{stdout_text[:2000]}\n```")
+                if stderr_text:
+                    out_lines.append(f"**Stderr**:\n```\n{stderr_text[:1000]}\n```")
+                if not stdout_text and not stderr_text:
+                    out_lines.append("*(No output)*")
+
+                await self._responder().send_message(chat_id, "\n\n".join(out_lines))
+                return
+
+            # classification["decision"] == "ask" -> create pending command & send approval buttons
+            pc = store.create(exec_cmd, chat_id=str(chat_id), user_id=str(event.user_id))
+            reply_markup = None
+            try:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Approve", callback_data=f"execok_{pc.token}"),
+                        InlineKeyboardButton("❌ Reject", callback_data=f"execno_{pc.token}"),
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            except Exception:
+                reply_markup = None
+
+            prompt_text = (
+                f"⚠️ **Approval Required** for shell execution:\n\n"
+                f"`{redact_secrets(exec_cmd)}`\n\n"
+                f"**Risk**: {classification.get('risk_level', 'elevated')}\n"
+                f"**Reasons**: {'; '.join(classification.get('reasons', []))}"
+            )
+            kwargs = {}
+            if reply_markup is not None:
+                kwargs["reply_markup"] = reply_markup
+            await self._responder().send_message(chat_id, prompt_text, **kwargs)
+            return
+
         # Parse /swarm override
         force_swarm = False
         content_stripped = content.strip()
