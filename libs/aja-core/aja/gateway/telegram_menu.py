@@ -5,6 +5,7 @@ command menu. Registration is best-effort: it must never block or fail
 gateway startup.
 """
 import logging
+import os
 from typing import Any, List
 
 logger = logging.getLogger(__name__)
@@ -14,11 +15,8 @@ CORE_COMMANDS: List[tuple] = [
     ("start", "Introduce AJA and check connection"),
     ("help", "Show capabilities and commands"),
     ("status", "Mission and system metrics"),
-    ("pc", "Autonomous direct multi-step loop"),
-    ("tasks", "List active tasks and missions"),
-    ("skills", "List available procedural skills"),
-    ("review", "Review uncommitted changes and diffs"),
-    ("exec", "Review and approve pending commands"),
+    ("kanban", "Interactive mission board"),
+    ("missions", "List all missions"),
     ("models", "List / switch available models"),
     ("doctor", "Run system health check"),
     ("clear", "Clear chat session history"),
@@ -26,7 +24,7 @@ CORE_COMMANDS: List[tuple] = [
 
 
 async def register_command_menu(bot: Any) -> bool:
-    """Calls setMyCommands with the core command list.
+    """Calls setMyCommands with the core command list and configures WebApp MenuButton.
 
     Returns True on success; logs (never raises) on failure so callers can
     fire-and-forget it at startup.
@@ -43,6 +41,22 @@ async def register_command_menu(bot: Any) -> bool:
             commands = [(cmd, desc) for cmd, desc in CORE_COMMANDS]
         await bot.set_my_commands(commands)
         logger.info("Telegram command menu registered (%d commands).", len(CORE_COMMANDS))
+
+        webapp_url = os.getenv("AJA_WEBAPP_URL") or os.getenv("WEBAPP_URL")
+        if webapp_url:
+            try:
+                from telegram import MenuButtonWebApp, WebAppInfo
+
+                await bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp(
+                        text="🚀 Mission Control",
+                        web_app=WebAppInfo(url=webapp_url),
+                    )
+                )
+                logger.info("Telegram Chat Menu Button set to WebApp: %s", webapp_url)
+            except Exception as e:
+                logger.debug("MenuButtonWebApp setup skipped: %s", e)
+
         return True
     except Exception as e:
         # Menu registration must never block/fail startup.

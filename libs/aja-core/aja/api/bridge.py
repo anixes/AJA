@@ -24,7 +24,8 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from aja.api.app_context import (
     AppContext,
@@ -163,6 +164,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/app", StaticFiles(directory=str(STATIC_DIR), html=True), name="app")
+
+
+@app.get("/", include_in_schema=False)
+def root_entrypoint():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return {"status": "ok", "app": "/app"}
 
 
 # Bridge constants are aliases of the AppContext snapshot so services and

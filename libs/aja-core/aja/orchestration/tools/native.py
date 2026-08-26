@@ -115,6 +115,19 @@ class NativeToolRegistry:
         self.tools["get_datetime"] = self.get_datetime
         self.tools["search_web"] = self.search_web
         self.tools["fetch_url"] = self.fetch_url
+        try:
+            from aja.orchestration.tools.mobile import (
+                mobile_send_sms,
+                mobile_get_battery,
+                mobile_get_location,
+                mobile_push_notification,
+            )
+            self.tools["mobile_send_sms"] = mobile_send_sms
+            self.tools["mobile_get_battery"] = mobile_get_battery
+            self.tools["mobile_get_location"] = mobile_get_location
+            self.tools["mobile_push_notification"] = mobile_push_notification
+        except Exception as e:
+            logger.debug("Mobile tools registration skipped: %s", e)
 
     def get_schemas(self, interactive: bool = True) -> List[Dict[str, Any]]:
         schemas = [
@@ -700,6 +713,64 @@ class NativeToolRegistry:
                         }
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mobile_send_sms",
+                    "activity_type": "mobile",
+                    "retry_policy": "none",
+                    "required_scope": "mobile.sms",
+                    "description": "Send an SMS text message through your connected mobile phone carrier.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "to": {"type": "string", "description": "Recipient phone number (e.g. +1234567890)"},
+                            "message": {"type": "string", "description": "Text content of the SMS"},
+                        },
+                        "required": ["to", "message"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mobile_get_battery",
+                    "activity_type": "mobile",
+                    "retry_policy": "safe",
+                    "required_scope": "mobile.telemetry",
+                    "description": "Get current battery level and charging state of your mobile device.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mobile_get_location",
+                    "activity_type": "mobile",
+                    "retry_policy": "safe",
+                    "required_scope": "mobile.telemetry",
+                    "description": "Get current geolocation coordinates and active geofence zone of your mobile device.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mobile_push_notification",
+                    "activity_type": "mobile",
+                    "retry_policy": "none",
+                    "required_scope": "mobile.notify",
+                    "description": "Send a high-priority push alert notification to your mobile phone screen.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "description": "Notification title"},
+                            "body": {"type": "string", "description": "Notification message body"},
+                        },
+                        "required": ["title"],
+                    },
+                },
             },
         ]
         

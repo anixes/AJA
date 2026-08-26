@@ -222,6 +222,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # Register Handlers
         # Specific command handlers must be registered before the catch-all message MessageHandler
         self._app.add_handler(CommandHandler("start", self._handle_start))
+        self._app.add_handler(CommandHandler("app", self._handle_app))
         self._app.add_handler(
             MessageHandler(
                 filters.TEXT | filters.PHOTO, self._handle_message
@@ -805,6 +806,44 @@ class TelegramAdapter(BasePlatformAdapter):
             str(chat_id),
             "Hello! I am AJA (Assistant of Joint Agents), your personal natural-language secretary.",
         )
+
+    async def _handle_app(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        message = getattr(update, "message", None)
+        chat_id = getattr(message, "chat_id", None)
+        if chat_id is None:
+            return
+
+        webapp_url = os.getenv("AJA_WEBAPP_URL") or os.getenv("WEBAPP_URL")
+        if webapp_url:
+            try:
+                from telegram import WebAppInfo
+
+                markup = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                text="🚀 Launch Mission Control",
+                                web_app=WebAppInfo(url=webapp_url),
+                            )
+                        ]
+                    ]
+                )
+                await self.send_message(
+                    str(chat_id),
+                    "⚡ *AJA Mission Control*\nTap below to launch live visual control directly inside Telegram:",
+                    reply_markup=markup,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
+            except Exception as e:
+                logger.warning("Failed to build WebApp button: %s", e)
+
+        await self.send_message(
+            str(chat_id),
+            "⚡ *AJA Mission Control*\n\nLocal Web Dashboard is active at:\n`http://localhost:8000/app`\n\n_To enable Telegram Mini App modal inside this chat, set `AJA_WEBAPP_URL=https://...` (via Cloudflare tunnel, ngrok, or domain SSL)._",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
 
     async def send_message(self, chat_id: str, text: str, **kwargs) -> Any:
         if not self._bot:

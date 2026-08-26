@@ -56,20 +56,43 @@ from prompt_toolkit.completion import Completer, Completion
 InputProvider = Callable[[str], Awaitable[str]]
 ApprovalResolver = Callable[[ApprovalRequested], Awaitable[bool]]
 
+SLASH_COMMANDS: Tuple[str, ...] = (
+    "/help",
+    "/clear",
+    "/exit",
+    "/quit",
+    "/status",
+    "/kanban",
+    "/live",
+    "/missions",
+    "/models",
+    "/tui",
+    "/swarm",
+    "/goal",
+    "/schedule",
+    "/doctor",
+    "/todo",
+    "/doing",
+    "/done",
+    "/failed",
+    "/rmtask",
+)
+
 SLASH_COMMAND_DESCRIPTIONS: Dict[str, str] = {
     "/help": "Show help and command palette",
     "/clear": "Clear the terminal screen",
     "/exit": "Quit AJA (or press Ctrl+D)",
+    "/quit": "Quit AJA (or press Ctrl+D)",
     "/status": "Active batons and system metrics",
     "/pc": "Autonomous direct multi-step execution",
     "/tasks": "List mission tasks and status",
     "/skills": "List available procedural skills",
     "/review": "Review uncommitted changes and diffs",
-    "/exec": "Review and approve pending commands",
     "/kanban": "Full-screen mission kanban dashboard",
+    "/live": "Real-time activity log stream",
     "/missions": "List all active and completed missions",
-    "/tui": "Mission Control curses dashboard",
     "/models": "Copilot / LLM model selector",
+    "/tui": "Mission Control curses dashboard",
     "/swarm": "Multi-agent swarm mission",
     "/goal": "Persistent direct mission",
     "/schedule": "Schedule recurring background task",
@@ -80,8 +103,6 @@ SLASH_COMMAND_DESCRIPTIONS: Dict[str, str] = {
     "/failed": "Mark task failed",
     "/rmtask": "Delete task from board",
 }
-
-SLASH_COMMANDS: Tuple[str, ...] = tuple(SLASH_COMMAND_DESCRIPTIONS.keys())
 
 
 class SlashCompleter(Completer):
