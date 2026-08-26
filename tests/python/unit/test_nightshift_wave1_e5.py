@@ -53,7 +53,14 @@ async def _count_beats(seconds: float) -> int:
 
 @pytest.mark.anyio
 async def test_step_planning_runs_expand_goal_off_loop(monkeypatch):
-    """expand_goal (sync planner w/ LLM round-trip) must not block the loop."""
+    """Planning must never block the loop.
+
+    Post async-decompose refactor the implementation is STRONGER than the
+    original to_thread band-aid: _step_planning awaits expand_goal_async
+    directly on the loop with zero thread spawns. Contract now asserted:
+    no net new threads AND loop stays responsive during planning."""
+    from types import SimpleNamespace
+
     from aja.goals.goal_engine import Goal, GoalEngine
     from aja.planning.planner import _fallback_graph
 
@@ -63,12 +70,12 @@ async def test_step_planning_runs_expand_goal_off_loop(monkeypatch):
 
     seen_threads = []
 
-    def slow_expand(goal):
+    async def slow_expand(goal):
         seen_threads.append(threading.get_ident())
-        time.sleep(0.25)  # simulates the blocking LLM planning call
+        await asyncio.sleep(0.25)  # simulates the LLM planning round-trip
         return _fallback_graph(goal.objective)
 
-    monkeypatch.setattr(engine, "expand_goal", slow_expand)
+    monkeypatch.setattr(engine, "expand_goal_async", slow_expand)
     goal = Goal("write a sonnet about databases", priority=1)
 
     async def heartbeat():
@@ -88,7 +95,9 @@ async def test_step_planning_runs_expand_goal_off_loop(monkeypatch):
             pass
     beats = counter["beats"]
 
-    assert seen_threads and seen_threads[0] != MAIN_THREAD_ID
+    # Async-native path: everything runs ON the loop thread — no worker
+    # threads spawned at all.
+    assert seen_threads and seen_threads[0] == MAIN_THREAD_ID
     # The loop kept ticking (>=3 heartbeats) while the 250ms blocking plan ran.
     assert beats >= 3
     assert goal.status == "PLANNING"
