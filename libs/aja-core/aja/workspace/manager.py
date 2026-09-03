@@ -13,7 +13,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aja.config import DATA_DIR, PROJECT_ROOT
 from aja.workspace.context import WorkspaceContext
 
 
@@ -41,7 +40,14 @@ class WorkspaceRegistry:
     """
 
     def __init__(self, storage_root: Optional[Path] = None):
-        self.storage_root = (storage_root or DATA_DIR).resolve()
+        if storage_root is not None:
+            self.storage_root = Path(storage_root).resolve()
+        else:
+            try:
+                from aja.config import DATA_DIR
+                self.storage_root = DATA_DIR.resolve()
+            except Exception:
+                self.storage_root = Path(os.environ.get("AJA_DATA_DIR") or (Path.home() / ".aja")).resolve()
         self.storage_root.mkdir(parents=True, exist_ok=True)
         self.registry_file = self.storage_root / "workspaces.json"
         self._workspaces_dir = self.storage_root / "workspaces"
@@ -208,12 +214,17 @@ class WorkspaceRegistry:
 
     def get_default_workspace(self) -> Workspace:
         """Create or return the default workspace pointing to PROJECT_ROOT."""
+        try:
+            from aja.config import PROJECT_ROOT
+            target_root = PROJECT_ROOT.resolve()
+        except Exception:
+            target_root = Path.cwd().resolve()
         for ws in self.workspaces.values():
-            if ws.resolved_path == PROJECT_ROOT.resolve():
+            if ws.resolved_path == target_root:
                 return ws
 
         return self.add(
-            path=PROJECT_ROOT,
+            path=target_root,
             name="default",
             set_active=True,
         )

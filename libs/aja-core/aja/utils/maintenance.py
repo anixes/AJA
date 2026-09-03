@@ -1,6 +1,7 @@
 import time
 import logging
 from aja.memory.secretary import get_aja_memory
+from aja.memory.manager import get_memory_manager
 from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.persistence.tasks import cleanup_old_tasks as cleanup_core_tasks
 from aja.persistence.tools import cleanup_old_entries
@@ -25,6 +26,22 @@ def run_maintenance():
             mem.prune_events(max_rows=1000)
             mem.cleanup_old_tasks(ttl_days=30)
             mem.cleanup_old_approvals(ttl_days=30)
+            
+            # LanceDB Table Compaction & Version Cleanup
+            try:
+                core_mgr = get_memory_manager()
+                active_tables = [
+                    "aja_runtime_events",
+                    "aja_tasks",
+                    "aja_approvals",
+                    "mission_semantic",
+                    "decision_logs",
+                ]
+                for tbl in active_tables:
+                    if core_mgr.compact_table(tbl):
+                        logger.info("Compacted and cleaned LanceDB table: %s", tbl)
+            except Exception as e:
+                logger.warning("Periodic table compaction encountered an error: %s", e)
             
             # Core Engine Pruning
             cleanup_core_tasks(ttl_days=30)

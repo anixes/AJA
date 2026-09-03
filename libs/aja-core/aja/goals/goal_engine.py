@@ -47,6 +47,13 @@ class Goal:
         self.failures = 0
         self.retries = 0
 
+    def analyze_smart(self):
+        from aja.goals.analyzer import GoalAnalyzer
+
+        res = GoalAnalyzer.validate_smart(self.objective)
+        self.metadata["smart_validation"] = res.to_dict()
+        return res
+
     def to_dict(self):
         plan_dict = None
         if self.plan and hasattr(self.plan, "to_dict"):

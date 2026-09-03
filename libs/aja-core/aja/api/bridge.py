@@ -244,16 +244,18 @@ def is_loopback_host(host: str) -> bool:
 
 
 def resolve_bridge_bind():
-    """Resolve the bridge bind address.
+    """Resolve the bridge bind address, refusing insecure default-token exposure.
 
-    Binds 0.0.0.0 by default to allow local network / phone connectivity.
+    Binds loopback by default (AJA_BRIDGE_HOST opt-out). Refuses to start on a
+    non-loopback host while the API token is still the well-known default.
     """
-    host = os.getenv("AJA_BRIDGE_HOST", "0.0.0.0")
+    host = os.getenv("AJA_BRIDGE_HOST", "127.0.0.1")
     port = int(os.getenv("AJA_BRIDGE_PORT", "8000"))
     if not is_loopback_host(host) and API_TOKEN == DEFAULT_API_TOKEN:
-        logger.warning(
-            "AJA bridge is bound to %s with default token. Set AJA_API_TOKEN for production security.",
-            host,
+        raise SystemExit(
+            "Refusing to bind the AJA bridge to a non-loopback address with the "
+            "default API token. Set AJA_API_TOKEN explicitly (or drop "
+            "AJA_BRIDGE_HOST to bind 127.0.0.1 for local development)."
         )
     return host, port
 

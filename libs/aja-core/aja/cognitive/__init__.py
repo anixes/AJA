@@ -3,37 +3,12 @@ AJA Cognitive Engine: Autonomous Cognitive Agent Architecture
 Synthesizing CoALA Tripartite Memory, AIOS Kernel, CodeAct, and Magentic-One.
 """
 
-from aja.cognitive.codeact import CodeActExecutor, CodeActResult
-from aja.cognitive.memory_models import (
-    EpisodeReflection,
-    ProceduralSkill,
-    SemanticFact,
-    TaskTrajectory,
-    TrajectoryStep,
-    WorkingMemory,
-)
-from aja.cognitive.memory_manager import CognitiveMemoryManager
-from aja.cognitive.specialists import (
-    BaseSpecialist,
-    CodeEngineerSpecialist,
-    SysAdminSpecialist,
-    WebResearchSpecialist,
-)
-from aja.cognitive.orchestrator import CognitiveOrchestrator
 from aja.cognitive.prompts import (
     DEFAULT_SOUL,
     build_system_prompt,
     load_project_guidelines,
     load_soul,
 )
-from aja.cognitive.skill_compiler import CompiledSkillResult, SkillCompiler
-from aja.cognitive.state_tree import StateNode, StateTree
-from aja.cognitive.temporal_graph import (
-    BiTemporalEntityGraph,
-    TemporalEntity,
-    TemporalRelation,
-)
-from aja.cognitive.ttc_planner import CandidateBranch, TTCPlanner
 
 __all__ = [
     "WorkingMemory",
@@ -65,3 +40,37 @@ __all__ = [
     "load_project_guidelines",
 ]
 
+_LAZY_MODULES = {
+    "WorkingMemory": "aja.cognitive.memory_models",
+    "TrajectoryStep": "aja.cognitive.memory_models",
+    "EpisodeReflection": "aja.cognitive.memory_models",
+    "TaskTrajectory": "aja.cognitive.memory_models",
+    "SemanticFact": "aja.cognitive.memory_models",
+    "ProceduralSkill": "aja.cognitive.memory_models",
+    "CognitiveMemoryManager": "aja.cognitive.memory_manager",
+    "BiTemporalEntityGraph": "aja.cognitive.temporal_graph",
+    "TemporalEntity": "aja.cognitive.temporal_graph",
+    "TemporalRelation": "aja.cognitive.temporal_graph",
+    "CodeActExecutor": "aja.cognitive.codeact",
+    "CodeActResult": "aja.cognitive.codeact",
+    "BaseSpecialist": "aja.cognitive.specialists",
+    "SysAdminSpecialist": "aja.cognitive.specialists",
+    "WebResearchSpecialist": "aja.cognitive.specialists",
+    "CodeEngineerSpecialist": "aja.cognitive.specialists",
+    "CognitiveOrchestrator": "aja.cognitive.orchestrator",
+    "StateNode": "aja.cognitive.state_tree",
+    "StateTree": "aja.cognitive.state_tree",
+    "CandidateBranch": "aja.cognitive.ttc_planner",
+    "TTCPlanner": "aja.cognitive.ttc_planner",
+    "SkillCompiler": "aja.cognitive.skill_compiler",
+    "CompiledSkillResult": "aja.cognitive.skill_compiler",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_MODULES:
+        import importlib
+
+        mod = importlib.import_module(_LAZY_MODULES[name])
+        return getattr(mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
