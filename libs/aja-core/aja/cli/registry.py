@@ -201,6 +201,16 @@ class CommandRegistry:
 
             cmd_mcp(args[1:])
 
+        elif cmd == "local":
+            from aja.cli.commands.local_cmd import cmd_local
+
+            cmd_local(" ".join(args[1:]))
+
+        elif cmd == "models":
+            from aja.cli.commands.models import handle_models_command
+
+            handle_models_command(" ".join(args[1:]))
+
         elif cmd == "exec":
             # Hidden helper (not part of the consolidated user surface).
             from aja.cli.commands.exec_cmd import cmd_exec

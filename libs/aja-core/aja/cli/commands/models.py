@@ -46,23 +46,29 @@ def handle_models_command(args: str = "", console: Optional["Console"] = None) -
             "12": "copilot:claude-opus-4.7",
             "13": "copilot:claude-opus-4.8",
             "14": "copilot:gemini-3.5-flash",
-            "15": "Custom / Type your own",
-            "16": "Cancel",
+            "15": "Local Models (Scan Ollama, llama.cpp, LM Studio)",
+            "16": "Custom / Type your own",
+            "17": "Cancel",
         }
 
-        console.print("[bold]Select new models from Copilot:[/bold]")
+        console.print("[bold]Select new models:[/bold]")
         for k, v in choices_map.items():
             console.print(f"  {k}) {v}")
 
         p_choice = Prompt.ask(
             "\nSelect [bold cyan]Swarm Planner[/] option",
             choices=list(choices_map.keys()),
-            default="16",
+            default="17",
         )
 
-        if p_choice == "16":
+        if p_choice == "17":
             return
         elif p_choice == "15":
+            from aja.cli.commands.local_cmd import cmd_local
+
+            cmd_local(console=console)
+            return
+        elif p_choice == "16":
             p_model = Prompt.ask("Enter Planner model (e.g. copilot:gpt-4o)")
         else:
             p_model = choices_map[p_choice]
@@ -75,9 +81,14 @@ def handle_models_command(args: str = "", console: Optional["Console"] = None) -
 
         if w_choice == "" or w_choice == p_choice:
             w_model = p_model
-        elif w_choice == "16":
+        elif w_choice == "17":
             return
         elif w_choice == "15":
+            from aja.cli.commands.local_cmd import cmd_local
+
+            cmd_local(console=console)
+            return
+        elif w_choice == "16":
             w_model = Prompt.ask("Enter Worker model (e.g. copilot:gpt-4o-mini)")
         else:
             w_model = choices_map[w_choice]

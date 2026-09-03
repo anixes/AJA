@@ -66,6 +66,7 @@ SLASH_COMMANDS: Tuple[str, ...] = (
     "/live",
     "/missions",
     "/models",
+    "/local",
     "/tui",
     "/swarm",
     "/goal",
@@ -92,6 +93,7 @@ SLASH_COMMAND_DESCRIPTIONS: Dict[str, str] = {
     "/live": "Real-time activity log stream",
     "/missions": "List all active and completed missions",
     "/models": "Copilot / LLM model selector",
+    "/local": "Discover and select local models (Ollama, llama.cpp, LM Studio)",
     "/tui": "Mission Control curses dashboard",
     "/swarm": "Multi-agent swarm mission",
     "/goal": "Persistent direct mission",
@@ -578,6 +580,14 @@ class TerminalREPL:
                 cmd_doctor()
 
             self._spawn_bg(asyncio.to_thread(_doctor))
+            return "handled"
+        if cmd in ("/local", "/models local"):
+            def _local() -> None:
+                from aja.cli.commands.local_cmd import cmd_local
+
+                cmd_local(raw_args, console=self._console)
+
+            self._spawn_bg(asyncio.to_thread(_local))
             return "handled"
         if cmd == "/models":
             def _models() -> None:
