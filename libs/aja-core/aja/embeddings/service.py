@@ -32,9 +32,15 @@ import hashlib
 import logging
 import math
 import os
+
+# Suppress Hugging Face Hub progress bars and tokenizers parallelism spam in CLI
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import random
 import re
 import threading
+import warnings
 from collections import OrderedDict
 from typing import List, Optional
 
@@ -348,11 +354,13 @@ class EmbeddingService:
                 logger.info("Loading ONNX embedding model (%s) via fastembed...", spec["fastembed"])
                 _ONNX_MODEL = TextEmbedding(model_name=spec["fastembed"])
             elif backend == "sentence_transformers":
-                from sentence_transformers import SentenceTransformer
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    from sentence_transformers import SentenceTransformer
 
-                # Small, fast model. 384 dimensions.
-                logger.info("Loading sentence-transformers model (%s)...", spec["st"])
-                _SENTENCE_MODEL = SentenceTransformer(spec["st"])
+                    # Small, fast model. 384 dimensions.
+                    logger.info("Loading sentence-transformers model (%s)...", spec["st"])
+                    _SENTENCE_MODEL = SentenceTransformer(spec["st"])
             else:  # explicit "mock" selection without the env flag
                 _MODEL_LOADED = True
                 return

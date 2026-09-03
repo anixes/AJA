@@ -562,6 +562,10 @@ class TerminalREPL:
             return ""
         parts = low.split(None, 1)
         cmd = parts[0]
+        if cmd not in SLASH_COMMANDS:
+            expanded = self.complete_slash(cmd)
+            if expanded in SLASH_COMMANDS:
+                cmd = expanded
         raw_args = stripped.split(None, 1)[1].strip() if len(parts) > 1 else ""
         if cmd in ("/exit", "/quit"):
             return "exit"
