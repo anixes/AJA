@@ -73,7 +73,7 @@ def feed(*lines: str):
 
 EXPECTED_SLASH_COMMANDS: tuple[str, ...] = (
     "/help", "/clear", "/exit", "/quit", "/status", "/kanban", "/live",
-    "/missions", "/models", "/tui", "/swarm", "/goal", "/schedule",
+    "/missions", "/models", "/local", "/tui", "/swarm", "/goal", "/schedule",
     "/doctor", "/todo", "/doing", "/done", "/failed", "/rmtask",
 )
 

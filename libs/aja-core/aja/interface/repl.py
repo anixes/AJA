@@ -246,6 +246,7 @@ class TerminalREPL:
         self._stream_parts: list[str] = []
         self._needs_newline = False
         self._bg_tasks: set[asyncio.Task] = set()
+        self._fg_task: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------------ #
     # Wiring
@@ -372,13 +373,27 @@ class TerminalREPL:
             if command == "exit":
                 break
             if command == "handled":
+                if self._fg_task is not None:
+                    try:
+                        await self._fg_task
+                    except Exception as e:
+                        self._console.print(f"[red]Error in command: {e}[/red]")
+                    finally:
+                        self._fg_task = None
                 continue
             await self.run_turn(text)
         self._cancel_bg_tasks()
         self._console.print("[dim]Goodbye.[/dim]")
 
+    def _spawn_fg(self, coro) -> None:
+        """Schedule a foreground task that the REPL loop awaits before re-prompting."""
+        task = asyncio.create_task(coro)
+        self._fg_task = task
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
     def _spawn_bg(self, coro) -> None:
-        """Schedule a fire-and-forget background task (slash-command dispatch)."""
+        """Schedule a fire-and-forget background task (dashboards, curses tui, etc.)."""
         task = asyncio.create_task(coro)
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
@@ -427,9 +442,24 @@ class TerminalREPL:
         except Exception as e:
             self.render_event(Error(code="REPL_FAILED", message=f"{type(e).__name__}: {e}"))
 
+    def _start_thinking_spinner(self) -> None:
+        """Start an animated dots spinner while waiting for LLM or next tool."""
+        if self._console.is_terminal and self._live is None:
+            self._live = Live(
+                Spinner("dots", text=Text(" AJA is thinking...", style="dim cyan")),
+                console=self._console,
+                refresh_per_second=12,
+                transient=True,
+            )
+            try:
+                self._live.start()
+            except Exception:
+                self._live = None
+
     async def _consume_events(self, msg: InboundMessage) -> None:
         self._stream_parts.clear()
         self._renderer.reset_stream()
+        self._start_thinking_spinner()
         async for ev in self.core.handle(msg):
             if isinstance(ev, Delta):
                 self._feed_delta(ev.text)
@@ -439,6 +469,8 @@ class TerminalREPL:
                 await self.handle_approval(ev)
             else:
                 self.render_event(ev)
+                if isinstance(ev, ToolFinished):
+                    self._start_thinking_spinner()
         self._end_stream()
 
     # ------------------------------------------------------------------ #
@@ -450,6 +482,13 @@ class TerminalREPL:
         self._needs_newline = True
         if self._console.is_terminal:
             self._stream_parts.append(chunk)
+            if self._live is not None and not isinstance(self._live.renderable, Text):
+                try:
+                    self._live.stop()
+                except Exception:
+                    pass
+                self._live = None
+
             if self._live is None:
                 self._live = Live(
                     Text("".join(self._stream_parts)),
@@ -545,7 +584,7 @@ class TerminalREPL:
             if not raw_args:
                 self._console.print("[red]Usage: /pc <objective>[/red]")
                 return "handled"
-            self._spawn_bg(self._run_mission("/goal", raw_args))
+            self._spawn_fg(self._run_mission("/goal", raw_args))
             return "handled"
         if cmd in ("/status", "/tasks"):
             def _status() -> None:
@@ -553,7 +592,7 @@ class TerminalREPL:
 
                 cmd_status()
 
-            self._spawn_bg(asyncio.to_thread(_status))
+            self._spawn_fg(asyncio.to_thread(_status))
             return "handled"
         if cmd == "/skills":
             def _skills() -> None:
@@ -571,7 +610,7 @@ class TerminalREPL:
                         desc = getattr(sk, "description", "")
                         self._console.print(f"  • [yellow]{name}[/yellow]: {desc}")
 
-            self._spawn_bg(asyncio.to_thread(_skills))
+            self._spawn_fg(asyncio.to_thread(_skills))
             return "handled"
         if cmd == "/doctor":
             def _doctor() -> None:
@@ -579,7 +618,7 @@ class TerminalREPL:
 
                 cmd_doctor()
 
-            self._spawn_bg(asyncio.to_thread(_doctor))
+            self._spawn_fg(asyncio.to_thread(_doctor))
             return "handled"
         if cmd in ("/local", "/models local"):
             def _local() -> None:
@@ -587,7 +626,7 @@ class TerminalREPL:
 
                 cmd_local(raw_args, console=self._console)
 
-            self._spawn_bg(asyncio.to_thread(_local))
+            self._spawn_fg(asyncio.to_thread(_local))
             return "handled"
         if cmd == "/models":
             def _models() -> None:
@@ -595,16 +634,16 @@ class TerminalREPL:
 
                 handle_models_command(raw_args, console=self._console)
 
-            self._spawn_bg(asyncio.to_thread(_models))
+            self._spawn_fg(asyncio.to_thread(_models))
             return "handled"
         if cmd in ("/swarm", "/goal"):
             if not raw_args:
                 self._console.print(f"[red]Usage: {cmd} <objective>[/red]")
                 return "handled"
-            self._spawn_bg(self._run_mission(cmd, raw_args))
+            self._spawn_fg(self._run_mission(cmd, raw_args))
             return "handled"
         if cmd == "/schedule":
-            self._spawn_bg(asyncio.to_thread(self._schedule_flow, raw_args))
+            self._spawn_fg(asyncio.to_thread(self._schedule_flow, raw_args))
             return "handled"
         if cmd in ("/todo", "/doing", "/done", "/failed", "/rmtask"):
             if not raw_args:
@@ -617,7 +656,7 @@ class TerminalREPL:
                 }[cmd]
                 self._console.print(f"[red]{usage}[/red]")
                 return "handled"
-            self._spawn_bg(asyncio.to_thread(self._run_task_command, cmd, raw_args))
+            self._spawn_fg(asyncio.to_thread(self._run_task_command, cmd, raw_args))
             return "handled"
         self._console.print(f"[dim]Unknown command: {cmd}[/dim]")
         return "handled"
