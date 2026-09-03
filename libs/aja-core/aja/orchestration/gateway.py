@@ -676,6 +676,15 @@ class LLMGateway:
                     kwargs["tools"] = tools
                     if self.provider == "llama_cpp":
                         kwargs.setdefault("tool_choice", "auto")
+                        if os.getenv("AJA_LLAMA_CONSTRAIN_TOOLS", "1") == "1":
+                            try:
+                                from aja.models.gbnf import build_tool_call_grammar
+                                grammar = build_tool_call_grammar(tools)
+                                if kwargs.get("extra_body") is None:
+                                    kwargs["extra_body"] = {}
+                                kwargs["extra_body"].setdefault("grammar", grammar)
+                            except Exception as e:
+                                logger.debug("[llama_cpp] Failed to build GBNF grammar: %s", e)
                 if extra_body is not None:
                     kwargs["extra_body"] = extra_body
 
@@ -703,6 +712,15 @@ class LLMGateway:
                                     "arguments": tc.function.arguments,
                                 }
                             )
+                    elif self.provider == "llama_cpp" and getattr(msg, "content", None):
+                        try:
+                            from aja.models.gbnf import parse_constrained_tool_response
+                            clean_content, parsed_tools = parse_constrained_tool_response(msg.content)
+                            if parsed_tools:
+                                tool_calls.extend(parsed_tools)
+                                return {"content": clean_content, "tool_calls": tool_calls}
+                        except Exception as e:
+                            logger.debug("[llama_cpp] Fallback tool parsing exception: %s", e)
                     return {"content": msg.content or "", "tool_calls": tool_calls}
                 # Contract: None on failure/empty, str on success — never "".
                 if not getattr(msg, "content", None):

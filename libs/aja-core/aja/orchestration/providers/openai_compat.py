@@ -221,6 +221,15 @@ class OpenAICompatAdapter:
             kwargs["tools"] = tools
             if self.provider == "llama_cpp":
                 kwargs.setdefault("tool_choice", "auto")
+                if os.getenv("AJA_LLAMA_CONSTRAIN_TOOLS", "1") == "1":
+                    try:
+                        from aja.models.gbnf import build_tool_call_grammar
+                        grammar = build_tool_call_grammar(tools)
+                        if kwargs.get("extra_body") is None:
+                            kwargs["extra_body"] = {}
+                        kwargs["extra_body"].setdefault("grammar", grammar)
+                    except Exception as e:
+                        logger.debug("[llama_cpp] Failed to build GBNF grammar: %s", e)
         if extra_body is not None:
             kwargs["extra_body"] = extra_body
 
@@ -239,6 +248,8 @@ class OpenAICompatAdapter:
                     return LLMResponse(content="", model=model)
                 msg = response.choices[0].message
                 tool_calls: List[ToolCall] = []
+                content = getattr(msg, "content", None) or ""
+
                 if getattr(msg, "tool_calls", None):
                     for tc in msg.tool_calls:
                         tool_calls.append(
@@ -248,6 +259,23 @@ class OpenAICompatAdapter:
                                 arguments=tc.function.arguments,
                             )
                         )
+                elif self.provider == "llama_cpp" and content:
+                    try:
+                        from aja.models.gbnf import parse_constrained_tool_response
+                        clean_content, parsed_tools = parse_constrained_tool_response(content)
+                        if parsed_tools:
+                            for pt in parsed_tools:
+                                tool_calls.append(
+                                    ToolCall(
+                                        id=pt["id"],
+                                        name=pt["name"],
+                                        arguments=pt["arguments"],
+                                    )
+                                )
+                            content = clean_content
+                    except Exception as e:
+                        logger.debug("[llama_cpp] Fallback tool parsing exception: %s", e)
+
                 usage: Dict[str, int] = {}
                 resp_usage = getattr(response, "usage", None)
                 if resp_usage is not None:
@@ -256,7 +284,7 @@ class OpenAICompatAdapter:
                         if isinstance(value, int):
                             usage[field] = value
                 return LLMResponse(
-                    content=getattr(msg, "content", None) or "",
+                    content=content,
                     tool_calls=tool_calls,
                     model=model,
                     usage=usage,
