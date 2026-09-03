@@ -61,7 +61,11 @@ DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 MINILM_MODEL_NAME = DEFAULT_EMBEDDING_MODEL
 FASTEMBED_MINILM = EMBEDDING_MODELS[DEFAULT_EMBEDDING_MODEL]["fastembed"]
 
-VALID_BACKENDS = ("auto", "sentence_transformers", "onnx", "mock")
+import json
+import urllib.error
+import urllib.request
+
+VALID_BACKENDS = ("auto", "sentence_transformers", "onnx", "llama_cpp", "mock")
 
 _CACHE_CAPACITY = 4096
 
@@ -156,11 +160,26 @@ def _fastembed_available() -> bool:
         return False
 
 
+def _llama_cpp_available() -> bool:
+    url = os.getenv("LLAMA_CPP_EMBED_URL", "http://localhost:8080/v1/embeddings")
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"input": "ping"}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "AJA-Embeddings/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=0.5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 def get_active_backend() -> str:
     """
     Resolves the active embedding backend.
 
-    Returns one of "mock", "onnx", or "sentence_transformers".
+    Returns one of "mock", "onnx", "llama_cpp", or "sentence_transformers".
     Resolution order: AJA_MOCK_EMBEDDINGS=1 > AJA_EMBEDDING_BACKEND env >
     SwarmSettings.embedding_backend field > auto detection.
     """
@@ -180,7 +199,9 @@ def get_active_backend() -> str:
     if backend != "auto":
         return backend
 
-    # auto: prefer the lightweight ONNX runtime when its package is present.
+    # auto: prefer llama_cpp if running, then fastembed ONNX, then sentence_transformers
+    if _llama_cpp_available():
+        return "llama_cpp"
     return "onnx" if _fastembed_available() else "sentence_transformers"
 
 
@@ -365,8 +386,13 @@ class EmbeddingService:
                     # Always prefer local cache to run 100% offline without phoning home
                     try:
                         _SENTENCE_MODEL = SentenceTransformer(spec["st"], local_files_only=True)
+                    except TypeError:
+                        _SENTENCE_MODEL = SentenceTransformer(spec["st"])
                     except Exception:
-                        _SENTENCE_MODEL = SentenceTransformer(spec["st"], local_files_only=False)
+                        _SENTENCE_MODEL = SentenceTransformer(spec["st"])
+            elif backend == "llama_cpp":
+                _MODEL_LOADED = True
+                return
             else:  # explicit "mock" selection without the env flag
                 _MODEL_LOADED = True
                 return
@@ -384,8 +410,41 @@ class EmbeddingService:
             ) from e
         _MODEL_LOADED = True
 
+    def _compute_embed_llama_cpp(self, text: str) -> Optional[List[float]]:
+        url = os.getenv("LLAMA_CPP_EMBED_URL", "http://localhost:8080/v1/embeddings")
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"input": text}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "AJA-Embeddings/1.0"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                if resp.status == 200:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                    data = payload.get("data", [])
+                    if data and isinstance(data[0], dict) and "embedding" in data[0]:
+                        vec = data[0]["embedding"]
+                        if isinstance(vec, list):
+                            return vec
+        except Exception as e:
+            logger.debug("llama.cpp embedding request failed: %s", e)
+            return None
+        return None
+
     def _compute_embed(self, text: str) -> List[float]:
         self._load_model()
+        backend = get_active_backend()
+        if backend == "llama_cpp":
+            vec = self._compute_embed_llama_cpp(text)
+            if vec is not None:
+                if len(vec) > self.dim:
+                    return vec[: self.dim]
+                elif len(vec) < self.dim:
+                    return vec + [0.0] * (self.dim - len(vec))
+                return vec
+            logger.debug("llama.cpp embeddings returned None, falling back to local model.")
+
         if _ONNX_MODEL is not None:
             import numpy as np
 

@@ -2,6 +2,7 @@
 AJA CLI Command: local
 ======================
 Interactive local model discovery, engine status, and model selector.
+Supports automated CUDA llama-server launch for local GGUF models.
 """
 
 from __future__ import annotations
@@ -30,25 +31,31 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
     console.print("\n[bold cyan]═══ Local Model Manager ═══[/]")
     console.print(f"[dim]Current Worker Model:[/] [bold green]{active['worker']}[/]")
 
-    # If specific model name or action passed directly
+    # Check CLI arguments e.g. `aja local start` or `aja local qwen2.5-coder-7b...`
     arg_list = args.strip().split() if args else []
     if arg_list:
         sub = arg_list[0].lower()
         if sub == "start":
-            success, msg = LocalModelManager.start_engine("ollama")
+            eng = arg_list[1] if len(arg_list) > 1 else "llama"
+            model_target = arg_list[2] if len(arg_list) > 2 else None
+            success, msg = LocalModelManager.start_engine(eng, model=model_target)
             if success:
-                console.print(f"[green]✔ {msg}[/green]")
+                console.print(f"[bold green]✔ {msg}[/bold green]")
             else:
-                console.print(f"[yellow]! {msg}[/yellow]")
+                console.print(f"[bold yellow]! {msg}[/bold yellow]")
             return
         elif sub in ("list", "ls"):
             _display_models_table(console, LocalModelManager.discover_models())
             return
         else:
-            # Direct model activation e.g. `aja local qwen2.5-coder:7b`
+            # Direct model activation e.g. `aja local qwen2.5-coder-7b-instruct-q3_k_m.gguf`
             target = arg_list[0]
             if not any(target.startswith(p + ":") for p in ("ollama", "llama_cpp", "openai")):
-                target = f"ollama:{target}"
+                if target.endswith(".gguf"):
+                    target = f"llama_cpp:{target}"
+                else:
+                    target = f"ollama:{target}"
+            console.print(f"[cyan]Activating {target}...[/cyan]")
             LocalModelManager.activate_model(target)
             console.print(f"[bold green]✔ Active worker model switched to:[/] {target}")
             return
@@ -58,14 +65,14 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
     statuses = LocalModelManager.probe_engines(timeout=1.0)
     engine_table = Table(title="Detected Local Engines", box=ROUNDED, expand=True)
     engine_table.add_column("Engine", style="bold white", width=16)
-    engine_table.add_column("Status", width=12)
+    engine_table.add_column("Status", width=14)
     engine_table.add_column("Endpoint", style="dim", width=28)
-    engine_table.add_column("Available Models", justify="right")
+    engine_table.add_column("Models Ready", justify="right")
 
     for eng_key, status in statuses.items():
         if status.running:
             stat_str = "[bold green]Running[/]"
-            count_str = f"[bold green]{status.models_count}[/] model(s)"
+            count_str = f"[bold green]{status.models_count}[/] active"
         else:
             stat_str = "[dim red]Offline[/]"
             count_str = f"[dim]{status.error or 'Not running'}[/]"
@@ -74,8 +81,8 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
 
     console.print(engine_table)
 
-    # 2. Discover models
-    models = LocalModelManager.discover_models(timeout=1.5)
+    # 2. Discover models (running engines + GGUF models on disk)
+    models = LocalModelManager.discover_models(timeout=1.5, include_disk=True)
 
     if models:
         _display_models_table(console, models)
@@ -83,60 +90,48 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
         choices["c"] = "Custom Model URI"
         choices["q"] = "Cancel"
 
-        console.print("\n[bold]Select a model to activate for AJA:[/bold]")
+        console.print("\n[bold]Select a model to activate (starts engine automatically if offline):[/bold]")
         for k, v in choices.items():
             if k in ("c", "q"):
                 console.print(f"  [cyan]{k}[/]) {v}")
             else:
-                console.print(f"  [cyan]{k}[/]) [bold white]{v.name}[/] [dim]({v.engine})[/]")
+                source_tag = "[yellow](disk)[/]" if getattr(v, "details", {}).get("source") == "disk" else "[green](running)[/]"
+                console.print(f"  [cyan]{k}[/]) [bold white]{v.name}[/] {source_tag} [dim]({v.engine})[/]")
 
         ans = Prompt.ask("\nEnter choice", choices=list(choices.keys()), default="1")
         if ans == "q":
             return
         elif ans == "c":
-            custom_uri = Prompt.ask("Enter custom model URI (e.g. ollama:qwen2.5-coder:7b)")
+            custom_uri = Prompt.ask("Enter custom model URI (e.g. llama_cpp:model.gguf or ollama:qwen2.5-coder:7b)")
             if custom_uri:
                 LocalModelManager.activate_model(custom_uri.strip())
                 console.print(f"[bold green]✔ Successfully activated:[/] {custom_uri}")
         else:
             selected: LocalModelInfo = choices[ans]
+            is_disk = selected.details.get("source") == "disk"
+            if is_disk:
+                console.print(f"[bold cyan]Starting llama-server with '{selected.name}'...[/bold cyan]")
             LocalModelManager.activate_model(selected.uri)
             console.print(f"[bold green]✔ Successfully activated:[/] {selected.uri}")
             console.print(f"[dim]AJA operating_mode set to 'hybrid' (direct local inference).[/]")
     else:
         console.print(
             Panel(
-                "[yellow]No running local model engines detected on standard ports.[/yellow]\n\n"
-                "• [bold]Ollama[/]: Run [cyan]ollama run qwen2.5-coder:7b[/] in another terminal, or\n"
-                "• [bold]Docker[/]: [cyan]docker run -d -p 11434:11434 --name ollama ollama/ollama[/]\n"
-                "• [bold]llama.cpp[/]: Run [cyan]llama-server -m <model.gguf> --port 8080[/]\n"
+                "[yellow]No running local model engines or GGUF files detected.[/yellow]\n\n"
+                "• [bold]llama.cpp[/]: Place .gguf files in [cyan]E:\\Models[/] or run [cyan]llama-server -m <model.gguf> --port 8080[/]\n"
+                "• [bold]Ollama[/]: Run [cyan]ollama run qwen2.5-coder:7b[/]\n"
                 "• [bold]LM Studio[/]: Enable Local Server on port 1234",
                 title="Local Inference Setup",
                 border_style="yellow",
             )
         )
 
-        ollama_status = statuses.get("ollama")
-        if ollama_status and ollama_status.installed:
-            start_ans = Prompt.ask(
-                "Ollama CLI is installed. Start Ollama background service now?",
-                choices=["y", "n"],
-                default="y",
-            )
-            if start_ans == "y":
-                success, msg = LocalModelManager.start_engine("ollama")
-                if success:
-                    console.print(f"[green]✔ {msg}[/green]")
-                    console.print("Run [bold cyan]aja local[/] in a few seconds once models are loaded.")
-                else:
-                    console.print(f"[red]✘ {msg}[/red]")
-
 
 def _display_models_table(console: "Console", models: list[LocalModelInfo]) -> None:
-    table = Table(title="Locally Installed Models", box=ROUNDED, expand=True)
+    table = Table(title="Available Local Models", box=ROUNDED, expand=True)
     table.add_column("#", width=4, justify="center")
     table.add_column("Model Name", style="bold white")
-    table.add_column("Engine", style="cyan", width=12)
+    table.add_column("Engine / Source", style="cyan", width=20)
     table.add_column("Size", justify="right", width=10)
     table.add_column("Params", justify="center", width=8)
     table.add_column("Quant", justify="center", width=10)
@@ -145,6 +140,7 @@ def _display_models_table(console: "Console", models: list[LocalModelInfo]) -> N
         size_str = f"{m.size_gb:.1f} GB" if m.size_gb else "-"
         param_str = m.parameter_size or "-"
         quant_str = m.quantization or "-"
-        table.add_row(str(i), m.name, m.engine, size_str, param_str, quant_str)
+        source_label = "llama.cpp (disk)" if m.details.get("source") == "disk" else m.engine
+        table.add_row(str(i), m.name, source_label, size_str, param_str, quant_str)
 
     console.print(table)

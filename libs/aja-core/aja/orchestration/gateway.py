@@ -674,6 +674,8 @@ class LLMGateway:
                     kwargs["temperature"] = temperature
                 if tools is not None:
                     kwargs["tools"] = tools
+                    if self.provider == "llama_cpp":
+                        kwargs.setdefault("tool_choice", "auto")
                 if extra_body is not None:
                     kwargs["extra_body"] = extra_body
 
