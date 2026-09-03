@@ -361,9 +361,12 @@ class EmbeddingService:
                         pass
                     from sentence_transformers import SentenceTransformer
 
-                    # Small, fast model. 384 dimensions.
                     logger.info("Loading sentence-transformers model (%s)...", spec["st"])
-                    _SENTENCE_MODEL = SentenceTransformer(spec["st"])
+                    # Always prefer local cache to run 100% offline without phoning home
+                    try:
+                        _SENTENCE_MODEL = SentenceTransformer(spec["st"], local_files_only=True)
+                    except Exception:
+                        _SENTENCE_MODEL = SentenceTransformer(spec["st"], local_files_only=False)
             else:  # explicit "mock" selection without the env flag
                 _MODEL_LOADED = True
                 return
