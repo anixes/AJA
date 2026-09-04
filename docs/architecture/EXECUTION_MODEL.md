@@ -96,3 +96,32 @@ aja exec timeline <session_id>
 aja exec diff <session_id>
 aja exec cleanup
 ```
+
+---
+
+## Autonomous Verification & Self-Healing Loop (OpenCode 2 Pattern)
+
+In direct execution mode (`direct_loop.py`), tasks are never marked complete on blind model assertions. An **Autonomous Verification Gate** (`verification_runner.py`) intercepts task completion:
+
+1. **AST Syntax Validation**: Validates modified or project Python files via Python `ast` to detect syntax errors before completion.
+2. **Command Verification**: Automatically runs configured test commands (e.g. `pytest`, `python -m py_compile`) and evaluates stdout, stderr, and exit codes.
+3. **Self-Healing Feedback Loop**: If verification fails, the failure report is injected as a synthetic user turn (`[Autonomous Verification Failure]`). The model is forced to inspect the traceback, fix the code, and re-verify up to `max_verification_retries`. Only when all checks pass is `{"status": "completed", "verified": True}` returned.
+
+---
+
+## Heterogeneous Multi-Model Role Orchestration (`roles.py`)
+
+AJA coordinates specialized models across different execution roles:
+* **Planner**: High-reasoning Cloud model (`google:gemini-2.5-flash` / Claude) decomposing user goals into atomic `MissionStep` objects with verifiable acceptance criteria.
+* **Worker**: Local model (`llama_cpp:qwen2.5-coder-7b-instruct-q3_k_m`) executing tool calls offline under strict GBNF grammar constraints.
+* **Verifier**: Automated gate executing acceptance tests before advancing to subsequent steps.
+
+---
+
+## Agent Client Protocol (ACP) Server (`aja acp`)
+
+AJA implements the open **Agent Client Protocol (ACP)** standard (co-designed by Zed Industries and JetBrains) over JSON-RPC 2.0 stdio:
+* Spanned as a subprocess by editor clients (`aja acp`).
+* Implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, and streams live `session/update` notifications.
+* Enables Zed IDE and JetBrains editors to control AJA directly as an in-editor AI agent.
+

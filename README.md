@@ -246,8 +246,10 @@ graph TD
 | **CodeAct Action Engine** | Direct Python & Bash execution with timeout traps and output capture |
 | **Multi-Workspace Kernel** | Coroutine-isolated workspace contexts with priority async mission queue |
 | **Replay-Authoritative Orchestration** | Append-only journal is the single source of truth; all runtime state is derived |
-| **Provider Adapter Pattern** | Model-agnostic gateway: adding a provider = implementing one class |
 | **Dual-Model Routing** | Cloud planner (reasoning quality) + local GPU worker (execution cost) coexist per-role |
+| **Offline llama.cpp & GBNF** | Auto-detected GGUF models, CUDA auto-launcher, zero-RAM C++ vector embeddings, and strict GGML BNF grammar-constrained tool calling |
+| **Autonomous Verification Gate** | OpenCode 2-style self-healing loop: AST syntax validation & automated test verification preventing premature completion |
+| **Zed & JetBrains ACP Protocol** | Native Agent Client Protocol (`aja acp`) JSON-RPC stdio server for in-editor AI agent control and dynamic `@` context grounding |
 
 ### Repository Structure
 

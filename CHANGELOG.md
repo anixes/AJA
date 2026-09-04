@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+#### Phase 15 — Next-Gen Agent Loop & IDE Orchestration (Zed ACP & OpenCode 2)
+- **OpenCode 2 Autonomous Self-Healing Verification Loop**: `verification_runner.py` (AST syntax checker for Python files, command verifier capturing exit codes/stdout/stderr) and `direct_loop.py` verification gate (`verification_cmd`, `auto_verify`, `max_verification_retries`); intercepts premature task completion, injecting verification error traces into history for model self-correction.
+- **Heterogeneous Role-Based Orchestration**: `roles.py` (`RoleConfig`, `MissionStep`, `HeterogeneousOrchestrator`) coordinating Planner (Cloud high-reasoning model), Worker (Local llama.cpp GBNF worker), and Verifier (automated acceptance tests).
+- **Zed-Compatible Agent Client Protocol (ACP) Server**: `acp/server.py` implementing the JSON-RPC 2.0 stdio protocol for Zed IDE and JetBrains; `acp_cmd.py` and `aja acp` CLI command; supports `initialize`, `session/new`, `session/prompt`, `session/cancel`, and streaming progress notifications.
+- **Dynamic Context Providers**: `context_providers.py` resolving `@file:<path>`, `@symbol:<name>` (AST definition extractor finding classes/functions without reading full files), `@diff` (git diff with Windows-safe UTF-8 decoding), and `@diagnostics`; wired into `DirectSession._turn`.
+
+#### Phase 14 — Offline llama.cpp Integration & GBNF Grammar Constraints
+- **Local Model Auto-Discovery & CUDA Auto-Launcher**: `local_manager.py` scanning `E:\Models` for GGUF files, auto-tuning GPU layer offload (`-ngl 99` / `-ngl 28`) on GTX 1650 Ti 4GB VRAM, and spawning `llama-server.exe` with `--jinja` and `-c 8192`.
+- **Interactive Local Model CLI**: `aja local` and `/local` Rich table selector for one-click local model activation.
+- **Native llama.cpp Vector Embeddings**: `http://localhost:8080/v1/embeddings` integration in `embeddings/service.py` (`VALID_BACKENDS = ["llama_cpp", ...]`) enabling 0 MB RAM offline embeddings.
+- **GBNF Grammar Tool Constraints**: `models/gbnf.py` compiling OpenAI tool schemas into strict GGML BNF grammar rules and `anyOf` JSON schemas, mathematically eliminating markdown wrapping and JSON schema hallucinations during local tool calling.
+
 #### Phase 13 - Chat Continuity + Quickstart
 - Semantic recall (gateway/recall.py): embeds user query -> VectorMemory top-k similarity-scored past exchanges + time-filtered journal scan (yesterday/earlier); formatted as markdown system-context block injected into BOTH gateway and CLI chat surfaces; offloaded turns with real embeddings retrievable for the first time.
 - Quickstart scripts (scripts/quickstart.sh + .ps1): interactive clone-to-chat in ~10 minutes (Python gate -> venv -> install -> .env creation with BotFather/userinfobot prompts -> doctor validation -> serve); idempotent re-runs. README rewritten around them; .env.example modernized.
