@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+#### Phase 16 — Host Hardware Profiling & Telegram Local Model Hub
+- **Host Hardware Profiling**: `HostHardwareProfiler` in `models/local_manager.py` detecting OS, CPU cores, RAM total/available (via Windows ctypes `GlobalMemoryStatusEx` and POSIX `/proc/meminfo`), and NVIDIA CUDA GPU name, VRAM total/free, driver, and CUDA capability with zero external dependencies.
+- **Multi-Drive GGUF Auto-Discovery**: Automatic scanning across all mounted drive roots (`C:`, `D:`, `E:`) and AI application caches (`~/.ollama/models`, `~/.cache/lm-studio/models`, `~/.cache/huggingface/hub`) with path deduplication.
+- **Hardware-Aware CUDA Offload Auto-Tuning**: Dynamic calculation of GPU layers (`auto_tuned_ngl`) based on host detected VRAM: full offload (`-ngl 99`) for models <= 3.2 GB, hybrid offload (`-ngl 28`) for 7B models, and multimodal vision tagging.
+- **Telegram Local Model Management**: `telegram_local.py` providing interactive `/local` and `/models` status cards; compact 1-tap inline buttons (`[▶ Start ...]`, `[⏹ Stop ...]`, `[🔄 Rescan ...]`) strictly compliant with Telegram's 64-byte callback limit (`ls:<idx>`, `lstp`, `lref`, `luse:<idx>`); authorization gated by `TELEGRAM_ALLOWED_USER_ID`.
+- **Agent Native Tools**: `inspect_host_hardware` and `manage_local_models` registered in `NativeToolRegistry` for autonomous agent hardware inspection and local model lifecycle management.
+
 #### Phase 15 — Next-Gen Agent Loop & IDE Orchestration (Zed ACP & OpenCode 2)
 - **OpenCode 2 Autonomous Self-Healing Verification Loop**: `verification_runner.py` (AST syntax checker for Python files, command verifier capturing exit codes/stdout/stderr) and `direct_loop.py` verification gate (`verification_cmd`, `auto_verify`, `max_verification_retries`); intercepts premature task completion, injecting verification error traces into history for model self-correction.
 - **Heterogeneous Role-Based Orchestration**: `roles.py` (`RoleConfig`, `MissionStep`, `HeterogeneousOrchestrator`) coordinating Planner (Cloud high-reasoning model), Worker (Local llama.cpp GBNF worker), and Verifier (automated acceptance tests).

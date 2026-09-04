@@ -115,6 +115,8 @@ class NativeToolRegistry:
         self.tools["get_datetime"] = self.get_datetime
         self.tools["search_web"] = self.search_web
         self.tools["fetch_url"] = self.fetch_url
+        self.tools["inspect_host_hardware"] = self.inspect_host_hardware
+        self.tools["manage_local_models"] = self.manage_local_models
         try:
             from aja.orchestration.tools.mobile import (
                 mobile_send_sms,
@@ -792,6 +794,48 @@ class NativeToolRegistry:
                     }
                 }
             })
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": "inspect_host_hardware",
+                "activity_type": "python",
+                "retry_policy": "safe",
+                "required_scope": "python.read",
+                "description": "Inspect the host machine hardware specifications including OS, CPU cores, RAM, and NVIDIA CUDA GPU VRAM and driver.",
+                "parameters": {"type": "object", "properties": {}}
+            }
+        })
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": "manage_local_models",
+                "activity_type": "python",
+                "retry_policy": "none",
+                "required_scope": "python.write",
+                "description": "Inspect, list, start, stop, or activate local GGUF models on the host machine using llama.cpp and CUDA offload.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["status", "list", "start", "stop", "activate"],
+                            "description": "Action to perform on local models or engines."
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Model filename, name, or URI (e.g. 'qwen2.5-coder-7b-instruct-q3_k_m.gguf' or 'llama_cpp:...')."
+                        },
+                        "role": {
+                            "type": "string",
+                            "enum": ["worker", "planner"],
+                            "default": "worker",
+                            "description": "Role to assign the model to if activating."
+                        }
+                    },
+                    "required": ["action"]
+                }
+            }
+        })
         try:
             from aja.api.mcp_client import get_default_mcp_manager
             for schema in get_default_mcp_manager().get_registry_schemas():
@@ -1322,3 +1366,52 @@ class NativeToolRegistry:
         console.print(f"[cyan]{question}[/]")
         answer = Prompt.ask("[bold green]Your answer[/]")
         return answer
+
+    def inspect_host_hardware(self) -> str:
+        try:
+            from aja.models.local_manager import LocalModelManager
+            hw = LocalModelManager.get_hardware_profile()
+            return json.dumps(hw.to_dict(), indent=2)
+        except Exception as e:
+            return f"Error inspecting host hardware: {e}"
+
+    def manage_local_models(self, action: str = "status", model: Optional[str] = None, role: str = "worker") -> str:
+        try:
+            from aja.models.local_manager import LocalModelManager
+            action_lower = action.lower()
+            if action_lower == "status":
+                hw = LocalModelManager.get_hardware_profile()
+                engines = LocalModelManager.probe_engines()
+                active = LocalModelManager.get_active_model()
+                return json.dumps({
+                    "hardware": hw.to_dict(),
+                    "engines": {k: v.to_dict() for k, v in engines.items()},
+                    "active_roles": active,
+                }, indent=2)
+
+            elif action_lower == "list":
+                models = LocalModelManager.scan_disk_gguf_models()
+                return json.dumps([m.to_dict() for m in models], indent=2)
+
+            elif action_lower == "start":
+                if not model:
+                    return "Error: 'model' parameter is required for 'start' action."
+                ok, msg = LocalModelManager.start_llama_server(model)
+                if ok:
+                    LocalModelManager.activate_model(f"llama_cpp:{model}", role=role)
+                return msg
+
+            elif action_lower == "stop":
+                ok, msg = LocalModelManager.stop_llama_server()
+                return msg
+
+            elif action_lower == "activate":
+                if not model:
+                    return "Error: 'model' parameter is required for 'activate' action."
+                uri = model if ":" in model else f"llama_cpp:{model}"
+                ok = LocalModelManager.activate_model(uri, role=role)
+                return f"Activated {uri} as {role}." if ok else f"Failed to activate {uri}."
+
+            return f"Error: Unknown action '{action}'. Valid actions: status, list, start, stop, activate."
+        except Exception as e:
+            return f"Error managing local models: {e}"

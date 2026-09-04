@@ -18,6 +18,7 @@ CORE_COMMANDS: List[tuple] = [
     ("kanban", "Interactive mission board"),
     ("missions", "List all missions"),
     ("models", "List / switch available models"),
+    ("local", "Host hardware & local GGUF models"),
     ("doctor", "Run system health check"),
     ("clear", "Clear chat session history"),
 ]

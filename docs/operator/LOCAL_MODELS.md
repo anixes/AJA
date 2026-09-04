@@ -63,3 +63,23 @@ func-name ::= "bash" | "read_file" | "write_file"
 ```
 
 The compiled grammar is injected into `extra_body={"grammar": ...}` for `/v1/chat/completions`. The server constrains output tokens during sampling, ensuring 100% deterministic schema adherence.
+
+---
+
+## 5. Telegram Remote Controls & Host Hardware Profiling
+
+AJA features complete mobile control over host GPU inference directly from Telegram:
+
+* **Host Hardware Profiling**: Detects OS, CPU cores, RAM, and NVIDIA GPU/VRAM via zero-dependency standard library and `nvidia-smi` queries.
+* **Multi-Drive GGUF Auto-Discovery**: Automatically scans all mounted drives (`C:`, `D:`, `E:`) and standard application caches (`~/.ollama/models`, `~/.cache/lm-studio/models`, `~/.cache/huggingface/hub`) for `.gguf` files.
+* **Hardware-Aware Auto-Tuning**: Compares model file size with detected GPU VRAM to tag models as `100% GPU VRAM` (`-ngl 99`, ~60+ tok/s), `Recommended Coding Worker` (`-ngl 28`, hybrid CUDA offload), or `Multimodal Vision`.
+* **Telegram Commands**:
+  - `/local` or `/models`: Renders the full host hardware status card and interactive inline buttons.
+  - `/local start <model>`: Launches the specified model on CUDA port 8080 and activates it as worker.
+  - `/local stop`: Terminates the background `llama-server` process and releases GPU VRAM.
+* **1-Tap Inline Keyboard Controls**:
+  - `[▶ Start <model>]`: Launches and activates the model in one tap (`ls:<idx>` compact token).
+  - `[⏹ Stop llama-server]`: Releases GPU VRAM on demand (`lstp`).
+  - `[🔄 Rescan Host]`: Re-scans all drives and updates the Telegram card (`lref`).
+* **Agent Native Tools**: The LLM itself has tool access to `inspect_host_hardware()` and `manage_local_models()` to inspect hardware specs and autonomously manage local inference engines from natural language.
+

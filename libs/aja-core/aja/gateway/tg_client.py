@@ -675,6 +675,33 @@ class TelegramAdapter(BasePlatformAdapter):
         data = query.data or ""
         callback_user_id = str(query.from_user.id) if query.from_user else ""
 
+        # ── Local model controls (ls:<idx>, lstp, lref, lstat, luse:<idx>) ──
+        if (
+            data.startswith(("ls:", "luse:", "local_start:", "local_use:"))
+            or data in ("lstp", "lref", "lstat", "local_stop", "local_refresh")
+        ):
+            self.metrics["callback_handled"] += 1
+            from aja.gateway.telegram_local import handle_local_model_callback
+            chat_id = str(query.message.chat_id) if (query.message and getattr(query.message, "chat_id", None)) else ""
+            authorized, reply_text, reply_markup = await handle_local_model_callback(
+                data, callback_user_id, chat_id
+            )
+            try:
+                try:
+                    await query.edit_message_text(
+                        text=reply_text,
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    await query.edit_message_text(
+                        text=reply_text,
+                        reply_markup=reply_markup,
+                    )
+            except Exception as e:
+                logger.debug("Failed to edit Telegram message on local callback: %s", e)
+            return
+
         # ── Per-command exec approvals (execok_<token> / execno_<token>) ──
         if data.startswith(("execok_", "execno_")):
             self.metrics["callback_handled"] += 1

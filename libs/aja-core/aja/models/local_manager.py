@@ -24,6 +24,120 @@ from aja.config import DATA_DIR
 
 
 @dataclass
+class HostHardwareProfile:
+    os_name: str
+    os_release: str
+    cpu_model: str
+    cpu_cores: int
+    ram_total_gb: float
+    ram_available_gb: float
+    gpu_name: Optional[str] = None
+    vram_total_mb: Optional[int] = None
+    vram_free_mb: Optional[int] = None
+    driver_version: Optional[str] = None
+    has_cuda: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class HostHardwareProfiler:
+    """Zero-dependency hardware inspection for CPU, RAM, and NVIDIA CUDA GPU."""
+    _cached_profile: Optional[HostHardwareProfile] = None
+    _cached_at: float = 0.0
+
+    @classmethod
+    def get_profile(cls, force_refresh: bool = False) -> HostHardwareProfile:
+        now = time.time()
+        if not force_refresh and cls._cached_profile and (now - cls._cached_at < 30.0):
+            return cls._cached_profile
+
+        import platform
+        os_name = platform.system()
+        os_release = platform.release()
+        cpu_model = platform.processor() or "Unknown CPU"
+        cpu_cores = os.cpu_count() or 1
+        ram_total_gb = 8.0
+        ram_avail_gb = 4.0
+
+        if os_name == "Windows":
+            try:
+                import ctypes
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ('dwLength', ctypes.c_ulong),
+                        ('dwMemoryLoad', ctypes.c_ulong),
+                        ('ullTotalPhys', ctypes.c_ulonglong),
+                        ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong),
+                        ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong),
+                        ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('sullAvailExtendedVirtual', ctypes.c_ulonglong),
+                    ]
+                stat = MEMORYSTATUSEX()
+                stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                    ram_total_gb = round(stat.ullTotalPhys / (1024 ** 3), 1)
+                    ram_avail_gb = round(stat.ullAvailPhys / (1024 ** 3), 1)
+            except Exception:
+                pass
+        else:
+            try:
+                with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                    meminfo = f.read()
+                for line in meminfo.splitlines():
+                    if line.startswith("MemTotal:"):
+                        ram_total_gb = round(int(line.split()[1]) / (1024 ** 2), 1)
+                    elif line.startswith("MemAvailable:"):
+                        ram_avail_gb = round(int(line.split()[1]) / (1024 ** 2), 1)
+            except Exception:
+                pass
+
+        gpu_name: Optional[str] = None
+        vram_total_mb: Optional[int] = None
+        vram_free_mb: Optional[int] = None
+        driver_version: Optional[str] = None
+        has_cuda = False
+
+        try:
+            smi = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+            if smi.returncode == 0 and smi.stdout.strip():
+                first_line = smi.stdout.strip().split("\n")[0]
+                parts = [p.strip() for p in first_line.split(",")]
+                if len(parts) >= 4:
+                    gpu_name = parts[0]
+                    vram_total_mb = int(float(parts[1]))
+                    vram_free_mb = int(float(parts[2]))
+                    driver_version = parts[3]
+                    has_cuda = True
+        except Exception:
+            pass
+
+        profile = HostHardwareProfile(
+            os_name=os_name,
+            os_release=os_release,
+            cpu_model=cpu_model,
+            cpu_cores=cpu_cores,
+            ram_total_gb=ram_total_gb,
+            ram_available_gb=ram_avail_gb,
+            gpu_name=gpu_name,
+            vram_total_mb=vram_total_mb,
+            vram_free_mb=vram_free_mb,
+            driver_version=driver_version,
+            has_cuda=has_cuda,
+        )
+        cls._cached_profile = profile
+        cls._cached_at = now
+        return profile
+
+
+@dataclass
 class LocalModelInfo:
     name: str
     engine: str  # "ollama", "llama_cpp", "lm_studio", "custom"
@@ -33,6 +147,8 @@ class LocalModelInfo:
     quantization: Optional[str] = None
     modified_at: Optional[str] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    auto_tuned_ngl: Optional[int] = None
+    recommendation: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -94,70 +210,156 @@ class LocalModelManager:
         return None
 
     @classmethod
+    def get_hardware_profile(cls) -> HostHardwareProfile:
+        """Inspect host machine CPU, RAM, and GPU hardware."""
+        return HostHardwareProfiler.get_profile()
+
+    @classmethod
     def find_llama_server_binary(cls) -> Optional[Path]:
-        """Resolve the path to an installed llama-server executable."""
+        """Resolve the path to an installed llama-server executable across drives and PATH."""
         env_path = os.getenv("LLAMA_SERVER_PATH")
         if env_path and Path(env_path).is_file():
             return Path(env_path)
 
-        for candidate in cls.DEFAULT_LLAMA_SERVER_PATHS:
-            if candidate.is_file():
-                return candidate
-
+        # 1. System PATH
         system_bin = shutil.which("llama-server") or shutil.which("llama-server.exe")
         if system_bin:
             return Path(system_bin)
 
+        # 2. Known candidates
+        for candidate in cls.DEFAULT_LLAMA_SERVER_PATHS:
+            if candidate.is_file():
+                return candidate
+
+        # 3. Dynamic multi-drive scan across Windows drives
+        if os.name == "nt":
+            for letter in ["C", "D", "E", "F"]:
+                drive = Path(f"{letter}:/")
+                if drive.exists():
+                    for sub in ["Llama-Turbo-Bin", "llama.cpp", "llama-bin", "bin", "tools/llama.cpp", "Bonsai-demo/bin/cuda"]:
+                        p = drive / sub / "llama-server.exe"
+                        if p.exists() and p.is_file():
+                            return p
+
         return None
 
     @classmethod
+    def discover_model_directories(cls) -> List[Path]:
+        """Discover all directories across host drives that contain AI models."""
+        dirs: List[Path] = []
+        seen = set()
+
+        def add_dir(p: Path):
+            try:
+                resolved = p.resolve()
+                key = str(resolved).lower()
+                if resolved.exists() and resolved.is_dir() and key not in seen:
+                    seen.add(key)
+                    dirs.append(resolved)
+            except Exception:
+                pass
+
+        env_dir = os.getenv("AJA_MODELS_DIR")
+        if env_dir:
+            add_dir(Path(env_dir))
+
+        for d in cls.DEFAULT_MODELS_DIRS:
+            add_dir(d)
+
+        if os.name == "nt":
+            import string
+            for letter in string.ascii_uppercase:
+                drive = Path(f"{letter}:/")
+                if drive.exists():
+                    for sub in ["Models", "models", "LLM", "llm", "GGUF", "gguf"]:
+                        add_dir(drive / sub)
+
+        try:
+            home = Path.home()
+            for sub in [".ollama/models", ".cache/lm-studio/models", ".cache/huggingface/hub", "models", "Models"]:
+                add_dir(home / sub)
+        except Exception:
+            pass
+
+        return dirs
+
+    @classmethod
     def scan_disk_gguf_models(cls, directory: Optional[Path] = None) -> List[LocalModelInfo]:
-        """Scan local disk directories for .gguf model files and extract metadata."""
-        target_dir: Optional[Path] = directory
-        if target_dir is None:
-            for d in cls.DEFAULT_MODELS_DIRS:
-                if d.exists() and d.is_dir():
-                    target_dir = d
-                    break
-
-        if target_dir is None or not target_dir.exists():
-            return []
-
+        """Scan local disk directories across host for .gguf model files and extract metadata."""
+        target_dirs: List[Path] = [directory] if directory else cls.discover_model_directories()
         models: List[LocalModelInfo] = []
+        seen_files = set()
+
         quant_pattern = re.compile(r"(Q[0-9]_[K0-9_MSAL]+|F16|F32|Q8_0)", re.IGNORECASE)
         param_pattern = re.compile(r"([0-9.]+B|E[0-9]+B)", re.IGNORECASE)
 
-        try:
-            for entry in target_dir.glob("*.gguf"):
-                # Skip vision projection adapters from being listed as standalone LLMs
-                if entry.name.lower().startswith("mmproj"):
-                    continue
+        hw = cls.get_hardware_profile()
+        vram_gb = (hw.vram_total_mb / 1024.0) if hw.vram_total_mb else 4.0
 
-                size_bytes = entry.stat().st_size
-                size_gb = round(size_bytes / (1024 ** 3), 2)
+        for d in target_dirs:
+            if not d.exists() or not d.is_dir():
+                continue
+            try:
+                for entry in d.glob("*.gguf"):
+                    if entry.name.lower().startswith("mmproj"):
+                        continue
 
-                q_match = quant_pattern.search(entry.name)
-                p_match = param_pattern.search(entry.name)
-                quant = q_match.group(1).upper() if q_match else None
-                param = p_match.group(1).upper() if p_match else None
+                    res_path = str(entry.resolve())
+                    if res_path.lower() in seen_files:
+                        continue
+                    seen_files.add(res_path.lower())
 
-                models.append(
-                    LocalModelInfo(
-                        name=entry.name,
-                        engine="llama_cpp",
-                        uri=f"llama_cpp:{entry.name}",
-                        size_gb=size_gb,
-                        parameter_size=param,
-                        quantization=quant,
-                        details={"path": str(entry.resolve()), "source": "disk"},
+                    size_bytes = entry.stat().st_size
+                    size_gb = round(size_bytes / (1024 ** 3), 2)
+
+                    q_match = quant_pattern.search(entry.name)
+                    p_match = param_pattern.search(entry.name)
+                    quant = q_match.group(1).upper() if q_match else None
+                    param = p_match.group(1).upper() if p_match else None
+
+                    # Hardware-aware offload auto-tuning
+                    auto_ngl = 99
+                    rec = "Local GGUF"
+                    name_lower = entry.name.lower()
+
+                    if size_gb <= (vram_gb - 0.8):
+                        auto_ngl = 99
+                        rec = "⚡ 100% GPU VRAM (fastest, ~60+ tok/s)"
+                    elif size_gb <= (vram_gb + 2.0):
+                        auto_ngl = 28
+                        rec = "⭐ Recommended Coding Worker (hybrid CUDA offload)"
+                    else:
+                        auto_ngl = 16
+                        rec = "CPU / Partial offload (large model)"
+
+                    if "vl" in name_lower or "vision" in name_lower:
+                        rec += " · 👁️ Multimodal Vision"
+                    elif "coder" in name_lower or "qwen" in name_lower:
+                        rec += " · 💻 Agent CodeAct"
+
+                    models.append(
+                        LocalModelInfo(
+                            name=entry.name,
+                            engine="llama_cpp",
+                            uri=f"llama_cpp:{entry.name}",
+                            size_gb=size_gb,
+                            parameter_size=param,
+                            quantization=quant,
+                            auto_tuned_ngl=auto_ngl,
+                            recommendation=rec,
+                            details={"path": res_path, "source": "disk"},
+                        )
                     )
-                )
-        except Exception:
-            return []
+            except Exception:
+                continue
 
-        # Sort descending by file size
         models.sort(key=lambda m: m.size_gb or 0.0, reverse=True)
         return models
+
+    @classmethod
+    def scan_host_models(cls) -> List[LocalModelInfo]:
+        """Alias for scan_disk_gguf_models scanning all discovered host directories."""
+        return cls.scan_disk_gguf_models()
 
     @classmethod
     def probe_engines(cls, timeout: float = 1.0) -> Dict[str, EngineStatus]:
@@ -340,13 +542,17 @@ class LocalModelManager:
         if not model_path or not model_path.is_file():
             return False, f"Model file not found: '{model}'"
 
-        # Auto-tune GPU offload layers (-ngl) for GTX 1650 Ti (4GB VRAM)
+        # Auto-tune GPU offload layers (-ngl) dynamically using host hardware VRAM
         if ngl is None:
+            hw = cls.get_hardware_profile()
+            vram_gb = (hw.vram_total_mb / 1024.0) if hw.vram_total_mb else 4.0
             size_gb = model_path.stat().st_size / (1024 ** 3)
-            if size_gb <= 3.2:
-                ngl = 99  # Full offload for models under 3.2 GB
+            if size_gb <= (vram_gb - 0.8):
+                ngl = 99  # Full offload for models fitting completely in VRAM
+            elif size_gb <= (vram_gb + 2.0):
+                ngl = 28  # Safe partial offload for 7B models
             else:
-                ngl = 28  # Safe partial offload for 7B+ models
+                ngl = 16
 
         cmd = [
             str(server_bin),
@@ -377,6 +583,26 @@ class LocalModelManager:
             return True, f"Launched llama-server process (verifying initialization on port {port})."
         except Exception as e:
             return False, f"Failed to launch llama-server: {e}"
+
+    @classmethod
+    def stop_llama_server(cls) -> Tuple[bool, str]:
+        """Stop running llama-server process across Windows and POSIX systems."""
+        try:
+            if os.name == "nt":
+                res = subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True, text=True)
+                if res.returncode == 0:
+                    return True, "Successfully stopped llama-server process."
+                status = cls.probe_engines().get("llama_cpp")
+                if not status or not status.running:
+                    return False, "No active llama-server.exe process found."
+                return False, f"Could not terminate process: {res.stderr.strip()}"
+            else:
+                res = subprocess.run(["pkill", "-f", "llama-server"], capture_output=True, text=True)
+                if res.returncode == 0:
+                    return True, "Successfully stopped llama-server process."
+                return False, "No running llama-server process found."
+        except Exception as e:
+            return False, f"Failed to stop llama-server: {e}"
 
     @classmethod
     def start_engine(cls, engine: str = "ollama", model: Optional[str] = None) -> Tuple[bool, str]:

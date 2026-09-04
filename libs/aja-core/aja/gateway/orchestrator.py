@@ -683,6 +683,38 @@ class UnifiedGateway:
                 content_stripped = rest.strip()
                 content = content_stripped
 
+        # Handle Local Models & Host Hardware Commands (/local, /models)
+        content_lower = content_stripped.lower()
+        if (
+            content_lower in ("/local", "/models", "/models list", "/local status", "/local models")
+            or (content_lower.startswith(("/local ", "/models ")) and any(cmd in content_lower for cmd in ("start", "stop", "status", "list", "use", "models", "rescan", "refresh")))
+        ):
+            from aja.gateway.telegram_local import build_local_models_card
+            from aja.models.local_manager import LocalModelManager
+
+            if content_lower in ("/local stop", "/models stop"):
+                ok, stop_msg = LocalModelManager.stop_llama_server()
+                card_text, markup = build_local_models_card(chat_id)
+                reply = f"⏹ **llama-server Stopped**: {stop_msg}\n\n" + card_text
+                await self._responder().send_message(chat_id, reply, reply_markup=markup)
+                return
+
+            if content_lower.startswith(("/local start ", "/models start ")):
+                parts = content_stripped.split(maxsplit=2)
+                target_model = parts[2].strip() if len(parts) > 2 else ""
+                ok, start_msg = LocalModelManager.start_llama_server(target_model)
+                if ok:
+                    LocalModelManager.activate_model(f"llama_cpp:{target_model}", role="worker")
+                card_text, markup = build_local_models_card(chat_id)
+                prefix = f"✅ **Started `{target_model}` on CUDA!**\n\n" if ok else f"❌ **Failed to Start**: {start_msg}\n\n"
+                await self._responder().send_message(chat_id, prefix + card_text, reply_markup=markup)
+                return
+
+            # Default /local or /models dashboard
+            card_text, markup = build_local_models_card(chat_id)
+            await self._responder().send_message(chat_id, card_text, reply_markup=markup)
+            return
+
         if is_local_control_command(content):
             local_request = strip_local_control_prefix(content)
             response = await execute_local_control(
