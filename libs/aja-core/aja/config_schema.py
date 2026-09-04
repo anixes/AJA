@@ -48,13 +48,16 @@ class SwarmModels(BaseModel):
     planner: str = "google:gemini-2.0-flash"
     worker: str = "google:gemini-2.0-flash"
     critic: Optional[str] = None
+    vision: Optional[str] = None
 
 class SwarmSettings(BaseModel):
     offline_mode: bool = True
     max_agents: int = Field(default=5, ge=1, le=100)
     check_interval: int = Field(default=30, ge=1)
     models: SwarmModels = Field(default_factory=SwarmModels)
-    operating_mode: str = "offline"
+    active_model: Optional[str] = None
+    vision_model: Optional[str] = None
+    operating_mode: str = "hybrid"
     direct_execution: bool = True
     allow_out_of_bounds_paths: bool = False
     sandbox_mode: Literal["local", "docker"] = "local"
@@ -94,10 +97,20 @@ class SwarmSettings(BaseModel):
     @field_validator("operating_mode")
     @classmethod
     def validate_operating_mode(cls, v: str) -> str:
-        allowed = {"offline", "online", "hybrid"}
-        if v.lower() not in allowed:
-            raise ValueError(f"operating_mode must be one of {allowed}, got '{v}'")
-        return v.lower()
+        v_clean = (v or "").lower().strip()
+        mapping = {
+            "offline": "local",
+            "online": "cloud",
+            "local": "local",
+            "cloud": "cloud",
+            "hybrid": "hybrid",
+            "swarm": "swarm",
+        }
+        if v_clean not in mapping:
+            raise ValueError(
+                f"operating_mode must be one of {set(mapping.keys())}, got '{v}'"
+            )
+        return mapping[v_clean]
 
 class GatewayAuthConfig(BaseModel):
     """Per-platform gateway authorization allowlists.

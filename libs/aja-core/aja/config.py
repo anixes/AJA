@@ -127,11 +127,20 @@ def _get_default_model(key, default):
     return default
 
 
+AJA_OPERATING_MODE = os.getenv(
+    "AJA_OPERATING_MODE", getattr(getattr(CONFIG, "swarm_settings", None), "operating_mode", "hybrid") or "hybrid"
+)
 AJA_PLANNER_MODEL = os.getenv(
     "AJA_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash")
 )
 AJA_WORKER_MODEL = os.getenv(
     "AJA_WORKER_MODEL", _get_default_model("worker", "google:gemini-2.0-flash")
+)
+AJA_ACTIVE_MODEL = os.getenv(
+    "AJA_ACTIVE_MODEL", getattr(getattr(CONFIG, "swarm_settings", None), "active_model", None) or AJA_PLANNER_MODEL
+)
+AJA_VISION_MODEL = os.getenv(
+    "AJA_VISION_MODEL", getattr(getattr(CONFIG, "swarm_settings", None), "vision_model", None) or _get_default_model("vision", None)
 )
 # Critic defaults to the planner model (adversarial separation by system prompt).
 # Override with AJA_CRITIC_MODEL env var or aja.json swarm_settings.models.critic

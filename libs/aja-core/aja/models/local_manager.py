@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from aja.config import DATA_DIR
+from aja.models.model_spec import ModelCapability, infer_capabilities, parse_model_spec
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,7 @@ class LocalModelInfo:
     details: Dict[str, Any] = field(default_factory=dict)
     auto_tuned_ngl: Optional[int] = None
     recommendation: Optional[str] = None
+    capabilities: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -340,6 +342,8 @@ class LocalModelManager:
                     elif "coder" in name_lower or "qwen" in name_lower:
                         rec += " · 💻 Agent CodeAct"
 
+                    caps = [c.value for c in infer_capabilities(entry.name, "llama_cpp")]
+
                     models.append(
                         LocalModelInfo(
                             name=entry.name,
@@ -351,6 +355,7 @@ class LocalModelManager:
                             auto_tuned_ngl=auto_ngl,
                             recommendation=rec,
                             details={"path": res_path, "source": "disk"},
+                            capabilities=caps,
                         )
                     )
             except Exception:
@@ -473,6 +478,7 @@ class LocalModelManager:
                         quantization=quant,
                         modified_at=item.get("modified_at"),
                         details=item,
+                        capabilities=[c.value for c in infer_capabilities(raw_name, "ollama")],
                     )
                 )
 
@@ -489,6 +495,7 @@ class LocalModelManager:
                         engine="llama_cpp (active)",
                         uri=f"llama_cpp:{m_id}",
                         details=item,
+                        capabilities=[c.value for c in infer_capabilities(m_id, "llama_cpp")],
                     )
                 )
 
@@ -504,6 +511,7 @@ class LocalModelManager:
                         engine="lm_studio",
                         uri=f"openai:{m_id}",
                         details=item,
+                        capabilities=[c.value for c in infer_capabilities(m_id, "openai")],
                     )
                 )
 
@@ -515,6 +523,42 @@ class LocalModelManager:
                     discovered.append(dm)
 
         return discovered
+
+    @classmethod
+    def find_mmproj_for_model(cls, model_path: Union[str, Path]) -> Optional[Path]:
+        """Find a matching mmproj projector GGUF file for multimodal vision models."""
+        p = Path(model_path)
+        name_lower = p.name.lower()
+        if not any(k in name_lower for k in ["vl", "vision", "showui", "llava", "multimodal"]):
+            return None
+
+        search_dirs = [p.parent] + cls.discover_model_directories()
+        seen = set()
+        for d in search_dirs:
+            if not d.exists():
+                continue
+            try:
+                resolved = str(d.resolve()).lower()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                for f in d.glob("*mmproj*.gguf"):
+                    f_low = f.name.lower()
+                    if "lfm" in name_lower and "lfm" in f_low:
+                        return f
+                    if "gemma" in name_lower and "gemma" in f_low:
+                        return f
+                    if ("showui" in name_lower or "2b" in name_lower) and "2b" in f_low:
+                        return f
+                    if "qwen" in name_lower and ("qwen" in f_low or "vl" in f_low):
+                        return f
+            except Exception:
+                continue
+
+        # Fallback to any mmproj in the model's parent folder
+        for f in model_path.parent.glob("*mmproj*.gguf"):
+            return f
+        return None
 
     @classmethod
     def start_llama_server(
@@ -565,6 +609,12 @@ class LocalModelManager:
             "-c", str(ctx),
             "--jinja",
         ]
+
+        # Auto-attach matching multimodal vision projector if available
+        mmproj_path = cls.find_mmproj_for_model(model_path)
+        if mmproj_path and mmproj_path.exists():
+            cmd.extend(["--mmproj", str(mmproj_path.resolve())])
+            logger.info("AJA [llama.cpp]: Attached multimodal vision projector '%s'", mmproj_path.name)
 
         try:
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
@@ -641,10 +691,11 @@ class LocalModelManager:
         return False, f"Automated startup for engine '{engine}' is not supported. Start it manually."
 
     @classmethod
-    def activate_model(cls, model_uri: str, role: str = "worker") -> bool:
+    def activate_model(cls, model_uri: str, role: str = "primary", mode: Optional[str] = None) -> bool:
         """
         Persist model selection to aja.json and update runtime configuration.
-        Also sets operating_mode='hybrid' to ensure local inference routes directly.
+        Updates active_model, operating_mode, and vision_model if applicable.
+        Also maintains backward-compatible planner and worker keys.
         If pointing to an offline disk GGUF, launches llama-server automatically.
         """
         try:
@@ -653,9 +704,8 @@ class LocalModelManager:
                 raw_name = model_uri.replace("llama_cpp:", "")
                 server_status = cls.probe_engines().get("llama_cpp")
                 if not server_status or not server_status.running:
-                    # Check if file exists on disk
                     for dm in cls.scan_disk_gguf_models():
-                        if dm.name == raw_name:
+                        if dm.name == raw_name or dm.name.startswith(raw_name):
                             cls.start_llama_server(dm.name)
                             break
 
@@ -673,10 +723,30 @@ class LocalModelManager:
             if "models" not in data["swarm_settings"]:
                 data["swarm_settings"]["models"] = {}
 
-            # Update role model
-            data["swarm_settings"]["models"][role] = model_uri
-            # Ensure operating_mode is hybrid so local model won't be redirected to cloud
-            data["swarm_settings"]["operating_mode"] = "hybrid"
+            spec = parse_model_spec(model_uri)
+
+            # Set unified active model
+            data["swarm_settings"]["active_model"] = model_uri
+            # Backward-compatible role assignment
+            data["swarm_settings"]["models"]["planner"] = model_uri
+            data["swarm_settings"]["models"]["worker"] = model_uri
+            if role in ("planner", "worker"):
+                data["swarm_settings"]["models"][role] = model_uri
+
+            # Set vision model if capability detected
+            if spec.has_vision:
+                data["swarm_settings"]["vision_model"] = model_uri
+                data["swarm_settings"]["models"]["vision"] = model_uri
+
+            # Determine operating mode
+            current_mode = data["swarm_settings"].get("operating_mode", "hybrid")
+            if mode:
+                target_mode = mode
+            elif spec.is_local:
+                target_mode = "hybrid" if current_mode == "hybrid" else "local"
+            else:
+                target_mode = "cloud" if current_mode == "cloud" else "hybrid"
+            data["swarm_settings"]["operating_mode"] = target_mode
 
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             with open(cfg_path, "w", encoding="utf-8") as f:
@@ -684,21 +754,120 @@ class LocalModelManager:
 
             # Update live config
             import aja.config
-            if role == "worker":
-                aja.config.AJA_WORKER_MODEL = model_uri
-            elif role == "planner":
-                aja.config.AJA_PLANNER_MODEL = model_uri
+            aja.config.AJA_ACTIVE_MODEL = model_uri
+            aja.config.AJA_PLANNER_MODEL = model_uri
+            aja.config.AJA_WORKER_MODEL = model_uri
+            if spec.has_vision:
+                aja.config.AJA_VISION_MODEL = model_uri
+            aja.config.AJA_OPERATING_MODE = target_mode
 
+            logger.info(
+                "[LocalModelManager] Activated '%s' (mode=%s, vision=%s)",
+                model_uri, target_mode, spec.has_vision
+            )
             return True
         except Exception as e:
             logger.error("[LocalModelManager] Failed to activate model '%s': %s", model_uri, e)
             return False
 
     @classmethod
-    def get_active_model(cls) -> Dict[str, str]:
-        """Return currently active planner and worker models."""
-        from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL
+    def get_active_model(cls) -> Dict[str, Any]:
+        """Return currently active mode, active model, and vision model."""
+        import aja.config
+        cfg_path = DATA_DIR / "aja.json"
+        data: Dict[str, Any] = {}
+        if cfg_path.exists():
+            try:
+                with open(cfg_path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+
+        swarm = data.get("swarm_settings", {})
+        models = swarm.get("models", {})
+        mode = swarm.get("operating_mode") or getattr(aja.config, "AJA_OPERATING_MODE", "hybrid")
+        active = (
+            swarm.get("active_model")
+            or models.get("planner")
+            or getattr(aja.config, "AJA_ACTIVE_MODEL", "google:gemini-2.0-flash")
+        )
+        vision = (
+            swarm.get("vision_model")
+            or models.get("vision")
+            or getattr(aja.config, "AJA_VISION_MODEL", None)
+        )
+        planner = models.get("planner") or getattr(aja.config, "AJA_PLANNER_MODEL", active)
+        worker = models.get("worker") or getattr(aja.config, "AJA_WORKER_MODEL", active)
+
         return {
-            "planner": AJA_PLANNER_MODEL,
-            "worker": AJA_WORKER_MODEL,
+            "mode": mode,
+            "active_model": active,
+            "vision_model": vision,
+            "planner": planner,
+            "worker": worker,
         }
+
+    @classmethod
+    def get_active_vision_model(cls) -> Optional[str]:
+        """
+        Return the URI of the active vision model.
+        Prioritizes a running local vision engine (port 8080), then configured vision model.
+        """
+        # 1. Check if llama-server is currently running on port 8080
+        endpoint = cls.DEFAULT_ENDPOINTS["llama_cpp"].rstrip("/")
+        llama_data = cls._fetch_json(f"{endpoint}/v1/models", timeout=0.5)
+        if llama_data and "data" in llama_data:
+            for item in llama_data["data"]:
+                m_id = item.get("id", "")
+                spec = parse_model_spec(m_id)
+                if spec.has_vision:
+                    return f"llama_cpp:{m_id}"
+
+        # 2. Check configured vision model in active settings
+        active_info = cls.get_active_model()
+        v_model = active_info.get("vision_model")
+        if v_model:
+            return v_model
+
+        # 3. Check if active model itself has vision
+        active_model = active_info.get("active_model")
+        if active_model:
+            spec = parse_model_spec(active_model)
+            if spec.has_vision:
+                return active_model
+
+        return None
+
+    @classmethod
+    def get_operating_mode(cls) -> str:
+        """Return the current operating mode ('local', 'cloud', 'hybrid', 'swarm')."""
+        return cls.get_active_model().get("mode", "hybrid")
+
+    @classmethod
+    def set_operating_mode(cls, mode: str) -> bool:
+        """Update the operating mode in aja.json and live configuration."""
+        mode_clean = mode.lower().strip()
+        if mode_clean not in ("local", "cloud", "hybrid", "swarm"):
+            return False
+        try:
+            cfg_path = DATA_DIR / "aja.json"
+            data: Dict[str, Any] = {}
+            if cfg_path.exists():
+                try:
+                    with open(cfg_path, encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            if "swarm_settings" not in data:
+                data["swarm_settings"] = {}
+            data["swarm_settings"]["operating_mode"] = mode_clean
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            import aja.config
+            aja.config.AJA_OPERATING_MODE = mode_clean
+            logger.info("[LocalModelManager] Operating mode set to '%s'", mode_clean)
+            return True
+        except Exception as e:
+            logger.error("[LocalModelManager] Failed to set operating mode: %s", e)
+            return False

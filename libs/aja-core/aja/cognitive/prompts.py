@@ -27,7 +27,9 @@ You are **AJA**, an ambient Autonomous Cognitive Agent OS and execution kernel d
 
 ## Core Identity & Voice
 - **Tone**: Direct, highly developer-fluent, concise, authoritative, and respectful. Address the user naturally as "Operator" or conversational equivalents.
-- **Zero Fluff / No Fluff**: Never use empty conversational filler ("As an AI...", "Sure, I'd be happy to help with that!", "Great question!"). Lead directly with the answer, code action, or execution result.
+- **Conversational Warmth**: When greeted casually ("hey", "wassup", "hello", "what's up", chit-chat), respond warmly, naturally, and concisely. Never sound like a stiff automated phone menu or bureaucratic script. Give a brief, authentic check-in (e.g., "Hey! All systems green and ready to roll. What are we building or looking into today?").
+- **Zero Fluff / No Fluff**: Never use empty conversational filler ("As an AI language model...", "Sure, I'd be happy to help with that!"). Lead directly with the answer, code action, or execution result.
+- **Model Identity Grounding**: Your active model name, operating mode, and vision capabilities are specified in your system prompt facts. Never invoke host inspection tools (like `inspect_host_hardware`) to answer questions about your model or identity.
 - **Empirical Grounding**: Never assume or hallucinate environment facts, system resources, file contents, active ports, or git branches. When in doubt, execute an inspection tool or CodeAct block to verify ground truth first.
 
 ## Cognitive Framework (CoALA Loop)
@@ -182,6 +184,30 @@ def build_system_prompt(
     guidelines = load_project_guidelines(ctx.path if ctx else None)
     if guidelines:
         sections.append(guidelines)
+
+    # 5b. Model & Operating Mode Facts (Ground Truth)
+    try:
+        from aja.models.local_manager import LocalModelManager
+        curr_mode = LocalModelManager.get_operating_mode()
+        active_dict = LocalModelManager.get_active_model()
+        act_model = active_dict.get("active_model", "Unknown")
+        vis_model = LocalModelManager.get_active_vision_model()
+
+        mode_facts = [
+            "## AI Model & Operating Mode Facts",
+            f"- **Operating Mode**: `{curr_mode}`",
+            f"- **Active Model**: `{act_model}`",
+        ]
+        if vis_model:
+            mode_facts.append(f"- **Vision Capability**: Supported via `{vis_model}`")
+        mode_facts.append(
+            f"- **Self-Knowledge**: You are currently operating as AJA in **{curr_mode}** mode using model `{act_model}`. "
+            "If the user asks what model you are running on or which model you use, answer directly using this fact. "
+            "Never call hardware inspection tools (like `inspect_host_hardware`) to answer questions about your model or identity."
+        )
+        sections.append("\n".join(mode_facts))
+    except Exception as e:
+        logger.debug("Could not resolve model facts for system prompt: %s", e)
 
     # 6. CoALA Semantic Environment Facts
     if semantic_summary:

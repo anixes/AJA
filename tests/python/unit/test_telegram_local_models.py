@@ -51,7 +51,7 @@ def test_build_local_models_card():
     text, markup = build_local_models_card()
     assert "AJA Host Hardware & Local Models" in text
     assert "Host System" in text
-    assert "Active Agent Roles" in text
+    assert "Operating Mode" in text or "Operating State" in text
 
     if markup:
         for row in markup.inline_keyboard:

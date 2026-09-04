@@ -34,15 +34,41 @@ aja local stop                # Stop running local llama-server
 
 ---
 
-## 3. Configuration
+## 3. Operating Modes & Model-Agnostic Capability Routing
 
-In your `aja.json`:
+AJA has transitioned from rigid "Planner vs Worker" role models to a **Model-Agnostic Capability Router** with 4 Operating Modes:
+
+| Mode | Icon | Description | Network Egress | Typical Hardware / Engine |
+| :--- | :---: | :--- | :---: | :--- |
+| **Local** | 🏠 | 100% on-device inference for all tasks. Cloud calls are redirected to local fallback. | **Zero** | llama.cpp (CUDA GTX 1650 Ti), Ollama |
+| **Cloud** | ☁️ | 100% cloud model inference. Local model calls redirect to cloud fallback. | Enabled | Copilot (GPT-4o), Gemini 2.5 Flash, Claude |
+| **Hybrid** | ⚡ | **Capability-driven auto-router**. Text reasoning uses the active model; multimodal image queries auto-route to the active local vision model (`LFM2.5-VL-1.6B`). | Selective | Mixed (Cloud reasoning + Local CUDA Vision) |
+| **Swarm** | 🐝 | Autonomous background multi-agent missions with dedicated Planner-Worker-Critic sub-agents. | Variable | Configurable per sub-agent |
+
+### Switching Modes
+From Telegram or CLI:
+* `/mode` — Displays the model and capability status card.
+* `/mode local` — Switches operating mode to Local.
+* `/mode cloud` — Switches operating mode to Cloud.
+* `/mode hybrid` — Switches operating mode to Hybrid (auto-router).
+* `/mode swarm` — Switches operating mode to Swarm.
+* `aja local mode <local|cloud|hybrid|swarm>` — Command-line mode switcher.
+
+### Multimodal Vision & mmproj Projector Auto-Discovery
+For local vision models (e.g. `LFM2.5-VL-1.6B-Q4_K_M.gguf`), `llama-server` requires a matching multimodal projector (`--mmproj`).
+AJA automatically scans the model directory for matching projectors (such as `E:\Models\mmproj-LFM2.5-VL-1.6B-F16.gguf`) and auto-attaches `--mmproj <path>` during engine launch.
+
+### Configuration (`aja.json`)
 ```json
 {
-  "operating_mode": "hybrid",
-  "local_backend": "llama_cpp",
-  "models": {
-    "worker": "llama_cpp:qwen2.5-coder-7b-instruct-q3_k_m"
+  "swarm_settings": {
+    "operating_mode": "hybrid",
+    "active_model": "llama_cpp:LFM2.5-VL-1.6B-Q4_K_M.gguf",
+    "vision_model": "llama_cpp:LFM2.5-VL-1.6B-Q4_K_M.gguf",
+    "models": {
+      "planner": "copilot:gpt-4o",
+      "worker": "llama_cpp:qwen2.5-coder-7b-instruct-q3_k_m.gguf"
+    }
   },
   "embeddings": {
     "backend": "llama_cpp",

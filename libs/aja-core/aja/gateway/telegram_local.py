@@ -75,9 +75,22 @@ def build_local_models_card(chat_id: Optional[str] = None) -> Tuple[str, Any]:
     else:
         lines.append("• **Ollama**: ⚪ Offline")
 
-    lines.append("\n**Active Agent Roles**:")
-    lines.append(f"• 🧠 **Planner**: `{active_models.get('planner', 'cloud')}`")
-    lines.append(f"• ⚡ **Worker**: `{active_models.get('worker', 'cloud')}`")
+    mode_emojis = {
+        "local": "🏠",
+        "cloud": "☁️",
+        "hybrid": "⚡",
+        "swarm": "🐝",
+    }
+    mode = str(active_models.get("mode", "hybrid")).lower()
+    act_m = active_models.get("active_model", active_models.get("planner", "cloud"))
+    vis_m = LocalModelManager.get_active_vision_model()
+
+    lines.append("\n**Current Operating State**:")
+    lines.append(f"• **Operating Mode**: {mode_emojis.get(mode, '⚙️')} `{mode.upper()}`")
+    lines.append(f"• **Active Model**: `{act_m}`")
+    if vis_m:
+        v_note = "🟢 llama-server" if llama_running else "ready"
+        lines.append(f"• **Vision Engine**: `{vis_m}` ({v_note})")
 
     # 3. Discovered Local Models
     if not disk_models:
@@ -92,7 +105,7 @@ def build_local_models_card(chat_id: Optional[str] = None) -> Tuple[str, Any]:
         if len(disk_models) > 6:
             lines.append(f"_...and {len(disk_models) - 6} more models._")
 
-    lines.append("\n_Tap an option below to start or switch models on your GPU:_")
+    lines.append("\n_Tap an option below to switch mode or launch models on your GPU:_")
     message_text = "\n".join(lines)
 
     # 4. Construct Telegram InlineKeyboardMarkup
@@ -101,6 +114,13 @@ def build_local_models_card(chat_id: Optional[str] = None) -> Tuple[str, Any]:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         keyboard: List[List[InlineKeyboardButton]] = []
+
+        # Operating Mode switch buttons
+        keyboard.append([
+            InlineKeyboardButton("🏠 Local", callback_data="m:loc"),
+            InlineKeyboardButton("⚡ Hybrid", callback_data="m:hyb"),
+            InlineKeyboardButton("☁️ Cloud", callback_data="m:cld"),
+        ])
 
         # Start buttons for top models (up to 4 to keep mobile UI clean)
         start_row: List[InlineKeyboardButton] = []
@@ -119,12 +139,10 @@ def build_local_models_card(chat_id: Optional[str] = None) -> Tuple[str, Any]:
 
         # Active engine control row (if llama-server is active)
         if llama_running:
-            active_worker = active_models.get("worker", "")
             ctl_row = [
                 InlineKeyboardButton("⏹ Stop llama-server", callback_data="lstp"),
+                InlineKeyboardButton("⚡ Route to Local", callback_data="luse:0"),
             ]
-            if not active_worker.startswith("llama_cpp:"):
-                ctl_row.append(InlineKeyboardButton("⚡ Route to Local", callback_data="luse:0"))
             keyboard.append(ctl_row)
 
         # Refresh & Doctor row
@@ -165,6 +183,20 @@ async def handle_local_model_callback(
 
     disk_models = LocalModelManager.scan_disk_gguf_models()
 
+    # 0. Operating Mode switch callbacks
+    if data.startswith("m:"):
+        mode_map = {
+            "m:loc": "local",
+            "m:hyb": "hybrid",
+            "m:cld": "cloud",
+            "m:swm": "swarm",
+        }
+        target_mode = mode_map.get(data)
+        if target_mode:
+            LocalModelManager.set_operating_mode(target_mode)
+            text, markup = build_local_models_card(chat_id)
+            return True, f"✅ **Operating Mode Changed to `{target_mode.upper()}`**\n\n" + text, markup
+
     # 1. Stop llama-server
     if data in ("lstp", "local_stop"):
         ok, msg = LocalModelManager.stop_llama_server()
@@ -199,14 +231,15 @@ async def handle_local_model_callback(
             ngl=selected_model.auto_tuned_ngl,
         )
         if ok:
-            LocalModelManager.activate_model(f"llama_cpp:{selected_model.name}", role="worker")
+            LocalModelManager.activate_model(f"llama_cpp:{selected_model.name}")
             text, markup = build_local_models_card(chat_id)
+            caps_badge = " | ".join(c.title() for c in selected_model.capabilities) if selected_model.capabilities else "General"
             confirm_banner = (
                 f"✅ **Local Engine Started & Activated!**\n"
                 f"• Model: `{selected_model.name}`\n"
                 f"• Backend: llama.cpp CUDA (port 8080)\n"
                 f"• GPU Layers: `-ngl {selected_model.auto_tuned_ngl or 99}`\n"
-                f"• Role: Active Worker (Hybrid Mode)\n\n"
+                f"• Capabilities: {caps_badge}\n\n"
             )
             return True, confirm_banner + text, markup
         else:
@@ -225,9 +258,9 @@ async def handle_local_model_callback(
             selected_model = next((m for m in disk_models if m.name == target), None)
 
         if selected_model:
-            LocalModelManager.activate_model(f"llama_cpp:{selected_model.name}", role="worker")
+            LocalModelManager.activate_model(f"llama_cpp:{selected_model.name}")
             text, markup = build_local_models_card(chat_id)
-            return True, f"⚡ **Active Worker Set to**: `{selected_model.name}`\n\n" + text, markup
+            return True, f"⚡ **Active Model Set to**: `{selected_model.name}`\n\n" + text, markup
 
     # Default fallback
     text, markup = build_local_models_card(chat_id)

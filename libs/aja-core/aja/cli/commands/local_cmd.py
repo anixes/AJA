@@ -28,14 +28,30 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
         console = default_console
 
     active = LocalModelManager.get_active_model()
-    console.print("\n[bold cyan]═══ Local Model Manager ═══[/]")
-    console.print(f"[dim]Current Worker Model:[/] [bold green]{active['worker']}[/]")
+    mode = str(active.get("mode", "hybrid")).upper()
+    act_m = active.get("active_model", active.get("planner", "cloud"))
+    vis_m = LocalModelManager.get_active_vision_model()
 
-    # Check CLI arguments e.g. `aja local start` or `aja local qwen2.5-coder-7b...`
+    console.print("\n[bold cyan]═══ AJA Model & Capability Manager ═══[/]")
+    console.print(f"[dim]Operating Mode:[/] [bold yellow]{mode}[/]  [dim]Active Model:[/] [bold green]{act_m}[/]")
+    if vis_m:
+        console.print(f"[dim]Vision Engine:[/] [bold magenta]{vis_m}[/]")
+
+    # Check CLI arguments e.g. `aja local start`, `aja local mode hybrid`, etc.
     arg_list = args.strip().split() if args else []
     if arg_list:
         sub = arg_list[0].lower()
-        if sub == "start":
+        if sub == "mode":
+            if len(arg_list) > 1:
+                target_mode = arg_list[1].lower().strip()
+                if LocalModelManager.set_operating_mode(target_mode):
+                    console.print(f"[bold green]✔ Operating mode switched to:[/] [bold yellow]{target_mode.upper()}[/]")
+                else:
+                    console.print(f"[bold red]! Invalid mode '{target_mode}'. Choose from: local, cloud, hybrid, swarm.[/]")
+            else:
+                console.print(f"[bold]Current operating mode:[/] [bold yellow]{mode}[/]")
+            return
+        elif sub == "start":
             eng = arg_list[1] if len(arg_list) > 1 else "llama"
             model_target = arg_list[2] if len(arg_list) > 2 else None
             success, msg = LocalModelManager.start_engine(eng, model=model_target)
@@ -50,14 +66,14 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
         else:
             # Direct model activation e.g. `aja local qwen2.5-coder-7b-instruct-q3_k_m.gguf`
             target = arg_list[0]
-            if not any(target.startswith(p + ":") for p in ("ollama", "llama_cpp", "openai")):
+            if not any(target.startswith(p + ":") for p in ("ollama", "llama_cpp", "openai", "google")):
                 if target.endswith(".gguf"):
                     target = f"llama_cpp:{target}"
                 else:
                     target = f"ollama:{target}"
             console.print(f"[cyan]Activating {target}...[/cyan]")
             LocalModelManager.activate_model(target)
-            console.print(f"[bold green]✔ Active worker model switched to:[/] {target}")
+            console.print(f"[bold green]✔ Active model switched to:[/] {target}")
             return
 
     # Interactive flow
@@ -112,8 +128,8 @@ def cmd_local(args: str = "", console: Optional["Console"] = None) -> None:
             if is_disk:
                 console.print(f"[bold cyan]Starting llama-server with '{selected.name}'...[/bold cyan]")
             LocalModelManager.activate_model(selected.uri)
-            console.print(f"[bold green]✔ Successfully activated:[/] {selected.uri}")
-            console.print(f"[dim]AJA operating_mode set to 'hybrid' (direct local inference).[/]")
+            cur_mode = LocalModelManager.get_operating_mode()
+            console.print(f"[dim]AJA operating_mode set to '{cur_mode}' (capability auto-router).[/]")
     else:
         console.print(
             Panel(

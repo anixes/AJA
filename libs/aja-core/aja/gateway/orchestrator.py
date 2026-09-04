@@ -55,7 +55,7 @@ class UnifiedGateway:
     """
 
     def __init__(self, model_id: Optional[str] = None):
-        self.model_id = model_id or AJA_PLANNER_MODEL
+        self._explicit_model_id = model_id
         self.memory = MemoryTree()
         self._open_gateway_warned = False
 
@@ -85,6 +85,69 @@ class UnifiedGateway:
 
         from aja.gateway.reply_extras import ErrorPolicy
         self.error_policy = ErrorPolicy(policy=os.getenv("AJA_ERROR_POLICY", "once"))
+
+    @property
+    def model_id(self) -> str:
+        if self._explicit_model_id:
+            return self._explicit_model_id
+        from aja.models.local_manager import LocalModelManager
+        active_info = LocalModelManager.get_active_model()
+        return active_info.get("active_model") or AJA_PLANNER_MODEL
+
+    @model_id.setter
+    def model_id(self, val: Optional[str]):
+        self._explicit_model_id = val
+
+    def _build_model_status_card(self) -> str:
+        from aja.models.local_manager import LocalModelManager
+        from aja.models.model_spec import parse_model_spec
+
+        hw = LocalModelManager.get_hardware_profile()
+        active_info = LocalModelManager.get_active_model()
+        mode = active_info.get("mode", "hybrid").lower()
+        act_m = active_info.get("active_model", "Unknown")
+        vis_m = LocalModelManager.get_active_vision_model()
+        engines = LocalModelManager.probe_engines()
+        llama_eng = engines.get("llama_cpp")
+        llama_running = bool(llama_eng and llama_eng.running)
+
+        spec = parse_model_spec(act_m)
+        caps_list = [c.value.title() for c in spec.capabilities] if spec.capabilities else ["General Reasoning"]
+        caps_str = " | ".join(caps_list)
+
+        mode_emojis = {
+            "local": "🏠",
+            "cloud": "☁️",
+            "hybrid": "⚡",
+            "swarm": "🐝",
+        }
+        mode_emoji = mode_emojis.get(mode, "⚙️")
+
+        lines = [
+            "🤖 **AJA Model & Capability Status**\n",
+            f"• **Operating Mode**: {mode_emoji} `{mode.upper()}`",
+            f"• **Active Model**: `{act_m}`",
+            f"• **Capabilities**: {caps_str}",
+        ]
+        if vis_m:
+            v_note = "🟢 Port 8080 (llama-server)" if llama_running else "Configured"
+            lines.append(f"• **Vision Engine**: `{vis_m}` ({v_note})")
+        elif llama_running:
+            lines.append("• **Vision Engine**: 🟢 Port 8080 (llama-server ready)")
+
+        if hw.gpu_name:
+            vram_gb = f"{hw.vram_total_mb / 1024:.1f} GB" if hw.vram_total_mb else "N/A"
+            lines.append(f"• **GPU Acceleration**: {hw.gpu_name} ({vram_gb} VRAM)")
+
+        lines.extend([
+            "\n**Operating Modes**:",
+            "• 🏠 `/mode local`: 100% on-device (CUDA / llama.cpp / Ollama), zero cloud egress",
+            "• ☁️ `/mode cloud`: 100% cloud models (Copilot, Gemini, Claude, OpenAI)",
+            "• ⚡ `/mode hybrid`: Auto-router (Text reasoning + local GPU vision)",
+            "• 🐝 `/mode swarm`: Multi-agent background swarm missions",
+            "\n💡 *Commands:* `/mode <name>`, `/models`, `/status`",
+        ])
+        return "\n".join(lines)
 
     async def initialize(self, semantic_db_path: str = str(DATA_DIR / "memory.lancedb")):
         """Initializes the AJA native Rust semantic store."""
@@ -190,11 +253,20 @@ class UnifiedGateway:
                 analysis["compress_end"],
             )
 
-        # Determine active model from self.model_id or cached config default
-        active_model = self.model_id or AJA_PLANNER_MODEL
-
+        # Determine active model from self.model_id (dynamic property)
+        active_model = self.model_id
 
         if image_url:
+            from aja.models.local_manager import LocalModelManager
+            from aja.models.model_spec import infer_capabilities, ModelCapability
+
+            caps = infer_capabilities(active_model)
+            if ModelCapability.VISION not in caps:
+                vis_model = LocalModelManager.get_active_vision_model()
+                if vis_model:
+                    logger.info("AJA [Vision Router]: Auto-routing vision query from '%s' to '%s'", active_model, vis_model)
+                    active_model = vis_model
+
             sys_prompt = (
                 "You are AJA, an expert multimodal AI assistant. "
                 "Analyze the provided image in detail, extract any text/code, explain diagrams, and directly answer the user's request about the visual content."
@@ -324,6 +396,27 @@ class UnifiedGateway:
         else:
             response_text = response_payload.get("content", "") if isinstance(response_payload, dict) else (response_payload or "")
 
+
+        if not response_text and image_url:
+            from aja.models.local_manager import LocalModelManager
+
+            vis_model = LocalModelManager.get_active_vision_model()
+            if vis_model and vis_model != active_model:
+                logger.info(
+                    "[AJA Chat] Primary model '%s' failed vision; retrying with dedicated vision model '%s'",
+                    active_model,
+                    vis_model,
+                )
+                try:
+                    fallback_reply = await asyncio.to_thread(
+                        completion,
+                        prompt=messages,
+                        system_prompt=sys_prompt,
+                        model=vis_model,
+                    )
+                    response_text = fallback_reply.get("content", "") if isinstance(fallback_reply, dict) else (fallback_reply or "")
+                except Exception as ex:
+                    logger.warning("[AJA Chat] Vision fallback to '%s' failed: %s", vis_model, ex)
 
         if not response_text:
             response_text = (
@@ -702,8 +795,73 @@ class UnifiedGateway:
                 content_stripped = rest.strip()
                 content = content_stripped
 
-        # Handle Local Models & Host Hardware Commands (/local, /models)
         content_lower = content_stripped.lower()
+
+        # Handle Operating Mode & Active Model Commands (/mode, /model)
+        if content_lower == "/mode" or content_lower.startswith("/mode "):
+            parts = content_stripped.split(maxsplit=1)
+            if len(parts) > 1:
+                target_mode = parts[1].strip().lower()
+                from aja.models.local_manager import LocalModelManager
+
+                if LocalModelManager.set_operating_mode(target_mode):
+                    reply = f"✅ **Operating Mode Switched to `{target_mode.upper()}`**\n\n" + self._build_model_status_card()
+                else:
+                    reply = f"❌ Invalid mode `{target_mode}`. Choose from: `local`, `cloud`, `hybrid`, `swarm`."
+            else:
+                reply = self._build_model_status_card()
+            await self._responder().send_message(chat_id, reply)
+            return
+
+        if content_lower in ("/model", "/model status"):
+            reply = self._build_model_status_card()
+            await self._responder().send_message(chat_id, reply)
+            return
+
+        if content_lower.startswith("/model use "):
+            parts = content_stripped.split(maxsplit=2)
+            target_model = parts[2].strip() if len(parts) > 2 else ""
+            from aja.models.local_manager import LocalModelManager
+
+            ok = LocalModelManager.activate_model(target_model)
+            if ok:
+                reply = f"✅ **Active Model Switched to `{target_model}`**\n\n" + self._build_model_status_card()
+            else:
+                reply = f"❌ Failed to activate model `{target_model}`."
+            await self._responder().send_message(chat_id, reply)
+            return
+
+        # Natural Language Interception for Model Identity / Mode questions
+        # Directly answers user without running heavy hardware inspection tools
+        is_model_query = (
+            bool(re.search(r"\b(what|which|current)\s+(model|mode)\s+(are you|is active|are you using|do you use|running)\b", content_lower))
+            or content_lower in (
+                "what model are you running on",
+                "what model are you running on?",
+                "what model are you running",
+                "what model are you running?",
+                "what model are you using",
+                "what model are you using?",
+                "which model are you using",
+                "which model are you using?",
+                "what is your model",
+                "what is your model?",
+                "what model is this",
+                "what model is this?",
+                "what mode are you in",
+                "what mode are you in?",
+                "what is your mode",
+                "what is your mode?",
+                "who are you running on",
+                "who are you running on?",
+            )
+        )
+        if is_model_query:
+            reply = self._build_model_status_card()
+            await self._responder().send_message(chat_id, reply)
+            return
+
+        # Handle Local Models & Host Hardware Commands (/local, /models)
         if (
             content_lower in ("/local", "/models", "/models list", "/local status", "/local models")
             or (content_lower.startswith(("/local ", "/models ")) and any(cmd in content_lower for cmd in ("start", "stop", "status", "list", "use", "models", "rescan", "refresh")))
@@ -723,7 +881,7 @@ class UnifiedGateway:
                 target_model = parts[2].strip() if len(parts) > 2 else ""
                 ok, start_msg = LocalModelManager.start_llama_server(target_model)
                 if ok:
-                    LocalModelManager.activate_model(f"llama_cpp:{target_model}", role="worker")
+                    LocalModelManager.activate_model(f"llama_cpp:{target_model}")
                 card_text, markup = build_local_models_card(chat_id)
                 prefix = f"✅ **Started `{target_model}` on CUDA!**\n\n" if ok else f"❌ **Failed to Start**: {start_msg}\n\n"
                 await self._responder().send_message(chat_id, prefix + card_text, reply_markup=markup)
@@ -1056,6 +1214,7 @@ class UnifiedGateway:
 
     def _get_conversation_core(self):
         """Lazy-init the shared ConversationCore brain for gateway chat turns."""
+        curr_model = self.model_id
         if getattr(self, "_conversation_core", None) is None:
             from aja.core.conversation import ConversationCore
             from aja.llm import get_gateway
@@ -1072,8 +1231,10 @@ class UnifiedGateway:
                 tools_registry=NativeToolRegistry(),
                 executor=ToolExecutor(),
                 recall_fn=_recall,
-                model=self.model_id,
+                model=curr_model,
             )
+        else:
+            self._conversation_core._model = curr_model
         return self._conversation_core
 
     async def _chat_via_core(self, event: MessageEvent, text: str) -> str:

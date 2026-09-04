@@ -99,77 +99,105 @@ def get_gateway():
         _gateway, _ = get_gateway_for_model(model)
     return _gateway
 
-def resolve_provider_model(model_str, operating_mode, local_model_fallback, cloud_model_fallback):
+def resolve_provider_model(
+    model_str,
+    operating_mode,
+    local_model_fallback,
+    cloud_model_fallback,
+    capability: Optional[str] = None,
+):
     """
     Pure model-routing resolution: 'provider:model' parsing + operating-mode
-    override. Returns (provider, model_name).
+    override + capability-based auto-routing. Returns (provider, model_name).
 
     Modes:
-      offline  — cloud providers redirect to the local fallback
-      hybrid   — explicit selections are honored as-is (dual-model: e.g.
-                 planner=cloud + worker=local)
-      online   — local llama_cpp attempts redirect to the cloud fallback
+      local / offline   — cloud providers redirect to the local fallback
+      cloud / online    — local llama_cpp attempts redirect to the cloud fallback
+      hybrid            — capability-driven auto-router:
+                          if capability == 'vision' and active model lacks vision,
+                          dynamically auto-routes to active local/cloud vision engine.
+      swarm             — direct role assignment
     """
     provider = "openrouter"  # Default
-    # Raw json.load config readers pass explicit JSON nulls through as None
-    # (`.get(key, default)` does not fire for null values) — normalize here so
-    # all call sites share the same default instead of crashing on `in None`.
     if not model_str:
         model_str = "google:gemini-2.5-flash"
     model_name = model_str
 
     if ":" in model_str:
         parts = model_str.split(":", 1)
-        provider = parts[0]
-        model_name = parts[1]
+        provider = parts[0].strip().lower()
+        model_name = parts[1].strip()
     else:
         # Smart detection fallback
-        if "gemini" in model_str.lower():
+        low = model_str.lower()
+        if "gemini" in low:
             provider = "google"
-        elif "ollama" in model_str.lower():
+        elif "ollama" in low:
             provider = "ollama"
-        elif "gemma" in model_str.lower() or "llama" in model_str.lower() or "qwen" in model_str.lower() or "mistral" in model_str.lower():
+        elif any(k in low for k in ["gemma", "llama", "qwen", "mistral", "lfm", "showui"]) or low.endswith(".gguf"):
             provider = "llama_cpp"
-        elif "copilot" in model_str.lower():
+        elif "copilot" in low:
             provider = "copilot"
             if model_name.lower() in ("copilot", ""):
                 model_name = "gpt-4o"
 
-    # Apply Operating Mode Override
-    if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
-        logger.info("[LLM] OFFLINE MODE ACTIVE: Redirecting %s:%s -> llama_cpp:%s", provider, model_name, local_model_fallback)
-        provider = "llama_cpp"
-        model_name = local_model_fallback
-    elif operating_mode == "hybrid":
-        # Hybrid: both local and cloud are allowed; explicit selections win.
-        pass
-    elif operating_mode == "online" and provider == "llama_cpp":
-        logger.info("[LLM] ONLINE MODE ACTIVE: Redirecting %s:%s -> google:%s", provider, model_name, cloud_model_fallback)
-        provider = "google"
-        model_name = cloud_model_fallback
+    mode_clean = (operating_mode or "hybrid").lower().strip()
+
+    # 1. Local / Offline Override
+    if mode_clean in ("offline", "local"):
+        if provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+            logger.info("[LLM] LOCAL MODE: Redirecting %s:%s -> llama_cpp:%s", provider, model_name, local_model_fallback)
+            provider = "llama_cpp"
+            model_name = local_model_fallback
+
+    # 2. Cloud / Online Override
+    elif mode_clean in ("online", "cloud"):
+        if provider in ["llama_cpp", "ollama", "lm_studio"]:
+            logger.info("[LLM] CLOUD MODE: Redirecting %s:%s -> google:%s", provider, model_name, cloud_model_fallback)
+            provider = "google"
+            model_name = cloud_model_fallback
+
+    # 3. Hybrid Mode (Capability Auto-Routing)
+    elif mode_clean == "hybrid":
+        if capability == "vision":
+            from aja.models.model_spec import infer_capabilities, ModelCapability
+            caps = infer_capabilities(model_name, provider=provider)
+            if ModelCapability.VISION not in caps:
+                try:
+                    from aja.models.local_manager import LocalModelManager
+                    vis_model = LocalModelManager.get_active_vision_model()
+                    if vis_model:
+                        logger.info("[LLM] HYBRID MODE: Auto-routing vision request to '%s'", vis_model)
+                        if ":" in vis_model:
+                            provider, model_name = vis_model.split(":", 1)
+                            provider = provider.lower().strip()
+                        else:
+                            provider, model_name = "llama_cpp", vis_model
+                except Exception as e:
+                    logger.debug("LocalModelManager vision auto-route skipped: %s", e)
 
     return provider, model_name
 
 
-def get_gateway_for_model(model_str):
+def get_gateway_for_model(model_str, capability: Optional[str] = None):
     """
-    Returns a gateway instance configured for the specific model.
+    Returns a gateway instance configured for the specific model and capability.
     Supports 'provider:model_name' syntax.
     """
     # 1. Check Operating Mode from aja.json
-    operating_mode = "online"
+    operating_mode = "hybrid"
     local_model_fallback = "gemma-4-e2b"
     cloud_model_fallback = "gemini-2.5-flash"
     try:
         config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
         if os.path.exists(config_path):
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
                 swarm_cfg = cfg.get("swarm_settings", {})
                 operating_mode = swarm_cfg.get("operating_mode")
                 if not operating_mode:
                     offline_mode = swarm_cfg.get("offline_mode", False)
-                    operating_mode = "offline" if offline_mode else "online"
+                    operating_mode = "local" if offline_mode else "cloud"
 
                 # Allow overriding the fallback models
                 models_cfg = swarm_cfg.get("models", {})
@@ -196,7 +224,7 @@ def get_gateway_for_model(model_str):
         pass
 
     provider, model_name = resolve_provider_model(
-        model_str, operating_mode, local_model_fallback, cloud_model_fallback
+        model_str, operating_mode, local_model_fallback, cloud_model_fallback, capability=capability
     )
 
     # Get API key from environment
@@ -542,26 +570,34 @@ discover_providers()
 
 # --- Core completion API ---
 
-def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[str]:
+def completion(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[Any]:
     """
     Standard completion interface used across AJA.
-    Enforces operating_mode (online/offline/hybrid) from aja.json.
+    Enforces operating_mode (local/cloud/hybrid/swarm) from aja.json.
+    Auto-detects vision capabilities and routes accordingly.
 
     Returns:
-        str content on success; ``None`` on provider failure/empty output
-        (callers must handle None — no "" coercion happens here).
+        str or dict (when tools requested) on success; ``None`` on failure/empty.
     """
+    # Detect capability requirements
+    capability = None
+    if isinstance(prompt, list):
+        for m in prompt:
+            c = m.get("content")
+            if isinstance(c, list) and any(isinstance(p, dict) and p.get("type") == "image_url" for p in c):
+                capability = "vision"
+                break
+
     if model is None:
         try:
-            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
-            with open(config_path, "r") as f:
-                config = json.load(f)
-                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
+            from aja.models.local_manager import LocalModelManager
+            active_info = LocalModelManager.get_active_model()
+            model = active_info.get("active_model") or "llama_cpp:LFM2.5-VL-1.6B"
         except Exception:
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
-    # Enforce operating mode override (offline/online/hybrid)
-    gw, model_name = get_gateway_for_model(model)
+    # Enforce operating mode override (local/cloud/hybrid) and capability routing
+    gw, model_name = get_gateway_for_model(model, capability=capability)
     provider = gw.provider
 
     # Try dynamic provider registry first
@@ -589,10 +625,14 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
             messages.append({"role": "user", "content": prompt})
 
         try:
-            res = provider_inst.chat_completions(messages)
+            res = provider_inst.chat_completions(messages, tools=tools)
             choices = res.get("choices", [])
             if choices:
-                content = choices[0].get("message", {}).get("content")
+                msg = choices[0].get("message", {})
+                content = msg.get("content")
+                tool_calls = msg.get("tool_calls", [])
+                if tools is not None:
+                    return {"content": content or "", "tool_calls": tool_calls}
                 if not content:
                     logger.warning(
                         "[LLM] Registered provider '%s' returned no content", provider
@@ -605,30 +645,36 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
         except Exception as e:
             logger.error("[LLM] Error using registered provider '%s': %s. Falling back to LLMGateway.", provider, e)
 
-    # Gateway execution path. NOTE: gateway.chat now returns None on failure /
-    # empty content and str on success — the old `or ""` coercion is gone, so
-    # CALLERS MUST HANDLE None instead of assuming a str return.
-    return run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools))
+    gw_res = run_async_synchronously(gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools))
+    if tools is not None and isinstance(gw_res, str):
+        return {"content": gw_res, "tool_calls": []}
+    return gw_res
 
 
-async def completion_async(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[str]:
+async def completion_async(prompt, system_prompt="You are a helpful assistant.", model=None, temperature=None, tools=None) -> Optional[Any]:
     """
     Native async completion interface without OS thread-switching overhead.
 
     Returns:
-        str content on success; ``None`` on provider failure/empty output.
+        str or dict on success; ``None`` on provider failure/empty output.
     """
+    capability = None
+    if isinstance(prompt, list):
+        for m in prompt:
+            c = m.get("content")
+            if isinstance(c, list) and any(isinstance(p, dict) and p.get("type") == "image_url" for p in c):
+                capability = "vision"
+                break
+
     if model is None:
         try:
-            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
-            with open(config_path, "r") as f:
-                config = json.load(f)
-                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
+            from aja.models.local_manager import LocalModelManager
+            active_info = LocalModelManager.get_active_model()
+            model = active_info.get("active_model") or "llama_cpp:LFM2.5-VL-1.6B"
         except Exception:
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
-    gw, model_name = get_gateway_for_model(model)
-    # NOTE: gateway.chat returns None on failure — callers must handle it.
+    gw, model_name = get_gateway_for_model(model, capability=capability)
     return await gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)
 
 
@@ -636,16 +682,23 @@ async def completion_stream(prompt, system_prompt="You are a helpful assistant."
     """
     Stream token chunks directly from the configured LLM gateway.
     """
+    capability = None
+    if isinstance(prompt, list):
+        for m in prompt:
+            c = m.get("content")
+            if isinstance(c, list) and any(isinstance(p, dict) and p.get("type") == "image_url" for p in c):
+                capability = "vision"
+                break
+
     if model is None:
         try:
-            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
-            with open(config_path, "r") as f:
-                config = json.load(f)
-                model = config.get("swarm_settings", {}).get("models", {}).get("planner", "llama_cpp:LFM2.5-VL-1.6B")
+            from aja.models.local_manager import LocalModelManager
+            active_info = LocalModelManager.get_active_model()
+            model = active_info.get("active_model") or "llama_cpp:LFM2.5-VL-1.6B"
         except Exception:
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
-    gw, model_name = get_gateway_for_model(model)
+    gw, model_name = get_gateway_for_model(model, capability=capability)
     async for chunk in gw.chat_stream(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature):
         yield chunk
 
