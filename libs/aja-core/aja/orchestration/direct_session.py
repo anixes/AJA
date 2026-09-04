@@ -254,6 +254,10 @@ class DirectSession:
 
     async def _turn(self, objective: str, console, interactive: bool = True) -> None:
         """Execute one user turn: append to shared history, delegate to execute_direct, mirror to DB."""
+        # Expand Zed-style dynamic context tokens (@file, @symbol, @diff, @diagnostics)
+        from aja.orchestration.context_providers import expand_context_tokens
+        objective = expand_context_tokens(objective)
+
         # Check if the user's input warrants an execution plan before executing
         if interactive:
             try:

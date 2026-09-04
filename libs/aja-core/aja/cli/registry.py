@@ -201,6 +201,11 @@ class CommandRegistry:
 
             cmd_mcp(args[1:])
 
+        elif cmd == "acp":
+            from aja.cli.commands.acp_cmd import cmd_acp
+
+            cmd_acp(args[1:])
+
         elif cmd == "local":
             from aja.cli.commands.local_cmd import cmd_local
 

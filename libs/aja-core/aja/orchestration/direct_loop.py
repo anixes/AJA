@@ -105,6 +105,10 @@ async def run_direct_loop(
     history_compressor: Optional[Callable[..., None]] = None,
     result_truncator: Optional[Callable[[str], str]] = None,
     trace_id_fn: Optional[Callable[[], str]] = None,
+    verification_cmd: Optional[str] = None,
+    auto_verify: bool = False,
+    max_verification_retries: int = 3,
+    verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run the single-agent tool-calling loop to completion.
 
@@ -142,6 +146,7 @@ async def run_direct_loop(
         ]
 
     iteration = 0
+    verification_attempts = 0
     while iteration < max_turns:
         iteration += 1
 
@@ -233,6 +238,79 @@ async def run_direct_loop(
         commands = _extract_bash_commands(content)
 
         if not commands and not tools_executed:
+            # Autonomous Verification Gate (OpenCode 2 style self-healing loop)
+            needs_verification = bool(verification_cmd or auto_verify or verification_fn)
+            if needs_verification and verification_attempts < max_verification_retries:
+                verification_attempts += 1
+                if console:
+                    console.print(
+                        f"[bold cyan]🔍 [Verification Gate] Running verification (attempt {verification_attempts}/{max_verification_retries})...[/]"
+                    )
+
+                passed = True
+                failure_prompt = ""
+
+                # 1. Custom verification function
+                if verification_fn:
+                    try:
+                        import asyncio
+                        res = await verification_fn() if asyncio.iscoroutinefunction(verification_fn) else verification_fn()
+                        if isinstance(res, dict) and not res.get("passed", True):
+                            passed = False
+                            failure_prompt = res.get("message") or res.get("error") or str(res)
+                        elif hasattr(res, "passed") and not res.passed:
+                            passed = False
+                            failure_prompt = getattr(res, "to_feedback_prompt", lambda: str(res))()
+                    except Exception as e:
+                        passed = False
+                        failure_prompt = f"Verification function error: {e}"
+
+                # 2. Command verifier
+                if passed and verification_cmd:
+                    from aja.orchestration.verification_runner import run_command_verifier
+
+                    c_res = await run_command_verifier(verification_cmd)
+                    if not c_res.passed:
+                        passed = False
+                        failure_prompt = c_res.to_feedback_prompt()
+
+                # 3. Auto-verify syntax on Python files if enabled
+                if passed and auto_verify:
+                    from aja.orchestration.verification_runner import verify_python_syntax
+                    from pathlib import Path
+
+                    py_files = [
+                        p for p in Path(".").glob("**/*.py")
+                        if "venv" not in p.parts and ".git" not in p.parts
+                    ][:50]
+                    s_res = verify_python_syntax(py_files)
+                    if not s_res.passed:
+                        passed = False
+                        failure_prompt = s_res.to_feedback_prompt()
+
+                if not passed:
+                    if console:
+                        console.print(
+                            f"[bold red]✘ [Verification Gate Failed][/bold red] Injecting failure feedback for self-correction..."
+                        )
+                    feedback_msg = (
+                        f"{failure_prompt}\n\n"
+                        f"[Autonomous Self-Healing: Attempt {verification_attempts} of {max_verification_retries}. "
+                        "The task cannot be completed until verification passes. Please correct the code.]"
+                    )
+                    history.append({"role": "user", "content": feedback_msg})
+                    continue  # Loop again to allow the model to fix the error!
+                else:
+                    if console:
+                        console.print(f"[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
+
+            elif needs_verification and verification_attempts >= max_verification_retries:
+                if console:
+                    console.print(
+                        f"[bold yellow]⚠ [Verification Gate] Maximum verification retries ({max_verification_retries}) exhausted.[/bold yellow]"
+                    )
+                return {"status": "incomplete", "reason": "verification_failed", "turns": iteration}
+
             # No further actions suggested: direct execution has finished.
             if console:
                 console.print(f"\n[bold green][+] Direct In-Process task completed successfully.[/bold green]")
@@ -256,8 +334,8 @@ async def run_direct_loop(
                 )
                 if hooks.on_synthesis:
                     hooks.on_synthesis(structured)
-                return {"status": "completed", "turns": iteration, "result": structured}
-            return {"status": "completed", "turns": iteration}
+                return {"status": "completed", "turns": iteration, "result": structured, "verified": needs_verification}
+            return {"status": "completed", "turns": iteration, "verified": needs_verification}
 
         for cmd in commands:
             if presenter:
