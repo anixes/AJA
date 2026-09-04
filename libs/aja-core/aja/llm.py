@@ -137,14 +137,14 @@ def resolve_provider_model(model_str, operating_mode, local_model_fallback, clou
 
     # Apply Operating Mode Override
     if operating_mode == "offline" and provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
-        print(f"[LLM] OFFLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> llama_cpp:{local_model_fallback}")
+        logger.info("[LLM] OFFLINE MODE ACTIVE: Redirecting %s:%s -> llama_cpp:%s", provider, model_name, local_model_fallback)
         provider = "llama_cpp"
         model_name = local_model_fallback
     elif operating_mode == "hybrid":
         # Hybrid: both local and cloud are allowed; explicit selections win.
         pass
     elif operating_mode == "online" and provider == "llama_cpp":
-        print(f"[LLM] ONLINE MODE ACTIVE: Redirecting {provider}:{model_name} -> google:{cloud_model_fallback}")
+        logger.info("[LLM] ONLINE MODE ACTIVE: Redirecting %s:%s -> google:%s", provider, model_name, cloud_model_fallback)
         provider = "google"
         model_name = cloud_model_fallback
 
@@ -425,7 +425,7 @@ class CopilotModelProvider(BaseModelProvider):
                 api_token = raw_token
                 
         if not raw_token or not api_token:
-            print("\n[Copilot] No valid GitHub token found (or token lacks Copilot scopes). Initiating device code login...")
+            logger.info("[Copilot] No valid GitHub token found (or token lacks Copilot scopes). Initiating device code login...")
             raw_token = copilot_device_code_login()
             if not raw_token:
                 raise ValueError("Copilot authentication failed. Please provide a valid GitHub token.")
@@ -533,7 +533,7 @@ def discover_providers():
                 provider_cls = ep.load()
                 provider_registry.register(ep.name, provider_cls)
             except Exception as e:
-                print(f"[LLM] Failed to load dynamic provider {ep.name}: {e}")
+                logger.warning("[LLM] Failed to load dynamic provider %s: %s", ep.name, e)
     except Exception:
         pass
 
@@ -603,7 +603,7 @@ def completion(prompt, system_prompt="You are a helpful assistant.", model=None,
             )
             return None
         except Exception as e:
-            print(f"[LLM] Error using registered provider '{provider}': {e}. Falling back to LLMGateway.")
+            logger.error("[LLM] Error using registered provider '%s': %s. Falling back to LLMGateway.", provider, e)
 
     # Gateway execution path. NOTE: gateway.chat now returns None on failure /
     # empty content and str on success — the old `or ""` coercion is gone, so

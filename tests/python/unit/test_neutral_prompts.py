@@ -17,6 +17,11 @@ def presenter():
 
 def test_default_is_persona(presenter, monkeypatch):
     monkeypatch.delenv("AJA_NEUTRAL_PROMPTS", raising=False)
+    fake_cfg = type("C", (), {})()
+    fake_cfg.swarm_settings = type("S", (), {"neutral_prompts": False})()
+    import aja.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CONFIG", fake_cfg, raising=False)
     from aja.gateway.presenter import AJAPresenter
 
     p = AJAPresenter()

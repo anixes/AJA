@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -136,6 +137,50 @@ async def _safe_set_reaction(bot: Any, chat_id: str, message_id: Any, emoji: str
         return False
 
 
+@asynccontextmanager
+async def continuous_chat_action(
+    bot: Any,
+    chat_id: Any,
+    action: str = "typing",
+    interval: float = 4.0,
+):
+    """Periodically sends chat actions (e.g. typing) to Telegram until exited.
+
+    Telegram chat actions expire automatically after ~5 seconds. This context manager
+    keeps the typing status alive in the background so the user always sees that
+    the model is generating or executing tools.
+    """
+    if bot is None or not chat_id:
+        yield
+        return
+
+    stop_event = asyncio.Event()
+
+    async def _pulse():
+        while not stop_event.is_set():
+            try:
+                action_sender = getattr(bot, "send_chat_action", None)
+                if action_sender:
+                    await action_sender(chat_id=chat_id, action=action)
+            except Exception as e:
+                logger.debug("ChatAction pulse failed (cosmetic): %s", e)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+
+    task = asyncio.create_task(_pulse())
+    try:
+        yield
+    finally:
+        stop_event.set()
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 def split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[str]:
     """Split text into Telegram-sized chunks on newline/space boundaries."""
     text = text or ""
@@ -205,6 +250,10 @@ class TelegramAdapter(BasePlatformAdapter):
             )
         )
 
+    @property
+    def bot(self) -> Optional[Bot]:
+        return self._bot
+
     async def start(self, gateway):
         self.gateway = gateway
         if not TELEGRAM_AVAILABLE:
@@ -225,7 +274,15 @@ class TelegramAdapter(BasePlatformAdapter):
         self._app.add_handler(CommandHandler("app", self._handle_app))
         self._app.add_handler(
             MessageHandler(
-                filters.TEXT | filters.PHOTO, self._handle_message
+                filters.TEXT
+                | filters.PHOTO
+                | filters.VOICE
+                | filters.AUDIO
+                | filters.Document.ALL
+                | filters.Sticker.ALL
+                | filters.LOCATION
+                | filters.CONTACT,
+                self._handle_message,
             )
         )
         self._app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -375,6 +432,146 @@ class TelegramAdapter(BasePlatformAdapter):
                         text_content = "What can you see in this image? Please analyze and describe it in detail."
                 except Exception as e:
                     logger.error(f"Failed to download photo from Telegram: {e}")
+
+        # Document / File Attachment (Code, Text, Configs, Logs, or Uncompressed Images)
+        doc = getattr(update.message, "document", None)
+        if doc:
+            doc_file_name = getattr(doc, "file_name", None) or f"doc_{update.message.message_id}"
+            file_size = getattr(doc, "file_size", None) or 0
+            if file_size > TELEGRAM_MAX_FILE_BYTES:
+                logger.warning(
+                    "Skipping Telegram document download: %s bytes exceeds 20 MiB cap.",
+                    file_size,
+                )
+                try:
+                    await self.send_message(
+                        str(update.message.chat_id),
+                        f"⚠️ Document '{doc_file_name}' skipped: file size "
+                        f"({file_size / (1024 * 1024):.1f} MB > 20 MB limit).",
+                    )
+                except Exception as notify_err:
+                    logger.error("Failed to deliver oversized-document notice: %s", notify_err)
+            else:
+                try:
+                    tg_file = await context.bot.get_file(doc.file_id)
+                    byte_array = await tg_file.download_as_bytearray()
+                    doc_mime = getattr(doc, "mime_type", "") or ""
+
+                    # Check if uncompressed image sent as document
+                    is_image = doc_mime.startswith("image/") or any(
+                        doc_file_name.lower().endswith(ext)
+                        for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+                    )
+                    if is_image:
+                        msg_type = MessageType.PHOTO
+                        import base64
+                        b64_data = base64.b64encode(byte_array).decode("utf-8")
+                        data_url = f"data:{doc_mime or 'image/jpeg'};base64,{b64_data}"
+                        media_urls.append(data_url)
+                        if not text_content:
+                            text_content = f"What can you see in this image ({doc_file_name})? Please analyze and describe it in detail."
+                    else:
+                        msg_type = MessageType.DOCUMENT
+                        from aja.config import DATA_DIR
+                        uploads_dir = DATA_DIR / "uploads"
+                        uploads_dir.mkdir(parents=True, exist_ok=True)
+                        safe_name = re.sub(r'[^\w\-_\.]', '_', doc_file_name)
+                        save_path = uploads_dir / safe_name
+                        save_path.write_bytes(byte_array)
+
+                        # Try to decode as text/code
+                        is_text = False
+                        decoded_text = ""
+                        try:
+                            decoded_text = byte_array.decode("utf-8")
+                            is_text = True
+                        except UnicodeDecodeError:
+                            try:
+                                decoded_text = byte_array.decode("latin-1")
+                                is_text = True
+                            except Exception:
+                                is_text = False
+
+                        ext = safe_name.split(".")[-1] if "." in safe_name else ""
+                        if is_text:
+                            if len(decoded_text) <= 50000:
+                                doc_block = f"[Attached Document: {safe_name} (saved to `{save_path}`)]\n```{ext}\n{decoded_text}\n```"
+                            else:
+                                doc_block = (
+                                    f"[Attached Document: {safe_name} (saved to `{save_path}`, {len(decoded_text)} chars)]\n"
+                                    f"```{ext}\n{decoded_text[:20000]}\n... [truncated: full file at {save_path}]\n```"
+                                )
+                        else:
+                            doc_block = f"[Attached Document: {safe_name} (saved to `{save_path}`, {file_size} bytes)]"
+
+                        if text_content:
+                            text_content = f"{doc_block}\n\nUser Instruction: {text_content}"
+                        else:
+                            text_content = f"{doc_block}\n\nPlease inspect and analyze this attached file: `{safe_name}`."
+                except Exception as e:
+                    logger.error(f"Failed to download document from Telegram: {e}")
+
+        # Voice Note & Audio Clip
+        voice = getattr(update.message, "voice", None)
+        audio = getattr(update.message, "audio", None)
+        if voice or audio:
+            audio_obj = voice or audio
+            msg_type = MessageType.AUDIO
+            file_size = getattr(audio_obj, "file_size", None) or 0
+            duration = getattr(audio_obj, "duration", 0) or 0
+            audio_file_name = getattr(audio_obj, "file_name", None) or ("voice.ogg" if voice else "audio.mp3")
+
+            if file_size > TELEGRAM_MAX_FILE_BYTES:
+                logger.warning("Skipping Telegram audio download: %s bytes exceeds 20 MiB cap.", file_size)
+            else:
+                try:
+                    tg_file = await context.bot.get_file(audio_obj.file_id)
+                    byte_array = await tg_file.download_as_bytearray()
+                    from aja.config import DATA_DIR
+                    audio_dir = DATA_DIR / "audio"
+                    audio_dir.mkdir(parents=True, exist_ok=True)
+                    safe_audio_name = f"voice_{update.message.message_id}.ogg" if voice else re.sub(r'[^\w\-_\.]', '_', audio_file_name)
+                    save_path = audio_dir / safe_audio_name
+                    save_path.write_bytes(byte_array)
+
+                    # Speech-to-Text Transcription via Gemini / Whisper
+                    from aja.gateway.audio_transcriber import transcribe_telegram_audio
+                    audio_mime = getattr(audio_obj, "mime_type", "") or ("audio/ogg" if voice else "audio/mpeg")
+                    transcript = await transcribe_telegram_audio(
+                        bytes(byte_array), mime_type=audio_mime, filename=safe_audio_name
+                    )
+
+                    if transcript:
+                        audio_header = f"🎙️ [Voice Note Transcript ({duration}s)]:\n\"{transcript}\""
+                    else:
+                        audio_header = (
+                            f"🎙️ [Voice note received: {duration}s]\n"
+                            f"*(Audio saved locally at `{save_path}`. To enable automatic speech-to-text, "
+                            f"set `GOOGLE_API_KEY` or `OPENAI_API_KEY` in your `.env` file.)*"
+                        )
+
+                    if text_content:
+                        text_content = f"{audio_header}\n\nCaption: {text_content}"
+                    else:
+                        text_content = audio_header
+                except Exception as e:
+                    logger.error(f"Failed to process Telegram audio/voice: {e}")
+
+        # Sticker
+        sticker = getattr(update.message, "sticker", None)
+        if sticker:
+            emoji = getattr(sticker, "emoji", "") or "sticker"
+            text_content = f"[Sticker: {emoji}]"
+
+        # Location
+        location = getattr(update.message, "location", None)
+        if location:
+            text_content = f"[Location: latitude={location.latitude}, longitude={location.longitude}]"
+
+        # Contact
+        contact = getattr(update.message, "contact", None)
+        if contact:
+            text_content = f"[Contact: {contact.first_name} {getattr(contact, 'last_name', '')} {contact.phone_number}]"
 
         if not text_content and not media_urls:
             return

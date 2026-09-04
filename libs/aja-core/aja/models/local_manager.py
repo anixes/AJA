@@ -8,6 +8,7 @@ Includes native scanning of local GGUF model directories and automated CUDA llam
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from aja.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -688,7 +691,7 @@ class LocalModelManager:
 
             return True
         except Exception as e:
-            print(f"[LocalModelManager] Failed to activate model '{model_uri}': {e}")
+            logger.error("[LocalModelManager] Failed to activate model '%s': %s", model_uri, e)
             return False
 
     @classmethod

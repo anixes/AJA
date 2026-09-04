@@ -183,7 +183,7 @@ class IntentEngine:
         # Repeated actions
         if len(self.recent_actions) >= 5:
             if len(set(self.recent_actions[-5:])) == 1:
-                print("[IntentEngine] Repeated actions detected. Stopping loop.")
+                logger.warning("[IntentEngine] Repeated actions detected. Stopping loop.")
                 self.autonomy_enabled = False
 
     async def loop(self):
@@ -204,7 +204,7 @@ class IntentEngine:
                     break
 
                 if time.time() - cycle_start > self.MAX_AUTONOMOUS_TIME:
-                    print("[IntentEngine] Autonomous budget exceeded.")
+                    logger.warning("[IntentEngine] Autonomous budget exceeded.")
                     break
 
                 # Part K - Cooldown System
@@ -219,8 +219,8 @@ class IntentEngine:
                     await asyncio.to_thread(self.execute, intent)
                     actions_taken += 1
                 else:
-                    print(
-                        f"[IntentEngine] Intent unsafe, escalating: {intent.objective}"
+                    logger.info(
+                        "[IntentEngine] Intent unsafe, escalating: %s", intent.objective
                     )
                     from aja.scheduler.telegram import _send_telegram_report
 

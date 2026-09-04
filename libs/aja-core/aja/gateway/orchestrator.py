@@ -521,52 +521,71 @@ class UnifiedGateway:
             return
 
         status_bubble = None
+        responder = self._responder()
+        bot = (
+            getattr(responder, "_bot", None)
+            or getattr(responder, "bot", None)
+            or getattr(getattr(responder, "target_adapter", None), "bot", None)
+            or getattr(getattr(responder, "target_adapter", None), "_bot", None)
+        )
         try:
             from aja.gateway.tg_client import StatusBubble
 
-            responder = self._responder()
-            bot = getattr(responder, "bot", None) or getattr(
-                getattr(responder, "target_adapter", None), "bot", None
-            )
             if bot is not None and event.platform == "telegram":
                 status_bubble = StatusBubble(bot, chat_id)
                 await status_bubble.start()
         except Exception:
             logger.debug("status bubble unavailable; continuing without it")
 
-        try:
-            await self._process_gateway_event(event, chat_id, correlation_id, status_bubble)
-        except Exception as exc:
-            logger.exception(
-                "telegram_event_error",
-                extra={
-                    "correlation_id": correlation_id,
-                    "chat_id": str(chat_id),
-                    "user_id": str(event.user_id),
-                    "error": str(exc),
-                },
-            )
-            from aja.gateway.reply_extras import format_error_reply
+        import contextlib
+        chat_action_cm = contextlib.nullcontext()
+        if bot is not None and event.platform == "telegram":
+            try:
+                from aja.gateway.tg_client import continuous_chat_action
+                chat_action_cm = continuous_chat_action(bot, chat_id, action="typing")
+            except Exception:
+                chat_action_cm = contextlib.nullcontext()
 
-            err_reply = format_error_reply(exc, context="AJA Gateway")
-            if getattr(self, "error_policy", None) is None or self.error_policy.should_send(err_reply):
-                sent_via_bubble = False
-                if status_bubble is not None:
+        async with chat_action_cm:
+            try:
+                await self._process_gateway_event(event, chat_id, correlation_id, status_bubble)
+            except Exception as exc:
+                if bot is not None and event.platform == "telegram" and event.message_id:
                     try:
-                        sent_via_bubble = await status_bubble.finalize(err_reply)
+                        from aja.gateway.tg_client import _safe_set_reaction, ERROR_REACTION_EMOJI
+                        await _safe_set_reaction(bot, str(chat_id), event.message_id, ERROR_REACTION_EMOJI)
                     except Exception:
                         pass
-                if not sent_via_bubble:
-                    kwargs = {}
-                    if event.platform == "telegram" and event.message_id:
+                logger.exception(
+                    "telegram_event_error",
+                    extra={
+                        "correlation_id": correlation_id,
+                        "chat_id": str(chat_id),
+                        "user_id": str(event.user_id),
+                        "error": str(exc),
+                    },
+                )
+                from aja.gateway.reply_extras import format_error_reply
+
+                err_reply = format_error_reply(exc, context="AJA Gateway")
+                if getattr(self, "error_policy", None) is None or self.error_policy.should_send(err_reply):
+                    sent_via_bubble = False
+                    if status_bubble is not None:
                         try:
-                            kwargs["reply_to_message_id"] = int(event.message_id)
-                        except (TypeError, ValueError):
+                            sent_via_bubble = await status_bubble.finalize(err_reply)
+                        except Exception:
                             pass
-                    try:
-                        await self._responder().send_message(chat_id, err_reply, **kwargs)
-                    except Exception as send_err:
-                        logger.error("Failed to deliver error response: %s", send_err)
+                    if not sent_via_bubble:
+                        kwargs = {}
+                        if event.platform == "telegram" and event.message_id:
+                            try:
+                                kwargs["reply_to_message_id"] = int(event.message_id)
+                            except (TypeError, ValueError):
+                                pass
+                        try:
+                            await self._responder().send_message(chat_id, err_reply, **kwargs)
+                        except Exception as send_err:
+                            logger.error("Failed to deliver error response: %s", send_err)
 
     async def _process_gateway_event(
         self,
@@ -751,7 +770,6 @@ class UnifiedGateway:
             exec_cmd = content_stripped[6:].strip()
             from aja.security.command_guard import classify_command
             from aja.security.pending_commands import get_pending_command_store
-            from aja.utils.redact import redact_secrets
 
             classification = classify_command(exec_cmd)
             store = get_pending_command_store()
@@ -998,6 +1016,23 @@ class UnifiedGateway:
                 except (TypeError, ValueError):
                     pass
             await self._responder().send_message(chat_id, response, **kwargs)
+        else:
+            # When delivered via status bubble edit, swap user reaction to ✅ / 👍
+            if event.platform == "telegram" and event.message_id and status_bubble and getattr(status_bubble, "_bot", None):
+                try:
+                    from aja.gateway.tg_client import (
+                        _safe_set_reaction,
+                        DONE_REACTION_EMOJI,
+                        DONE_REACTION_FALLBACK_EMOJI,
+                    )
+                    if not await _safe_set_reaction(
+                        status_bubble._bot, str(chat_id), event.message_id, DONE_REACTION_EMOJI
+                    ):
+                        await _safe_set_reaction(
+                            status_bubble._bot, str(chat_id), event.message_id, DONE_REACTION_FALLBACK_EMOJI
+                        )
+                except Exception:
+                    pass
         logger.info(
             "telegram_event_replied",
             extra={

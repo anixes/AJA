@@ -3,7 +3,7 @@
 **Your always-on personal AI assistant — on your phone, your machines, and a $0 VPS.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 911 passing](https://img.shields.io/badge/Tests-911_passing-brightgreen.svg)]
+[![Tests: 960 passing](https://img.shields.io/badge/Tests-960_passing-brightgreen.svg)]
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg)]
 [![Docker](https://img.shields.io/badge/Docker-ARM64%20%7C%20x64-2496ED.svg)]
 [![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-26A5E4.svg)]
@@ -40,13 +40,14 @@ git clone https://github.com/anixes/AJA.git && cd AJA && bash scripts/quickstart
 ## What It Does
 
 - 🌅 **Morning briefing on your phone** — overdue tasks, today's calendar, pending reminders, and priority focus in one structured message at 7:00 AM. → [Example 02](examples/02-daily-briefing.md)
+- 💬 **Interactive Telegram Assistant** — continuous in-app typing pulse, instant read receipts (`👀` $\to$ `✅`), audio voice note transcription (Gemini / Whisper), document/code ingestion, and 1-tap local GPU GGUF management (`/local`). → [Telegram guide](docs/clients/TELEGRAM.md)
 - 🔎 **Web research with citations** — "find the current stable Python version" → AJA searches, reads pages, and answers with sources. → [Example 01](examples/01-web-research.md)
 - ⏰ **Reminders you say naturally** — "remind me to call the bank tomorrow at 9am." That's it. → [Example 03](examples/03-natural-reminders.md)
 - 📅 **Calendar-aware scheduling** — connect Google Calendar once; briefings respect your actual day. → [Setup guide](docs/operator/CALENDAR.md)
 - 💻 **Code & sysadmin work on your repos** — coverage audits, dependency checks, server triage — executed safely under a command-security guard. → [Example 04](examples/04-code-analysis.md)
 - ☁️ **Runs 24/7 on a free VPS** — scheduled monitoring pushes reports to Telegram; deploys via Docker to any ARM64/x64 host with zero inbound ports. → [Example 06](examples/06-scheduled-monitoring.md) · [VPS runbook](docs/operator/VPS.md)
 
-Every capability is backed by a working walkthrough in [examples/](examples/README.md) and an automated test suite (**911 tests**).
+Every capability is backed by a working walkthrough in [examples/](examples/README.md) and an automated test suite (**960 tests**).
 
 ---
 

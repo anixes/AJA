@@ -70,27 +70,29 @@ class DaemonManager:
             creationflags = 0
 
         log_handle = open(self.log_file, "a", encoding="utf-8")
+        try:
+            # Spawn gateway and worker as child processes
+            gateway_proc = subprocess.Popen(
+                [PYTHON, "-u", "-m", "aja.gateway.server"],
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                creationflags=creationflags,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=log_handle,
+            )
 
-        # Spawn gateway and worker as child processes
-        gateway_proc = subprocess.Popen(
-            [PYTHON, "-u", "-m", "aja.gateway.server"],
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            creationflags=creationflags,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=log_handle,
-        )
-
-        worker_proc = subprocess.Popen(
-            [PYTHON, "-u", "-m", "aja.runtime.autonomous_loop"],
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            creationflags=creationflags,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=log_handle,
-        )
+            worker_proc = subprocess.Popen(
+                [PYTHON, "-u", "-m", "aja.runtime.autonomous_loop"],
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                creationflags=creationflags,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=log_handle,
+            )
+        finally:
+            log_handle.close()
 
         meta = {
             "pid": gateway_proc.pid,

@@ -227,8 +227,8 @@ class DiscordEnvelopeAdapter(BasePlatformAdapter):
                 logger.error("[DiscordEnvelope] Button callback failed: %s", e)
                 try:
                     await interaction.response.defer()
-                except Exception:
-                    pass
+                except Exception as defer_err:
+                    logger.debug("[DiscordEnvelope] Error deferring interaction response: %s", defer_err)
 
         return _cb
 

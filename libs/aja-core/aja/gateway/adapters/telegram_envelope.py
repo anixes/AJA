@@ -114,7 +114,17 @@ class TelegramEnvelopeAdapter(BasePlatformAdapter):
         self._app = Application.builder().token(self.token).build()
         self._bot = self._app.bot
         self._app.add_handler(
-            PTBMessageHandler(filters.TEXT | filters.PHOTO, self._handle_update)
+            PTBMessageHandler(
+                filters.TEXT
+                | filters.PHOTO
+                | filters.VOICE
+                | filters.AUDIO
+                | filters.Document.ALL
+                | filters.Sticker.ALL
+                | filters.LOCATION
+                | filters.CONTACT,
+                self._handle_update,
+            )
         )
         self._app.add_handler(CallbackQueryHandler(self._handle_update))
         for attempt in range(5):

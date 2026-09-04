@@ -8,7 +8,8 @@ Clients are external consumers of the `RuntimeTaskStore` and `RuntimeEventSink`.
 Currently implemented clients:
 - **CLI (`aja main`)**: Direct terminal interface for queuing tasks.
 - **TUI (`curses_tui.py`)**: A rich Curses dashboard for visualizing the HTN plan tree and tailing logs.
-- **Telegram (`telegram.py`)**: A chat bridge adapter.
+- **Telegram Gateway Adapter**: A multimodal mobile client with continuous typing status, reactions, audio transcription, document ingestion, and GPU remote control. See [TELEGRAM.md](file:///d:/AgenticAI/Project1(no-name)/docs/clients/TELEGRAM.md).
+- **Zed IDE / Agent Client Protocol**: JSON-RPC stdio protocol server for Zed and JetBrains IDEs. See [ZED_ACP.md](file:///d:/AgenticAI/Project1(no-name)/docs/clients/ZED_ACP.md).
 
 ## 2. The Dependency Rule
 **The Runtime must never import Client code.**

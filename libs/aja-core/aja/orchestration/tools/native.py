@@ -54,6 +54,13 @@ def desanitize_tool_name(name: str) -> str:
     return _SAFE_TO_ORIGINAL.get(name, name)
 
 
+DEFAULT_EXCLUDE_PARTS = {
+    ".git", ".venv", "venv", "node_modules", "__pycache__",
+    ".pytest_cache", ".ruff_cache", "target", "dist", "build",
+    ".mypy_cache", ".cargo",
+}
+
+
 class ToolSignatureError(TypeError):
     """Raised when tool-call arguments do not match the tool's signature.
 
@@ -840,8 +847,8 @@ class NativeToolRegistry:
             from aja.api.mcp_client import get_default_mcp_manager
             for schema in get_default_mcp_manager().get_registry_schemas():
                 self.register_external_schema(schema)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("External MCP schemas unavailable: %s", exc)
         all_schemas = schemas + list(self._external_schemas.values())
         return [self._sanitize_schema(t) for t in all_schemas]
 
@@ -990,7 +997,11 @@ class NativeToolRegistry:
                 search_file(p)
             else:
                 for f in p.rglob("*"):
-                    if f.is_file() and not f.is_symlink() and not any(part.startswith('.') for part in f.parts):
+                    if (
+                        f.is_file()
+                        and not f.is_symlink()
+                        and not any(part.startswith('.') or part in DEFAULT_EXCLUDE_PARTS for part in f.parts)
+                    ):
                         search_file(f)
                         if len(results) > 200: # limit results
                             results.append("... [Search truncated due to too many results]")
@@ -1120,7 +1131,10 @@ class NativeToolRegistry:
             matches = []
             for item in p.rglob(pattern):
                 try:
-                    if item.is_file():
+                    if (
+                        item.is_file()
+                        and not any(part.startswith('.') or part in DEFAULT_EXCLUDE_PARTS for part in item.parts)
+                    ):
                         rel = item.relative_to(p)
                         size = item.stat().st_size
                         matches.append(f"{rel} ({size} bytes)")

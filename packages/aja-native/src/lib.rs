@@ -204,7 +204,9 @@ fn read_baton_ipc(path: &str) -> PyResult<String> {
                 map.insert("error".to_string(), Value::String(error_arr.value(0).to_string()));
             }
 
-            return Ok(serde_json::to_string(&result).unwrap());
+            let serialized = serde_json::to_string(&result)
+                .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
+            return Ok(serialized);
         }
     }
 

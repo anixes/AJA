@@ -258,11 +258,13 @@ class TestRecommendSkill:
         from aja.skills.skill_store import recommend_skill
 
         store = MagicMock()
+        from datetime import datetime, timezone
+        now_str = datetime.now(timezone.utc).isoformat()
         store.search_skills.return_value = [
             {
                 "skill_id": "best",
                 "confidence_score": 0.8,
-                "updated_at": "2026-08-01T00:00:00Z",
+                "updated_at": now_str,
                 "tool_sequence_json": "[1]",
                 "tags_json": "[]",
             }

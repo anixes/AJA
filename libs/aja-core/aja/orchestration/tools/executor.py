@@ -16,9 +16,6 @@ class ToolExecutor:
     Safely executes tools (shell commands) requested by the LLM.
     Uses CommandStripper logic internally.
     """
-
-    BLACKBOX_COMMANDS = {"rm -rf /", "mkfs", "dd", "shutdown", "reboot"}
-
     def __init__(self):
         self.history = []
 

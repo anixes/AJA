@@ -1325,7 +1325,7 @@ class AJAMemory:
             if tbl in existing:
                 try:
                     counts[tbl] = self.db.open_table(tbl).count_rows()
-                except:
+                except Exception:
                     counts[tbl] = 0
             else:
                 counts[tbl] = 0

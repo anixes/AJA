@@ -1,5 +1,8 @@
 import time
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 LEGACY_CLIENT_SURFACE = True
 
@@ -57,26 +60,26 @@ class AutonomousScheduler:
         confidence = getattr(plan, "confidence", max(0.0, c_score * (1.0 - risk)))
         
         if risk > 0.7 or confidence < 0.6:
-            print(f"[Scheduler] Task '{goal}' requires approval. Risk: {risk:.2f}, Confidence: {confidence:.2f}")
+            logger.info("[Scheduler] Task '%s' requires approval. Risk: %.2f, Confidence: %.2f", goal, risk, confidence)
             # require_approval() -> normally send to Telegram or set status
             self._notify_telegram(f"Task '{goal}' requires approval. Risk: {risk:.2f}, Confidence: {confidence:.2f}")
             return False
             
-        print(f"[Scheduler] Executing task autonomously: {goal}")
+        logger.info("[Scheduler] Executing task autonomously: %s", goal)
         # Normally execute here
         self._notify_telegram(f"Successfully executed task autonomously: {goal}")
         return True
         
     def _notify_telegram(self, message: str):
         # Legacy compatibility surface. New runtime schedulers emit events.
-        print(f"[Legacy Telegram Scheduler] {message}")
+        logger.debug("[Legacy Telegram Scheduler] %s", message)
 
     def loop(self):
         while self._running:
             now = time.time()
             for task in self.tasks:
                 if not task.paused and (now - task.last_run > task.interval):
-                    print(f"[Scheduler] Running scheduled task: {task.goal}")
+                    logger.info("[Scheduler] Running scheduled task: %s", task.goal)
                     success = self._run_task(task.goal)
                     if success:
                         task.last_run = time.time()

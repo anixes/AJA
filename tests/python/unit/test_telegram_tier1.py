@@ -113,7 +113,7 @@ async def test_register_command_menu_payload_shape():
     assert await register_command_menu(bot) is True
     assert bot.commands is not None
     names = [c["command"] for c in bot.commands]
-    assert names == ["start", "help", "status", "kanban", "missions", "models", "doctor", "clear"]
+    assert names == ["start", "help", "status", "kanban", "missions", "models", "local", "doctor", "clear"]
     for c in bot.commands:
         assert isinstance(c["description"], str) and c["description"]
         assert "\n" not in c["description"]

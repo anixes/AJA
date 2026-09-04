@@ -2,11 +2,12 @@ import time
 import asyncio
 import os
 import sys
-
-
+import logging
 
 from aja.runtime.lancedb_logger import lancedb_logger
 from aja.runtime.lance_stores import LanceRuntimeStore
+
+logger = logging.getLogger(__name__)
 
 async def publish_heartbeats(memory, worker_id):
     """Periodically publishes the heartbeat to LanceDB in a background async loop."""
@@ -15,7 +16,7 @@ async def publish_heartbeats(memory, worker_id):
             # Blocking disk I/O must not stall the event loop.
             await asyncio.to_thread(memory.publish_heartbeat, worker_id, "ONLINE", "AJA Worker")
         except Exception as e:
-            print(f"[!] Heartbeat publish error: {e}")
+            logger.error("Heartbeat publish error: %s", e)
         await asyncio.sleep(10)
 
 async def _stoppable_sleep(seconds: float, stop_event) -> None:
@@ -34,13 +35,13 @@ async def main_loop(stop_event=None):
 
     lock = acquire_lock("worker")
     if lock is None:
-        print(
-            "[!] Autonomous worker already running — refusing to start a "
+        logger.warning(
+            "Autonomous worker already running — refusing to start a "
             "duplicate instance (heartbeat churn + double mission intake)."
         )
         return
 
-    print("[*] Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
+    logger.info("Starting Agent Autonomous Loop (Phase 2.0 - Hardened)...")
     heartbeat_task = None
     intent_engine_started = False
     intent_engine = None
@@ -51,9 +52,9 @@ async def main_loop(stop_event=None):
         # Publish initial heartbeat synchronously to mark worker ONLINE immediately
         try:
             await asyncio.to_thread(memory.publish_heartbeat, worker_id, "ONLINE", "AJA Worker")
-            print("[*] Initial heartbeat published.")
+            logger.info("Initial heartbeat published.")
         except Exception as e:
-            print(f"[!] Initial heartbeat publish error: {e}")
+            logger.error("Initial heartbeat publish error: %s", e)
 
         # Start the async background heartbeat task
         heartbeat_task = asyncio.create_task(publish_heartbeats(memory, worker_id))
@@ -64,7 +65,7 @@ async def main_loop(stop_event=None):
         from aja.autonomy.intent_engine import intent_engine
         intent_engine.start()
         intent_engine_started = True
-        print("[*] Intent Engine started.")
+        logger.info("Intent Engine started.")
 
         # 2. Setup telemetry (LanceDB backed)
         # lancedb_logger initializes via singleton on import.
@@ -72,7 +73,7 @@ async def main_loop(stop_event=None):
         # 3. Setup goal engine
         from aja.goals.goal_engine import goal_engine
 
-        print(f"[*] AJA Autonomous Worker Started (ID: {worker_id})")
+        logger.info("AJA Autonomous Worker Started (ID: %s)", worker_id)
 
         MAX_CONSECUTIVE_ERRORS = 5
         MAX_PENDING_GOALS = 20
@@ -81,14 +82,17 @@ async def main_loop(stop_event=None):
 
         while True:
             if stop_event is not None and stop_event.is_set():
-                print("[!] Autonomous loop stopped by external stop event.")
+                logger.info("Autonomous loop stopped by external stop event.")
                 break
             try:
                 active_goals = goal_engine.get_active_goals()
 
                 # Backpressure: pause polling if queue is overflowing
                 if len(active_goals) > MAX_PENDING_GOALS:
-                    print(f"[AutonomousLoop] Backpressure threshold reached ({len(active_goals)} active goals). Pausing mission intake.")
+                    logger.warning(
+                        "[AutonomousLoop] Backpressure threshold reached (%d active goals). Pausing mission intake.",
+                        len(active_goals),
+                    )
                     await _stoppable_sleep(10, stop_event)
                     continue
 
@@ -101,17 +105,26 @@ async def main_loop(stop_event=None):
                 await _stoppable_sleep(sleep_time, stop_event)
 
             except KeyboardInterrupt:
-                print("[!] Autonomous loop stopped by user.")
+                logger.info("Autonomous loop stopped by user.")
                 break
             except Exception as e:
                 consecutive_errors += 1
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                    print(f"[!] Circuit Breaker OPEN: {consecutive_errors} consecutive failures ({e}). Cooling down for 60s.")
+                    logger.error(
+                        "Circuit Breaker OPEN: %d consecutive failures (%s). Cooling down for 60s.",
+                        consecutive_errors,
+                        e,
+                    )
                     await _stoppable_sleep(60, stop_event)
                     consecutive_errors = 0
                 else:
                     backoff = min(30, BASE_SLEEP * (2 ** consecutive_errors))
-                    print(f"[!] Error in autonomous loop (#{consecutive_errors}): {e}. Backing off {backoff}s.")
+                    logger.warning(
+                        "Error in autonomous loop (#%d): %s. Backing off %ds.",
+                        consecutive_errors,
+                        e,
+                        backoff,
+                    )
                     await _stoppable_sleep(backoff, stop_event)
     finally:
         # Cancellation-safe teardown: external cancel (CancelledError),
@@ -126,7 +139,7 @@ async def main_loop(stop_event=None):
             try:
                 intent_engine.stop()
             except Exception as e:
-                print(f"[!] Intent engine stop error: {e}")
+                logger.error("Intent engine stop error: %s", e)
         release_lock(lock)
 
 

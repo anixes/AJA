@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+#### Phase 18 — 10-Subagent Technical Debt Audit & Reliability Hardening
+- **Subprocess File Descriptor Hygiene**: Closed parent file handle in `daemon_manager.py` within `try/finally` block to prevent descriptor leaks across child worker spawns.
+- **Import Shadowing Elimination**: Removed duplicate inner import of `redact_secrets` in `orchestrator.py` that shadowed top-level import and triggered `UnboundLocalError` in non-executed branches.
+- **Defensive Unbounded Traversal Guards**: Added `DEFAULT_EXCLUDE_PARTS` (`.git`, `.venv`, `node_modules`, `__pycache__`, etc.) to `grep_search` and `find_files` in `native.py` to prevent memory exhaustion and filesystem lockups.
+- **Rust PyO3 FFI Panic Prevention**: Replaced `.unwrap()` on JSON string serialization in `packages/aja-native/src/lib.rs` with safe `PyValueError` error mapping.
+- **Test Isolation & Determinism**: Fixed hardcoded date staleness in `test_nightshift_wave1_e3.py` with dynamic UTC timestamps; isolated `test_default_is_persona` from config environment leaks.
+- **Standardized Structured Logging**: Replaced raw `print()` calls in `autonomous_loop.py`, `llm.py`, `local_manager.py`, `scheduler.py`, and `intent_engine.py` with proper `logging.getLogger(__name__)` channels.
+- **100% Repository Test Pass Rate**: Verified all 960 unit tests pass without failure.
+
+#### Phase 17 — Telegram Real-Time Interactivity & Multimodal Ingestion
+- **Continuous Native Typing Indicator**: Implemented non-blocking `continuous_chat_action(bot, chat_id, action="typing")` in `tg_client.py` and `orchestrator.py` that pulses every 4 seconds, maintaining "typing..." status during multi-step LLM inference and tool calling.
+- **Visual Read Receipts & Reaction Lifecycle**: Immediate acknowledgment reaction (`👀`) on incoming messages, transitioning to success (`✅` / fallback `👍`) on turn finish or failure (`👎`) on unhandled error.
+- **Multimodal Audio Transcription**: Created `audio_transcriber.py` supporting Google Gemini Multimodal Audio (`gemini-2.5-flash`), OpenAI Whisper (`whisper-1`), and local Whisper fallback; downloads `.oga`/`.ogg`/`.mp3` voice notes and injects transcriptions into prompt context.
+- **Document & Code File Ingestion**: Added auto-reading and syntax-highlighted code block injection for `.py`, `.json`, `.md`, `.txt`, `.csv`, `.log`, and `.yaml` files; added uncompressed image data URL conversion for vision VLMs.
+- **Stickers & Location Pins**: Automatically parses stickers to `[Sticker: <emoji>]` and locations to `[Location: latitude=..., longitude=...]`.
+
 #### Phase 16 — Host Hardware Profiling & Telegram Local Model Hub
 - **Host Hardware Profiling**: `HostHardwareProfiler` in `models/local_manager.py` detecting OS, CPU cores, RAM total/available (via Windows ctypes `GlobalMemoryStatusEx` and POSIX `/proc/meminfo`), and NVIDIA CUDA GPU name, VRAM total/free, driver, and CUDA capability with zero external dependencies.
 - **Multi-Drive GGUF Auto-Discovery**: Automatic scanning across all mounted drive roots (`C:`, `D:`, `E:`) and AI application caches (`~/.ollama/models`, `~/.cache/lm-studio/models`, `~/.cache/huggingface/hub`) with path deduplication.
