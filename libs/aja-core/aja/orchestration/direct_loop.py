@@ -85,6 +85,41 @@ def _extract_bash_commands(content: str) -> List[str]:
     return commands
 
 
+def _extract_claimed_deliverables(content: str) -> List[str]:
+    """
+    Extract file paths that the assistant explicitly claims to have created, saved, or converted.
+    """
+    if not content:
+        return []
+
+    import re
+    # Match paths that end with a recognized file extension
+    # 1. Inside quotes, asterisks, or backticks: e.g. **D:\My Path\file.ipynb** or `file.py`
+    quoted_pattern = re.compile(
+        r"(?:[\*`'\"]{1,2})([A-Za-z]:\\[^\*`'\r\n]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\*`'\r\n]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))(?:[\*`'\"]{1,2})",
+        re.IGNORECASE,
+    )
+    # 2. Following creation context words: e.g. "saved as: D:\foo\bar.ipynb" or "saved as foo.py"
+    creation_context_pattern = re.compile(
+        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|following\s+location|converted\s+and\s+saved\s+as)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
+        re.IGNORECASE,
+    )
+
+    found = set()
+    for m in quoted_pattern.finditer(content):
+        raw = m.group(1).strip().rstrip("'*`\"")
+        if raw and "." in raw:
+            found.add(raw)
+
+    for m in creation_context_pattern.finditer(content):
+        raw = m.group(1).strip().rstrip("'*`\"")
+        if raw and "." in raw:
+            found.add(raw)
+
+    return sorted(list(found))
+
+
+
 async def run_direct_loop(
     objective: str,
     *,
@@ -147,6 +182,8 @@ async def run_direct_loop(
 
     iteration = 0
     verification_attempts = 0
+    deliverable_attempts = 0
+    max_deliverable_retries = 3
     while iteration < max_turns:
         iteration += 1
 
@@ -238,6 +275,39 @@ async def run_direct_loop(
         commands = _extract_bash_commands(content)
 
         if not commands and not tools_executed:
+            # Deliverable Verification Gate: ensure files claimed as created/saved actually exist on disk
+            from pathlib import Path
+
+            claimed_paths = _extract_claimed_deliverables(content)
+            missing_paths = []
+            for p_str in claimed_paths:
+                try:
+                    p = Path(p_str)
+                    if not p.is_absolute():
+                        p = Path.cwd() / p
+                    if not p.exists():
+                        missing_paths.append(p_str)
+                except Exception:
+                    pass
+
+            if missing_paths and deliverable_attempts < max_deliverable_retries:
+                deliverable_attempts += 1
+                if console:
+                    console.print(
+                        f"[bold red]✘ [Deliverable Verification Failed][/bold red] Claimed deliverable(s) missing on disk: {missing_paths}"
+                    )
+                missing_str = ", ".join(f"'{p}'" for p in missing_paths)
+                feedback_msg = (
+                    f"[Autonomous Verification Failure: Missing Deliverable]\n"
+                    f"You reported that the following deliverable(s) were created or saved, but they do NOT exist on disk:\n"
+                    f"{missing_str}\n\n"
+                    f"If you wrote a Python script to generate or convert them, you must execute that script now using a shell command (```bash or ```python) to produce the deliverable(s).\n"
+                    f"Alternatively, write the file(s) directly using write_file.\n"
+                    f"Do not conclude the task until the deliverable(s) actually exist on disk."
+                )
+                history.append({"role": "user", "content": feedback_msg})
+                continue
+
             # Autonomous Verification Gate (OpenCode 2 style self-healing loop)
             needs_verification = bool(verification_cmd or auto_verify or verification_fn)
             if needs_verification and verification_attempts < max_verification_retries:

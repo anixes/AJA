@@ -974,6 +974,40 @@ class NativeToolRegistry:
         try:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
+            # Smart notebook handling: if target is .ipynb and content is not already valid JSON, auto-wrap in valid Jupyter format
+            if p.suffix.lower() == ".ipynb" and not content.strip().startswith("{"):
+                import json
+                # If content uses standard cell dividers like '# %%', split into multiple cells
+                raw_blocks = re.split(r"(?m)^# %%\s*", content)
+                cells = []
+                if len(raw_blocks) > 1:
+                    for blk in raw_blocks:
+                        if not blk.strip():
+                            continue
+                        cells.append({
+                            "cell_type": "code",
+                            "execution_count": None,
+                            "metadata": {},
+                            "outputs": [],
+                            "source": blk.splitlines(keepends=True),
+                        })
+                else:
+                    cells.append({
+                        "cell_type": "code",
+                        "execution_count": None,
+                        "metadata": {},
+                        "outputs": [],
+                        "source": content.splitlines(keepends=True),
+                    })
+                nb_dict = {
+                    "cells": cells,
+                    "metadata": {
+                        "language_info": {"name": "python"}
+                    },
+                    "nbformat": 4,
+                    "nbformat_minor": 5,
+                }
+                content = json.dumps(nb_dict, indent=2)
             p.write_text(content, encoding="utf-8")
             return f"Successfully wrote to {path}"
         except Exception as e:
