@@ -182,3 +182,56 @@ def test_fetch_recent_tasks():
     recent = fetch_recent_tasks(limit=5)
     assert isinstance(recent, list)
     assert any(t.get("task_id") == tid or t.get("id") == tid for t in recent)
+
+
+def test_out_of_bounds_path_validation(tmp_path):
+    """Verify out-of-bounds path validation respects allow_out_of_bounds_paths and fs.read.global permissions."""
+    import aja.config
+    from aja.orchestration.tools.native import NativeToolRegistry
+
+    orig_root = aja.config.PROJECT_ROOT
+    orig_oob = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+    orig_scopes = dict(aja.config.CONFIG.permission_policy.scopes)
+
+    # Create an artificial project root inside tmp_path, and a file outside it
+    fake_project = tmp_path / "project"
+    fake_project.mkdir()
+    external_dir = tmp_path / "external_data"
+    external_dir.mkdir()
+    external_csv = external_dir / "titanic.csv"
+    external_csv.write_text("PassengerId,Survived,Pclass\n1,0,3", encoding="utf-8")
+
+    try:
+        aja.config.PROJECT_ROOT = fake_project
+        registry = NativeToolRegistry()
+
+        # 1. When allow_out_of_bounds_paths is False: read is denied
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
+        err = registry._validate_path(str(external_csv), mode="read")
+        assert err is not None
+        assert "Security Error" in err
+        assert "outside the authorized project root" in err
+
+        # 2. When allow_out_of_bounds_paths is True: read is permitted
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = True
+        aja.config.CONFIG.permission_policy.scopes["fs.read.global"] = "allow"
+        res_read = registry._validate_path(str(external_csv), mode="read")
+        assert res_read is None
+        content = registry.read_file(str(external_csv))
+        assert "PassengerId,Survived,Pclass" in content
+
+        # 3. When allow_out_of_bounds_paths is True: write is guarded by fs.write.global: ask (denied in non-interactive tests)
+        res_write = registry._validate_path(str(external_csv), mode="write")
+        assert res_write is not None
+        assert "Security Error" in res_write
+
+        # 4. Explicit policy deny overrides allow_out_of_bounds_paths
+        aja.config.CONFIG.permission_policy.scopes["fs.read.global"] = "deny"
+        err_denied = registry._validate_path(str(external_csv), mode="read")
+        assert err_denied is not None
+        assert "Security Error" in err_denied
+    finally:
+        aja.config.PROJECT_ROOT = orig_root
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_oob
+        aja.config.CONFIG.permission_policy.scopes = orig_scopes
+

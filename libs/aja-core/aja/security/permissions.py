@@ -49,7 +49,7 @@ class PermissionPolicy:
                 "browser.navigate": "ask",
                 "browser.interact": "ask",
                 "desktop.interact": "ask",
-                "fs.read.global": "ask",
+                "fs.read.global": "allow",
                 "fs.write.global": "ask",
             },
             ask_timeout_s=60.0,

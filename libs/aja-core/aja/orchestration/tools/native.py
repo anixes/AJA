@@ -922,13 +922,23 @@ class NativeToolRegistry:
 
     def _validate_path(self, path: str, mode: str = "read") -> Optional[str]:
         from aja.config import PROJECT_ROOT, CONFIG
+        from aja.workspace.context import get_current_workspace
         try:
+            ctx = get_current_workspace()
+            active_root = ctx.path.resolve() if (ctx and ctx.path) else Path(PROJECT_ROOT).resolve()
+
             p = Path(path)
             if not p.is_absolute():
-                p = Path(PROJECT_ROOT) / p
+                p = active_root / p
             p = p.resolve()
-            if not p.is_relative_to(PROJECT_ROOT):
-                if not getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False):
+            if not p.is_relative_to(active_root):
+                allow_oob = False
+                if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
+                    allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
+                else:
+                    allow_oob = getattr(CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+
+                if not allow_oob:
                     return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
                 scope = f"fs.{mode}.global"
                 reason = f"Agent attempting to {mode} an out-of-bounds path: {p}"

@@ -31,6 +31,8 @@ class PermissionPolicyConfig(BaseModel):
             "browser.navigate": "ask",
             "browser.interact": "ask",
             "desktop.interact": "ask",
+            "fs.read.global": "allow",
+            "fs.write.global": "ask",
         }
     )
     ask_timeout_s: float = Field(default=60.0, ge=0.0)
