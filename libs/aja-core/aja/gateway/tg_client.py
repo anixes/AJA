@@ -872,9 +872,9 @@ class TelegramAdapter(BasePlatformAdapter):
         data = query.data or ""
         callback_user_id = str(query.from_user.id) if query.from_user else ""
 
-        # ── Local model controls (ls:<idx>, lstp, lref, lstat, luse:<idx>) ──
+        # ── Local model controls (ls:<idx>, lstp, lref, lstat, luse:<idx>, m:<mode>) ──
         if (
-            data.startswith(("ls:", "luse:", "local_start:", "local_use:"))
+            data.startswith(("ls:", "luse:", "local_start:", "local_use:", "m:"))
             or data in ("lstp", "lref", "lstat", "local_stop", "local_refresh")
         ):
             self.metrics["callback_handled"] += 1

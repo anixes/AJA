@@ -177,7 +177,7 @@ class ACPServer:
 
         from aja.orchestration.direct_loop import run_direct_loop
 
-        outcome = await run_direct_loop(
+        loop_coro = run_direct_loop(
             prompt_text,
             gateway=self.gateway,
             tools_registry=self.tools_registry,
@@ -186,6 +186,13 @@ class ACPServer:
             auto_verify=True,
             dry_run=self.dry_run,
         )
+        task = asyncio.create_task(loop_coro)
+        self.active_tasks[session_id] = task
+
+        try:
+            outcome = await task
+        finally:
+            self.active_tasks.pop(session_id, None)
 
         # Emit completion notification
         last_response = ""
@@ -222,17 +229,11 @@ class ACPServer:
 
     async def run_stdio(self):
         """Run the stdio message loop continuously until EOF."""
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, self.in_stream)
-
         while True:
-            line_bytes = await reader.readline()
-            if not line_bytes:
+            line = await asyncio.to_thread(self.in_stream.readline)
+            if not line:
                 break  # EOF: editor closed pipe
 
-            line = line_bytes.decode("utf-8", errors="replace")
             resp = await self.handle_message(line)
             if resp is not None:
                 self.out_stream.write(json.dumps(resp, ensure_ascii=False) + "\n")

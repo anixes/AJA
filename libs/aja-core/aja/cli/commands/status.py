@@ -29,42 +29,85 @@ def cmd_status(agent_mode: bool = False):
     batons = []
     baton_dir = DATA_DIR / "batons"
     if baton_dir.exists():
-        for b in baton_dir.glob("*.json"):
+        import time
+        from datetime import datetime, timezone
+
+        now = time.time()
+        for b in sorted(baton_dir.glob("*.json")):
             try:
-                with open(b, "r") as f:
+                with open(b, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    batons.append(
-                        {
-                            "id": b.stem,
-                            "objective": data.get("objective", "Unknown"),
-                            "updated_at": data.get("updated_at", "-"),
-                        }
-                    )
+                ts = data.get("timestamp") or b.stat().st_mtime
+                ttl = data.get("ttl", 3600)
+                if ts and (now - ts > ttl):
+                    try:
+                        b.unlink(missing_ok=True)
+                        arrow_file = b.with_suffix(".arrow")
+                        if arrow_file.exists():
+                            arrow_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    continue
+
+                obj = (
+                    data.get("objective")
+                    or data.get("goal")
+                    or data.get("metadata", {}).get("objective", "Active Mission")
+                )
+                updated_at = data.get("updated_at")
+                if not updated_at and ts:
+                    updated_at = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
+
+                batons.append(
+                    {
+                        "id": b.stem,
+                        "objective": obj,
+                        "updated_at": updated_at or "-",
+                    }
+                )
             except Exception as e:
-                print(f"[!] Error reading state: {e}")
+                pass
 
-    # Recent Tasks from Arrow
-    tasks = []
+    # Recent Tasks from LanceDB / Arrow
+    raw_tasks = []
     try:
-        from aja.persistence.tasks import fetch_pending_tasks
+        from aja.persistence.tasks import fetch_recent_tasks
 
-        tasks = fetch_pending_tasks(limit=5)
+        raw_tasks = fetch_recent_tasks(limit=5)
     except Exception:
-        pass
+        try:
+            from aja.persistence.tasks import fetch_pending_tasks
+
+            raw_tasks = fetch_pending_tasks(limit=5)
+        except Exception:
+            pass
+
+    tasks = []
+    for t in raw_tasks:
+        task_id = str(t.get("task_id") or t.get("id") or "")
+        status_val = str(t.get("status") or "PENDING")
+        input_val = str(t.get("input") or t.get("objective") or "")
+        try:
+            parsed = json.loads(input_val)
+            if isinstance(parsed, dict):
+                input_val = parsed.get("task") or parsed.get("objective") or input_val
+        except Exception:
+            pass
+        updated_val = str(t.get("updated_at") or "-")
+        tasks.append(
+            {
+                "id": task_id,
+                "status": status_val,
+                "input": input_val,
+                "updated_at": updated_val,
+            }
+        )
 
     if agent_mode:
         output = {
             "mode": mode,
             "batons": batons,
-            "tasks": [
-                {
-                    "id": str(t.get("id", "")),
-                    "status": t.get("status", ""),
-                    "input": t.get("input", ""),
-                    "updated_at": t.get("updated_at", "-"),
-                }
-                for t in tasks
-            ],
+            "tasks": tasks,
         }
         print(json.dumps(output, indent=2), flush=True)
         return

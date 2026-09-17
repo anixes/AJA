@@ -452,14 +452,7 @@ class ConversationCore:
         outcome: Dict[str, Any] = {}
         history = session["_working_history"]
         recall_block = session.get("_recall_block", "")
-        system_prompt = self._system_prompt
-        if not system_prompt:
-            try:
-                from aja.cognitive.prompts import build_system_prompt
-
-                system_prompt = build_system_prompt(goal=intent.task)
-            except Exception:
-                pass
+        system_prompt = self._system_prompt or "You are AJA, an autonomous AI assistant."
         if recall_block:
             system_prompt = (
                 f"{system_prompt}\n\n{recall_block}" if system_prompt else recall_block
@@ -599,14 +592,84 @@ class ConversationCore:
         yield Final(text=report)
 
     async def _exec_mission(self, intent, session, messages):
-        mid = intent.mission_id or "M-?"
-        yield Final(
+        mid = intent.mission_id
+        if not mid and self._mission_store is not None and hasattr(self._mission_store, "create_mission"):
+            try:
+                rec = await _maybe_await(self._mission_store.create_mission(intent.task))
+                if isinstance(rec, dict) and rec.get("mission_id"):
+                    mid = rec["mission_id"]
+            except Exception:
+                pass
+        if not mid:
+            mid = f"M-{uuid.uuid4().hex[:8]}"
+
+        task_id = None
+        task_entry = {
+            "title": intent.task[:120],
+            "context": intent.task,
+            "mission_id": mid,
+            "owner": "assistant_mission",
+            "status": "running",
+        }
+        session["tasks"].append(task_entry)
+
+        if self._task_store is not None and hasattr(self._task_store, "create_task"):
+            try:
+                created = await _maybe_await(self._task_store.create_task(dict(task_entry)))
+                if isinstance(created, dict):
+                    task_id = created.get("task_id") or created.get("id")
+            except Exception:
+                pass
+        if not task_id:
+            try:
+                from aja.persistence.tasks import create_task, update_task_status
+                task_id = create_task({"task": intent.task, "mission_id": mid})
+                update_task_status(task_id, "RUNNING")
+            except Exception:
+                pass
+
+        yield Delta(
             text=(
-                f"🚀 Mission Accepted ({mid}). I'm deploying a worker to handle this: "
-                f"'{intent.task}'. I'll live-report progress here."
-            ),
-            artifacts={"mission_id": mid},
+                f"🚀 **Mission Accepted ({mid})**: '{intent.task}'\n"
+                f"Deploying worker loop...\n\n"
+            )
         )
+
+        has_error = False
+        has_final = False
+        try:
+            async for ev in self._exec_chat(intent, session, messages):
+                if isinstance(ev, Error):
+                    has_error = True
+                    yield ev
+                elif isinstance(ev, Final):
+                    has_final = True
+                    arts = dict(ev.artifacts or {})
+                    arts["mission_id"] = mid
+                    yield Final(
+                        text=f"🚀 [{mid}] {ev.text}" if mid not in ev.text else ev.text,
+                        artifacts=arts,
+                    )
+                else:
+                    yield ev
+
+            if task_id:
+                try:
+                    from aja.persistence.tasks import update_task_status
+                    final_db_status = "COMPLETED" if (has_final and not has_error) else "FAILED"
+                    update_task_status(task_id, final_db_status)
+                except Exception:
+                    pass
+            task_entry["status"] = "completed" if (has_final and not has_error) else "failed"
+        except Exception:
+            if task_id:
+                try:
+                    from aja.persistence.tasks import update_task_status
+                    update_task_status(task_id, "FAILED")
+                except Exception:
+                    pass
+            task_entry["status"] = "failed"
+            raise
 
     # ------------------------------------------------------------------ #
     # Stage 6: PERSIST + APPROVE hook

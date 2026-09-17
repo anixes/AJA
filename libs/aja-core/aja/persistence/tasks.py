@@ -59,6 +59,13 @@ def fetch_pending_tasks(limit: int = 10) -> List[Dict]:
     return results
 
 
+def fetch_recent_tasks(limit: int = 10) -> List[Dict]:
+    table = _manager.get_table("core_tasks")
+    results = table.search().limit(limit * 3).to_list()
+    results.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    return results[:limit]
+
+
 def is_logical_task_completed(logical_task_id: str) -> bool:
     # In Pure AJA, we search metadata for logical links
     table = _manager.get_table("core_tasks")

@@ -556,7 +556,7 @@ class LocalModelManager:
                 continue
 
         # Fallback to any mmproj in the model's parent folder
-        for f in model_path.parent.glob("*mmproj*.gguf"):
+        for f in p.parent.glob("*mmproj*.gguf"):
             return f
         return None
 

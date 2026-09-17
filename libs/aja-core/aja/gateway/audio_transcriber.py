@@ -81,7 +81,8 @@ async def _transcribe_with_gemini(
         norm_mime = "audio/ogg"
 
     b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    headers = {"x-goog-api-key": api_key}
 
     payload = {
         "contents": [
@@ -110,7 +111,7 @@ async def _transcribe_with_gemini(
 
     timeout = aiohttp.ClientTimeout(total=25)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=payload) as resp:
+        async with session.post(url, headers=headers, json=payload) as resp:
             if resp.status != 200:
                 body = await resp.text()
                 logger.warning("Gemini transcription HTTP %s: %s", resp.status, body[:200])
@@ -151,17 +152,27 @@ async def _transcribe_with_whisper(
             return result.get("text", "").strip()
 
 
+_LOCAL_WHISPER_MODEL = None
+
+
+def _get_local_whisper_model():
+    global _LOCAL_WHISPER_MODEL
+    if _LOCAL_WHISPER_MODEL is None:
+        import whisper  # raises ImportError if not installed
+        _LOCAL_WHISPER_MODEL = whisper.load_model("base")
+    return _LOCAL_WHISPER_MODEL
+
+
 def _transcribe_with_local_whisper(audio_bytes: bytes) -> Optional[str]:
     """Fallback to locally installed whisper package if present."""
     import tempfile
-    import whisper  # raises ImportError if not installed
 
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
     try:
-        model = whisper.load_model("base")
+        model = _get_local_whisper_model()
         result = model.transcribe(tmp_path)
         return result.get("text", "").strip()
     finally:
