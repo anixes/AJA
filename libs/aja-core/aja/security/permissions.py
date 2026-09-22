@@ -83,7 +83,17 @@ class PermissionPolicy:
         return matches[0][1], matches[0][0]
 
 
+import threading
+
+
 class PermissionEngine:
+    _session_grants: set[str] = set()
+    _ask_lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def clear_session_grants(cls) -> None:
+        cls._session_grants.clear()
+
     def __init__(
         self,
         policy: Optional[PermissionPolicy] = None,
@@ -103,6 +113,17 @@ class PermissionEngine:
     ) -> AuthorizationResult:
         decision, matched_scope = self.policy.decision_for(scope)
         grant_id = f"grant-{uuid.uuid4().hex[:12]}"
+
+        # Check session grants cache first (e.g. user already approved fs.write.global in this session)
+        if scope in self._session_grants or any(_scope_matches(pattern, scope) for pattern in self._session_grants):
+            _emit(journal, "PERMISSION_GRANTED", {
+                "scope": scope,
+                "matched_scope": matched_scope,
+                "decision": "allow",
+                "grant_id": grant_id,
+                "reason": f"{reason} (session grant)",
+            })
+            return AuthorizationResult(True, "allow", scope, reason, grant_id, matched_scope)
 
         if decision == "allow":
             _emit(journal, "PERMISSION_GRANTED", {
@@ -171,40 +192,52 @@ class PermissionEngine:
 
         try:
             from aja.config import CONFIG
-            if CONFIG.swarm_settings.auto_proceed_local:
+            if getattr(CONFIG.swarm_settings, "auto_proceed_local", False):
+                self._session_grants.add(scope)
                 return True
         except Exception:
             pass
 
-        if self.approval_provider:
-            try:
-                return bool(self.approval_provider(scope, reason, timeout_s))
-            except Exception:
+        with self._ask_lock:
+            # Re-check session grants inside lock in case a concurrent worker already obtained approval
+            if scope in self._session_grants or any(_scope_matches(pattern, scope) for pattern in self._session_grants):
+                return True
+
+            if self.approval_provider:
+                try:
+                    res = bool(self.approval_provider(scope, reason, timeout_s))
+                    if res:
+                        self._session_grants.add(scope)
+                    return res
+                except Exception:
+                    return False
+
+            import os
+            if not sys.stdin or not sys.stdin.isatty() or os.environ.get("PYTEST_CURRENT_TEST"):
                 return False
 
-        import os
-        if not sys.stdin or not sys.stdin.isatty() or os.environ.get("PYTEST_CURRENT_TEST"):
-            return False
+            try:
+                import msvcrt
+            except ImportError:
+                return False
 
-        try:
-            import msvcrt
-        except ImportError:
-            return False
-
-        prompt = f"Allow permission scope '{scope}'? Type y within {timeout_s:.0f}s to approve: "
-        print(prompt, end="", flush=True)
-        deadline = time.monotonic() + timeout_s
-        chars = []
-        while time.monotonic() < deadline:
-            if msvcrt.kbhit():
-                ch = msvcrt.getwch()
-                print(ch, end="", flush=True)
-                if ch in ("\r", "\n"):
-                    break
-                chars.append(ch)
-            time.sleep(0.05)
-        print()
-        return "".join(chars).strip().lower() in {"y", "yes"}
+            prompt = f"\nAllow permission scope '{scope}' for this session? Type y within {timeout_s:.0f}s to approve: "
+            print(prompt, end="", flush=True)
+            deadline = time.monotonic() + timeout_s
+            chars = []
+            while time.monotonic() < deadline:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwch()
+                    print(ch, end="", flush=True)
+                    if ch in ("\r", "\n"):
+                        break
+                    chars.append(ch)
+                time.sleep(0.05)
+            print()
+            approved = "".join(chars).strip().lower() in {"y", "yes"}
+            if approved:
+                self._session_grants.add(scope)
+            return approved
 
 
 class Permission:

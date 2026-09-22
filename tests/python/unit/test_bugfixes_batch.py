@@ -230,7 +230,16 @@ def test_out_of_bounds_path_validation(tmp_path):
         err_denied = registry._validate_path(str(external_csv), mode="read")
         assert err_denied is not None
         assert "Security Error" in err_denied
+
+        # 5. Session grant caching: once approved in session, subsequent writes succeed without re-prompting
+        from aja.security.permissions import PermissionEngine
+        PermissionEngine.clear_session_grants()
+        PermissionEngine._session_grants.add("fs.write.global")
+        res_cached = registry._validate_path(str(external_csv), mode="write")
+        assert res_cached is None
     finally:
+        from aja.security.permissions import PermissionEngine
+        PermissionEngine.clear_session_grants()
         aja.config.PROJECT_ROOT = orig_root
         aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_oob
         aja.config.CONFIG.permission_policy.scopes = orig_scopes
