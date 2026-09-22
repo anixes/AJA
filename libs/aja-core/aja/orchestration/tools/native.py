@@ -977,28 +977,76 @@ class NativeToolRegistry:
             # Smart notebook handling: if target is .ipynb and content is not already valid JSON, auto-wrap in valid Jupyter format
             if p.suffix.lower() == ".ipynb" and not content.strip().startswith("{"):
                 import json
-                # If content uses standard cell dividers like '# %%', split into multiple cells
-                raw_blocks = re.split(r"(?m)^# %%\s*", content)
+                import uuid
                 cells = []
-                if len(raw_blocks) > 1:
+                # Case 1: Standard cell dividers like '# %%'
+                if re.search(r"(?m)^# %%\s*", content):
+                    raw_blocks = re.split(r"(?m)^# %%\s*", content)
                     for blk in raw_blocks:
                         if not blk.strip():
                             continue
+                        first_line = blk.strip().split("\n", 1)[0]
+                        if "[markdown]" in first_line.lower():
+                            body = blk.replace(first_line, "", 1).lstrip("\n")
+                            cells.append({
+                                "cell_type": "markdown",
+                                "id": uuid.uuid4().hex[:8],
+                                "metadata": {},
+                                "source": body.splitlines(keepends=True),
+                            })
+                        else:
+                            cells.append({
+                                "cell_type": "code",
+                                "id": uuid.uuid4().hex[:8],
+                                "execution_count": None,
+                                "metadata": {},
+                                "outputs": [],
+                                "source": blk.splitlines(keepends=True),
+                            })
+                # Case 2: Markdown text with embedded code blocks (```python ... ```)
+                elif "```" in content:
+                    pattern = re.compile(r"```(?:python)?\s*\n(.*?)\n```", re.DOTALL)
+                    pos = 0
+                    for match in pattern.finditer(content):
+                        md_text = content[pos:match.start()].strip()
+                        if md_text:
+                            cells.append({
+                                "cell_type": "markdown",
+                                "id": uuid.uuid4().hex[:8],
+                                "metadata": {},
+                                "source": [line + "\n" for line in md_text.splitlines()],
+                            })
+                        code_text = match.group(1).strip()
+                        if code_text:
+                            cells.append({
+                                "cell_type": "code",
+                                "id": uuid.uuid4().hex[:8],
+                                "execution_count": None,
+                                "metadata": {},
+                                "outputs": [],
+                                "source": [line + "\n" for line in code_text.splitlines()],
+                            })
+                        pos = match.end()
+                    tail = content[pos:].strip()
+                    if tail:
                         cells.append({
-                            "cell_type": "code",
-                            "execution_count": None,
+                            "cell_type": "markdown",
+                            "id": uuid.uuid4().hex[:8],
                             "metadata": {},
-                            "outputs": [],
-                            "source": blk.splitlines(keepends=True),
+                            "source": [line + "\n" for line in tail.splitlines()],
                         })
-                else:
+                
+                # Case 3: Raw python code without dividers
+                if not cells:
                     cells.append({
                         "cell_type": "code",
+                        "id": uuid.uuid4().hex[:8],
                         "execution_count": None,
                         "metadata": {},
                         "outputs": [],
                         "source": content.splitlines(keepends=True),
                     })
+
                 nb_dict = {
                     "cells": cells,
                     "metadata": {
