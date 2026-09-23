@@ -120,10 +120,14 @@ def log_security_event(command: str, classification: Dict[str, Any], context: Op
             command, risk_level, ", ".join(reasons)
         )
     elif decision == "ask":
-        logger.warning(
-            "⚠️ [Security Review Required] Command PENDING APPROVAL: '%s' | Risk: %s | Reasons: %s",
-            command, risk_level, ", ".join(reasons)
-        )
+        from aja.config import CONFIG
+        if getattr(CONFIG.swarm_settings, "auto_proceed_local", False):
+            logger.debug("⚡ [Security Audit] Command AUTO-APPROVED (auto_proceed_local): '%s'", command)
+        else:
+            logger.warning(
+                "⚠️ [Security Review Required] Command PENDING APPROVAL: '%s' | Risk: %s | Reasons: %s",
+                command, risk_level, ", ".join(reasons)
+            )
     else:
         logger.info("✅ [Security Audit] Command ALLOWED: '%s'", command)
 
