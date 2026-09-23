@@ -71,8 +71,8 @@ _MODEL_LIMITS: Dict[str, int] = {
     "llama-3":             8_192,
     "llama":               4_096,
     "gemma":               8_192,
-    # Copilot (routes to underlying Claude / GPT; use conservative Claude cap)
-    "copilot":           128_000,
+    # Copilot (routes to underlying Claude / GPT; strict prompt token cap of 12,288)
+    "copilot":            12_288,
 }
 
 # Default when model is unknown.

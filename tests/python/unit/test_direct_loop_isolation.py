@@ -276,3 +276,66 @@ def test_session_history_caller_owned_mutation():
     assert outcome["status"] == "completed"
     assert shared[0]["role"] == "user"
     assert any(m.get("content") == "Done." for m in shared), "assistant reply missing from caller list"
+
+
+def test_batch_parallel_tool_cap_in_direct_loop():
+    from aja.orchestration.direct_loop import run_direct_loop
+
+    class BurstGateway:
+        def __init__(self):
+            self.turn = 0
+
+        async def chat(self, model=None, prompt=None, system=None, tools=None):
+            self.turn += 1
+            if self.turn == 1:
+                # Emit 35 tool calls in one burst
+                return {
+                    "content": "",
+                    "tool_calls": [
+                        {"name": f"probe_{i}", "arguments": "{}"}
+                        for i in range(35)
+                    ],
+                }
+            return "Burst processed successfully."
+
+    executor = RecordingExecutor()
+    history = []
+
+    outcome = asyncio.run(
+        run_direct_loop(
+            "burst probe",
+            gateway=BurstGateway(),
+            tools_registry=RecordingRegistry(),
+            executor=executor,
+            session_history=history,
+            history_compressor=lambda h, model=None, provider=None: None,
+            result_truncator=lambda raw: raw[:50],
+            trace_id_fn=lambda: "",
+        )
+    )
+
+    assert outcome["status"] == "completed"
+    # Executor must have received only the capped 25 tool calls
+    assert len(executor.dispatched) == 25
+    # History must contain the batch guard notice
+    assert any("[Batch Guard:" in m.get("content", "") for m in history)
+
+
+def test_copilot_context_limit_resolution():
+    from aja.orchestration.context_window import resolve_model_limit, compress_history
+
+    limit = resolve_model_limit(model="copilot", provider="copilot")
+    # Copilot limit must be capped at 12288 * 0.8 = 9830 tokens
+    assert limit <= 12_288
+    assert limit == int(12_288 * 0.8)
+
+    # Verify history compression prunes bloated history down to Copilot budget
+    bloated_history = [{"role": "user", "content": "Initial objective"}]
+    # Add 20 large messages
+    for i in range(20):
+        bloated_history.append({"role": "user", "content": "x" * 2000})
+
+    compress_history(bloated_history, model="copilot", provider="copilot")
+    # Must have popped messages down to fit budget
+    assert len(bloated_history) < 21
+

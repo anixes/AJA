@@ -736,6 +736,23 @@ class LLMGateway:
                 status_code = getattr(e, "status_code", None) or getattr(
                     getattr(e, "response", None), "status_code", None
                 )
+                err_str = str(e).lower()
+                is_token_overflow = (
+                    "token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str)
+                ) or "context_length_exceeded" in err_str or "model_max_prompt_tokens_exceeded" in err_str
+
+                if is_token_overflow and isinstance(prompt, list) and len(prompt) > 2:
+                    logger.warning(
+                        "[Gateway] Prompt token limit exceeded (%s). Pruning history and retrying...",
+                        redact_secrets(str(e)),
+                    )
+                    mid_count = len(prompt) - 2
+                    drop_count = max(1, mid_count // 2)
+                    for _ in range(drop_count):
+                        if len(prompt) > 2:
+                            prompt.pop(1)
+                    continue
+
                 if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):
                     logger.error(
                         "[Gateway] Non-retryable provider error (%s %s): %s",

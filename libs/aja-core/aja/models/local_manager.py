@@ -21,10 +21,20 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from aja.config import DATA_DIR
 from aja.models.model_spec import ModelCapability, infer_capabilities, parse_model_spec
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_data_dir() -> Path:
+    env_dir = os.getenv("AJA_DATA_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+    try:
+        import platformdirs
+        return Path(platformdirs.user_data_dir("AJA", "Anixes"))
+    except Exception:
+        return Path.home() / ".aja"
 
 
 @dataclass
@@ -709,7 +719,7 @@ class LocalModelManager:
                             cls.start_llama_server(dm.name)
                             break
 
-            cfg_path = DATA_DIR / "aja.json"
+            cfg_path = _resolve_data_dir() / "aja.json"
             data: Dict[str, Any] = {}
             if cfg_path.exists():
                 try:
@@ -748,18 +758,19 @@ class LocalModelManager:
                 target_mode = "cloud" if current_mode == "cloud" else "hybrid"
             data["swarm_settings"]["operating_mode"] = target_mode
 
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            _resolve_data_dir().mkdir(parents=True, exist_ok=True)
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
 
-            # Update live config
-            import aja.config
-            aja.config.AJA_ACTIVE_MODEL = model_uri
-            aja.config.AJA_PLANNER_MODEL = model_uri
-            aja.config.AJA_WORKER_MODEL = model_uri
-            if spec.has_vision:
-                aja.config.AJA_VISION_MODEL = model_uri
-            aja.config.AJA_OPERATING_MODE = target_mode
+            # Update live config if already loaded
+            config_mod = sys.modules.get("aja.config")
+            if config_mod:
+                config_mod.AJA_ACTIVE_MODEL = model_uri
+                config_mod.AJA_PLANNER_MODEL = model_uri
+                config_mod.AJA_WORKER_MODEL = model_uri
+                if spec.has_vision:
+                    config_mod.AJA_VISION_MODEL = model_uri
+                config_mod.AJA_OPERATING_MODE = target_mode
 
             logger.info(
                 "[LocalModelManager] Activated '%s' (mode=%s, vision=%s)",
@@ -773,8 +784,7 @@ class LocalModelManager:
     @classmethod
     def get_active_model(cls) -> Dict[str, Any]:
         """Return currently active mode, active model, and vision model."""
-        import aja.config
-        cfg_path = DATA_DIR / "aja.json"
+        cfg_path = _resolve_data_dir() / "aja.json"
         data: Dict[str, Any] = {}
         if cfg_path.exists():
             try:
@@ -785,19 +795,22 @@ class LocalModelManager:
 
         swarm = data.get("swarm_settings", {})
         models = swarm.get("models", {})
-        mode = swarm.get("operating_mode") or getattr(aja.config, "AJA_OPERATING_MODE", "hybrid")
+        config_mod = sys.modules.get("aja.config")
+        mode = swarm.get("operating_mode") or (getattr(config_mod, "AJA_OPERATING_MODE", None) if config_mod else None) or os.getenv("AJA_OPERATING_MODE", "hybrid")
         active = (
             swarm.get("active_model")
             or models.get("planner")
-            or getattr(aja.config, "AJA_ACTIVE_MODEL", "google:gemini-2.0-flash")
+            or (getattr(config_mod, "AJA_ACTIVE_MODEL", None) if config_mod else None)
+            or os.getenv("AJA_ACTIVE_MODEL", "google:gemini-2.0-flash")
         )
         vision = (
             swarm.get("vision_model")
             or models.get("vision")
-            or getattr(aja.config, "AJA_VISION_MODEL", None)
+            or (getattr(config_mod, "AJA_VISION_MODEL", None) if config_mod else None)
+            or os.getenv("AJA_VISION_MODEL", None)
         )
-        planner = models.get("planner") or getattr(aja.config, "AJA_PLANNER_MODEL", active)
-        worker = models.get("worker") or getattr(aja.config, "AJA_WORKER_MODEL", active)
+        planner = models.get("planner") or (getattr(config_mod, "AJA_PLANNER_MODEL", None) if config_mod else None) or active
+        worker = models.get("worker") or (getattr(config_mod, "AJA_WORKER_MODEL", None) if config_mod else None) or active
 
         return {
             "mode": mode,
@@ -850,7 +863,7 @@ class LocalModelManager:
         if mode_clean not in ("local", "cloud", "hybrid", "swarm"):
             return False
         try:
-            cfg_path = DATA_DIR / "aja.json"
+            cfg_path = _resolve_data_dir() / "aja.json"
             data: Dict[str, Any] = {}
             if cfg_path.exists():
                 try:
@@ -861,11 +874,12 @@ class LocalModelManager:
             if "swarm_settings" not in data:
                 data["swarm_settings"] = {}
             data["swarm_settings"]["operating_mode"] = mode_clean
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            _resolve_data_dir().mkdir(parents=True, exist_ok=True)
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-            import aja.config
-            aja.config.AJA_OPERATING_MODE = mode_clean
+            config_mod = sys.modules.get("aja.config")
+            if config_mod:
+                config_mod.AJA_OPERATING_MODE = mode_clean
             logger.info("[LocalModelManager] Operating mode set to '%s'", mode_clean)
             return True
         except Exception as e:

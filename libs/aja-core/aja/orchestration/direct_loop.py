@@ -240,8 +240,20 @@ async def run_direct_loop(
                     t_args = {}
                 formatted_calls.append({"tool": t_name, "args": t_args})
 
+            MAX_PARALLEL_TOOL_DISPATCH = 25
+            total_requested = len(formatted_calls)
+            deferred_count = 0
+            if total_requested > MAX_PARALLEL_TOOL_DISPATCH:
+                deferred_count = total_requested - MAX_PARALLEL_TOOL_DISPATCH
+                formatted_calls = formatted_calls[:MAX_PARALLEL_TOOL_DISPATCH]
+
             if console:
-                console.print(f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s)...[/]")
+                if deferred_count > 0:
+                    console.print(
+                        f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s) (capped from {total_requested})...[/]"
+                    )
+                else:
+                    console.print(f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s)...[/]")
             results = await executor.dispatch_tool_calls(
                 tool_calls=formatted_calls,
                 trace_id=trace_id_getter(),
@@ -271,6 +283,14 @@ async def run_direct_loop(
                 safe_output = truncator(raw_output)
                 obs = f"Tool '{r.tool}' result:\n{safe_output}"
                 history.append({"role": "user", "content": obs})
+
+            if deferred_count > 0:
+                guard_msg = (
+                    f"[Batch Guard: Executed {MAX_PARALLEL_TOOL_DISPATCH} of {total_requested} requested tool calls. "
+                    f"{deferred_count} remaining calls were deferred to protect context budget. "
+                    f"Please analyze these results first before issuing further tool calls.]"
+                )
+                history.append({"role": "user", "content": guard_msg})
 
         commands = _extract_bash_commands(content)
 
