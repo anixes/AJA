@@ -348,11 +348,13 @@ class NativeToolRegistry:
                     "activity_type": "python",
                     "retry_policy": "safe",
                     "required_scope": "python.git_diff",
-                    "description": "Show changes between commits, commit and working tree, etc.",
+                    "description": "Show changes between commits, commit and working tree, staged changes, etc.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "path": {"type": "string", "description": "Optional specific file or folder path to get diff for."}
+                            "path": {"type": "string", "description": "Optional specific file or folder path to get diff for."},
+                            "ref": {"type": "string", "description": "Optional commit, branch, or revision range to compare (e.g. 'HEAD~1', 'main', or 'latest'). Use 'latest' or 'HEAD~1' to inspect the most recent commit."},
+                            "staged": {"type": "boolean", "description": "If true, show staged/cached changes (--staged)."}
                         }
                     }
                 }
@@ -920,18 +922,35 @@ class NativeToolRegistry:
             },
         )
 
+    def _resolve_path(self, path: str) -> Path:
+        """Resolve a path against active workspace or project root with fallback."""
+        from aja.config import PROJECT_ROOT
+        from aja.workspace.context import get_current_workspace
+        try:
+            ctx = get_current_workspace()
+            active_root = ctx.path.resolve() if (ctx and ctx.path) else Path(PROJECT_ROOT).resolve()
+        except Exception:
+            active_root = Path.cwd().resolve()
+        proj_root = Path(PROJECT_ROOT).resolve()
+
+        p = Path(path)
+        if not p.is_absolute():
+            candidate = (active_root / p).resolve()
+            if not candidate.exists() and (proj_root / p).exists():
+                return (proj_root / p).resolve()
+            return candidate
+        return p.resolve()
+
     def _validate_path(self, path: str, mode: str = "read") -> Optional[str]:
         from aja.config import PROJECT_ROOT, CONFIG
         from aja.workspace.context import get_current_workspace
         try:
             ctx = get_current_workspace()
             active_root = ctx.path.resolve() if (ctx and ctx.path) else Path(PROJECT_ROOT).resolve()
+            proj_root = Path(PROJECT_ROOT).resolve()
 
-            p = Path(path)
-            if not p.is_absolute():
-                p = active_root / p
-            p = p.resolve()
-            if not p.is_relative_to(active_root):
+            p = self._resolve_path(path)
+            if not p.is_relative_to(active_root) and not p.is_relative_to(proj_root):
                 allow_oob = False
                 if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
                     allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
@@ -958,7 +977,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: File {path} does not exist."
             if p.is_dir():
@@ -972,7 +991,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
             # Smart notebook handling: if target is .ipynb and content is not already valid JSON, auto-wrap in valid Jupyter format
             if p.suffix.lower() == ".ipynb" and not content.strip().startswith("{"):
@@ -1067,9 +1086,7 @@ class NativeToolRegistry:
             return err
         import subprocess
         try:
-            # We use ripgrep or standard grep for fast searching. If not available, fallback to python.
-            # Using python for safety and portability:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: Path {path} does not exist."
             
@@ -1110,7 +1127,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: File {path} does not exist."
             
@@ -1183,7 +1200,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: Path '{path}' does not exist."
             if not p.is_dir():
@@ -1214,7 +1231,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: Path '{path}' does not exist."
             if not p.is_dir():
@@ -1247,7 +1264,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: Path '{path}' does not exist."
             
@@ -1268,7 +1285,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             p.mkdir(parents=True, exist_ok=True)
             return f"Successfully created directory structure: {p.resolve()}"
         except Exception as e:
@@ -1285,20 +1302,41 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Error executing git status: {e}"
 
-    def git_diff(self, path: str = None) -> str:
+    def git_diff(self, path: str = None, ref: str = None, staged: bool = False) -> str:
         import subprocess
         from aja.config import PROJECT_ROOT
         try:
             cmd = ["git", "diff"]
+            if staged:
+                cmd.append("--staged")
+            if ref:
+                ref_clean = ref.strip().lower()
+                if ref_clean in ("latest", "last", "latest_commit", "last_commit"):
+                    cmd.extend(["HEAD~1", "HEAD"])
+                else:
+                    cmd.append(ref.strip())
             if path:
                 err = self._validate_path(path, mode="read")
                 if err:
                     return err
-                cmd.append(path)
+                p = self._resolve_path(path)
+                try:
+                    rel_p = p.relative_to(Path(PROJECT_ROOT).resolve())
+                    cmd.append(str(rel_p))
+                except Exception:
+                    cmd.append(str(p))
+
             res = subprocess.run(cmd, text=True, capture_output=True, cwd=str(PROJECT_ROOT))
             if res.returncode != 0:
                 return f"Error running git diff: {res.stderr}"
-            return res.stdout or "No changes detected."
+            if not res.stdout:
+                if not ref and not staged:
+                    return (
+                        "No uncommitted working tree changes detected.\n"
+                        "(Tip: pass ref='HEAD~1' or ref='latest' to review committed changes, or staged=True for staged changes)."
+                    )
+                return "No changes detected for the specified ref/path."
+            return res.stdout
         except Exception as e:
             return f"Error executing git diff: {e}"
 
@@ -1384,7 +1422,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = Path(path).resolve()
+            p = self._resolve_path(path)
             if not p.exists():
                 return f"Error: Path '{path}' does not exist."
             
@@ -1413,8 +1451,8 @@ class NativeToolRegistry:
             return err_dest
         import shutil
         try:
-            s = Path(src).resolve()
-            d = Path(dest).resolve()
+            s = self._resolve_path(src)
+            d = self._resolve_path(dest)
             
             if not s.exists():
                 return f"Error: Source path '{src}' does not exist."
@@ -1438,8 +1476,8 @@ class NativeToolRegistry:
             return err_dest
         import shutil
         try:
-            s = Path(src).resolve()
-            d = Path(dest).resolve()
+            s = self._resolve_path(src)
+            d = self._resolve_path(dest)
             
             if not s.exists():
                 return f"Error: Source path '{src}' does not exist."
