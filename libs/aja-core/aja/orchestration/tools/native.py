@@ -251,7 +251,7 @@ class NativeToolRegistry:
                         "properties": {
                             "cmd": {
                                 "type": "string",
-                                "description": "The exact shell command to run. Do NOT chain multiple commands with && — call run_shell_command once per command."
+                                "description": "The exact shell command to run. Do NOT prefix commands with inline environment variables (such as PYTHONPATH=...) as they are blocked by security policy. Do NOT chain multiple commands with && — call run_shell_command once per command."
                             }
                         },
                         "required": ["cmd"]

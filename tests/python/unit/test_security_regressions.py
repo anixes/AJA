@@ -188,6 +188,12 @@ class TestCommandGuardStrictDeny:
         )
         assert res["decision"] == "ask"
 
+    def test_blocked_env_var_denied_with_actionable_hint(self):
+        res = classify_command("PYTHONPATH=. pytest tests/python/unit/test_clean_code_smoke.py")
+        assert res["decision"] == "deny"
+        assert any("Blocked environment variables detected: PYTHONPATH" in r for r in res["reasons"])
+        assert any("without inline environment variable prefixes" in r for r in res["reasons"])
+
 
 # ---------------------------------------------------------------------------
 # Baton HMAC authentication + HTTPS enforcement

@@ -381,7 +381,7 @@ def _classify_single(command: str) -> Dict[str, Any]:
         deny_reasons.append(
             "Blocked environment variables detected: "
             + ", ".join(analysis.get("Blocked Env Vars", {}).keys())
-            + "."
+            + ". Please execute the command directly without inline environment variable prefixes (e.g., 'pytest' or 'python -m pytest')."
         )
 
     if root in ASK_BINARIES and not known_safe:
