@@ -97,7 +97,8 @@ class AnthropicAdapter:
         chat_messages: List[Dict[str, Any]] = []
 
         for message in messages:
-            if message.get("role") == "system":
+            role = message.get("role")
+            if role == "system":
                 content = message.get("content") or ""
                 if isinstance(content, str):
                     system_parts.append(content)
@@ -106,6 +107,48 @@ class AnthropicAdapter:
                         text = block.get("text", "") if isinstance(block, dict) else str(block)
                         if text:
                             system_parts.append(text)
+            elif role == "assistant":
+                content = message.get("content") or ""
+                tool_calls = message.get("tool_calls")
+                if tool_calls:
+                    blocks: List[Dict[str, Any]] = []
+                    if content:
+                        blocks.append({"type": "text", "text": content})
+                    for tc in tool_calls:
+                        fn = tc.get("function", {}) if isinstance(tc.get("function"), dict) else {}
+                        args = fn.get("arguments") or tc.get("arguments") or "{}"
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception:
+                                args = {}
+                        blocks.append({
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": fn.get("name") or tc.get("name", ""),
+                            "input": args,
+                        })
+                    chat_messages.append({"role": "assistant", "content": blocks})
+                else:
+                    chat_messages.append(message)
+            elif role == "tool":
+                tool_res_block = {
+                    "type": "tool_result",
+                    "tool_use_id": message.get("tool_call_id", ""),
+                    "content": str(message.get("content", "")),
+                }
+                if (
+                    chat_messages
+                    and chat_messages[-1].get("role") == "user"
+                    and isinstance(chat_messages[-1].get("content"), list)
+                    and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in chat_messages[-1]["content"])
+                ):
+                    chat_messages[-1]["content"].append(tool_res_block)
+                else:
+                    chat_messages.append({
+                        "role": "user",
+                        "content": [tool_res_block],
+                    })
             else:
                 chat_messages.append(message)
 

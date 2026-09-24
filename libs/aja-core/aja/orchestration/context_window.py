@@ -208,11 +208,18 @@ def compress_history(
         limit = max(1024, int(_DEFAULT_LIMIT * _BUDGET_FRACTION))
 
     def _total_tokens() -> int:
-        return sum(
-            estimate_tokens(str(msg.get("content", "")))
-            for msg in history
-        )
+        total = 0
+        for msg in history:
+            total += estimate_tokens(str(msg.get("content") or ""))
+            if msg.get("tool_calls"):
+                total += estimate_tokens(str(msg.get("tool_calls")))
+        return total
 
     while _total_tokens() > limit and len(history) > 2:
-        # Drop the second-oldest message (index 1) to preserve the first one
-        history.pop(1)
+        # Drop the second-oldest message (index 1) to preserve the first one (the objective)
+        item = history.pop(1)
+        # If we dropped an assistant message with tool_calls, atomically drop
+        # any immediately following tool responses to prevent orphaned role="tool" messages
+        if item.get("tool_calls"):
+            while len(history) > 2 and history[1].get("role") == "tool":
+                history.pop(1)

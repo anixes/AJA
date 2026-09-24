@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
@@ -85,34 +87,40 @@ def _extract_bash_commands(content: str) -> List[str]:
     return commands
 
 
+def _is_creation_objective(objective: str) -> bool:
+    """
+    Determine if the objective involves creating, generating, or saving files/artifacts.
+    Pure read, review, audit, diff, search, or status tasks should bypass deliverable checks.
+    """
+    if not objective:
+        return False
+    obj_lower = objective.lower()
+
+    creation_verbs = [
+        "create", "generate", "write", "build", "save", "convert",
+        "export", "train", "produce", "scaffold", "implement"
+    ]
+    return any(re.search(rf"\b{verb}\b", obj_lower) for verb in creation_verbs)
+
+
 def _extract_claimed_deliverables(content: str) -> List[str]:
     """
     Extract file paths that the assistant explicitly claims to have created, saved, or converted.
+    Only matches explicit creation context patterns (e.g. 'saved as: foo.py').
+    Never matches arbitrary quoted or backticked files in conversational commentary or code reviews.
     """
     if not content:
         return []
 
-    import re
-    # Match paths that end with a recognized file extension
-    # 1. Inside quotes, asterisks, or backticks: e.g. **D:\My Path\file.ipynb** or `file.py`
-    quoted_pattern = re.compile(
-        r"(?:[\*`'\"]{1,2})([A-Za-z]:\\[^\*`'\r\n]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\*`'\r\n]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))(?:[\*`'\"]{1,2})",
-        re.IGNORECASE,
-    )
-    # 2. Following creation context words: e.g. "saved as: D:\foo\bar.ipynb" or "saved as foo.py"
+    # Following creation context words: e.g. "saved as: D:\foo\bar.ipynb" or "saved as foo.py"
     creation_context_pattern = re.compile(
-        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|following\s+location|converted\s+and\s+saved\s+as)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
+        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|exported\s+to|written\s+to|converted\s+and\s+saved\s+as)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
         re.IGNORECASE,
     )
 
     found = set()
-    for m in quoted_pattern.finditer(content):
-        raw = m.group(1).strip().rstrip("'*`\"")
-        if raw and "." in raw:
-            found.add(raw)
-
     for m in creation_context_pattern.finditer(content):
-        raw = m.group(1).strip().rstrip("'*`\"")
+        raw = m.group(1).strip().rstrip("'*`\".,;: ")
         if raw and "." in raw:
             found.add(raw)
 
@@ -219,26 +227,32 @@ async def run_direct_loop(
             content = response
             tool_calls = []
 
-        if content:
-            if presenter:
-                presenter.assistant(content)
-            history.append({"role": "assistant", "content": content})
-        elif tool_calls:
-            # Keep role alternation valid even with text-less tool-call turns.
-            history.append({"role": "assistant", "content": f"[Invoking {len(tool_calls)} tool(s)]"})
+        # Filter out hallucinated technical text "[Invoking N tool(s)]" when no actual tool calls were returned
+        if not tool_calls and content and re.match(r"^\[Invoking \d+ tool\(s\)\]$", content.strip()):
+            content = ""
 
         tools_executed = False
         if tool_calls:
             tools_executed = True
             formatted_calls = []
+            std_tool_calls = []
             for tc in tool_calls:
-                t_name = tc.get("name")
-                t_args_str = tc.get("arguments", "{}")
+                call_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                t_name = tc.get("name") or (tc.get("function", {}).get("name") if isinstance(tc.get("function"), dict) else "")
+                t_args_str = tc.get("arguments") or (tc.get("function", {}).get("arguments") if isinstance(tc.get("function"), dict) else "{}")
                 try:
                     t_args = json.loads(t_args_str) if isinstance(t_args_str, str) else t_args_str
                 except Exception:
                     t_args = {}
                 formatted_calls.append({"tool": t_name, "args": t_args})
+                std_tool_calls.append({
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": t_name,
+                        "arguments": t_args_str if isinstance(t_args_str, str) else json.dumps(t_args),
+                    },
+                })
 
             MAX_PARALLEL_TOOL_DISPATCH = 25
             total_requested = len(formatted_calls)
@@ -246,6 +260,16 @@ async def run_direct_loop(
             if total_requested > MAX_PARALLEL_TOOL_DISPATCH:
                 deferred_count = total_requested - MAX_PARALLEL_TOOL_DISPATCH
                 formatted_calls = formatted_calls[:MAX_PARALLEL_TOOL_DISPATCH]
+                std_tool_calls = std_tool_calls[:MAX_PARALLEL_TOOL_DISPATCH]
+
+            asst_msg: Dict[str, Any] = {
+                "role": "assistant",
+                "content": content or "",
+                "tool_calls": std_tool_calls,
+            }
+            if content and presenter:
+                presenter.assistant(content)
+            history.append(asst_msg)
 
             if console:
                 if deferred_count > 0:
@@ -259,7 +283,7 @@ async def run_direct_loop(
                 trace_id=trace_id_getter(),
                 dry_run=dry_run,
             )
-            for r in results:
+            for idx, r in enumerate(results):
                 if hooks.on_tool_result:
                     hooks.on_tool_result(r)
                 if console:
@@ -281,8 +305,12 @@ async def run_direct_loop(
 
                 raw_output = str(r.data or r.error or getattr(r, "stderr", "") or "")
                 safe_output = truncator(raw_output)
-                obs = f"Tool '{r.tool}' result:\n{safe_output}"
-                history.append({"role": "user", "content": obs})
+                tool_call_id = std_tool_calls[idx]["id"] if idx < len(std_tool_calls) else f"call_{idx}"
+                history.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": safe_output,
+                })
 
             if deferred_count > 0:
                 guard_msg = (
@@ -291,42 +319,65 @@ async def run_direct_loop(
                     f"Please analyze these results first before issuing further tool calls.]"
                 )
                 history.append({"role": "user", "content": guard_msg})
+        elif content:
+            if presenter:
+                presenter.assistant(content)
+            history.append({"role": "assistant", "content": content})
+        else:
+            # Both content and tool_calls are empty
+            has_prior_activity = any(m.get("role") in ("tool", "user") and m.get("content") for m in history)
+            if has_prior_activity and iteration < max_turns:
+                history.append({
+                    "role": "user",
+                    "content": "[Please provide your final answer or summary based on the results above.]",
+                })
+                continue
+            if console:
+                console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
+            return {"status": "empty_response", "turns": iteration}
 
         commands = _extract_bash_commands(content)
 
         if not commands and not tools_executed:
             # Deliverable Verification Gate: ensure files claimed as created/saved actually exist on disk
-            from pathlib import Path
+            # ONLY run if the objective involves creating/generating/saving deliverables!
+            if _is_creation_objective(objective):
+                from pathlib import Path
+                import os
 
-            claimed_paths = _extract_claimed_deliverables(content)
-            missing_paths = []
-            for p_str in claimed_paths:
-                try:
-                    p = Path(p_str)
-                    if not p.is_absolute():
-                        p = Path.cwd() / p
-                    if not p.exists():
-                        missing_paths.append(p_str)
-                except Exception:
-                    pass
+                claimed_paths = _extract_claimed_deliverables(content)
+                missing_paths = []
+                for p_str in claimed_paths:
+                    try:
+                        p = Path(p_str)
+                        if not p.is_absolute():
+                            candidate = Path.cwd() / p
+                            if not candidate.exists():
+                                proj_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
+                                if proj_root and (Path(proj_root) / p).exists():
+                                    candidate = Path(proj_root) / p
+                            p = candidate
+                        if not p.exists():
+                            missing_paths.append(p_str)
+                    except Exception:
+                        pass
 
-            if missing_paths and deliverable_attempts < max_deliverable_retries:
-                deliverable_attempts += 1
-                if console:
-                    console.print(
-                        f"[bold red]✘ [Deliverable Verification Failed][/bold red] Claimed deliverable(s) missing on disk: {missing_paths}"
+                if missing_paths and deliverable_attempts < max_deliverable_retries:
+                    deliverable_attempts += 1
+                    if console:
+                        console.print(
+                            f"[bold red]✘ [Deliverable Verification Failed][/bold red] Claimed deliverable(s) missing on disk: {missing_paths}"
+                        )
+                    missing_str = ", ".join(f"'{p}'" for p in missing_paths)
+                    feedback_msg = (
+                        f"[Deliverable Notice]\n"
+                        f"The following deliverable(s) were reported as created or saved, but were not found on disk:\n"
+                        f"{missing_str}\n\n"
+                        f"If these files were meant to be generated by a script or command, please ensure the execution succeeded and produced the files at the specified paths.\n"
+                        f"If you did not create these files or they were only referenced for review/analysis, please clarify your status."
                     )
-                missing_str = ", ".join(f"'{p}'" for p in missing_paths)
-                feedback_msg = (
-                    f"[Autonomous Verification Failure: Missing Deliverable]\n"
-                    f"You reported that the following deliverable(s) were created or saved, but they do NOT exist on disk:\n"
-                    f"{missing_str}\n\n"
-                    f"If you wrote a Python script to generate or convert them, you must execute that script now using a shell command (```bash or ```python) to produce the deliverable(s).\n"
-                    f"Alternatively, write the file(s) directly using write_file.\n"
-                    f"Do not conclude the task until the deliverable(s) actually exist on disk."
-                )
-                history.append({"role": "user", "content": feedback_msg})
-                continue
+                    history.append({"role": "user", "content": feedback_msg})
+                    continue
 
             # Autonomous Verification Gate (OpenCode 2 style self-healing loop)
             needs_verification = bool(verification_cmd or auto_verify or verification_fn)

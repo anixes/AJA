@@ -508,7 +508,10 @@ class ConversationCore:
         else:
             for m in reversed(history):
                 if m.get("role") == "assistant":
-                    final_text = m.get("content") or ""
+                    text = m.get("content") or ""
+                    if re.match(r"^\[Invoking \d+ tool\(s\)\]$", text.strip()):
+                        continue
+                    final_text = text
                     break
         if final_text:
             yield Delta(text=final_text)

@@ -339,3 +339,212 @@ def test_copilot_context_limit_resolution():
     # Must have popped messages down to fit budget
     assert len(bloated_history) < 21
 
+
+def test_is_creation_objective():
+    from aja.orchestration.direct_loop import _is_creation_objective
+
+    # Read-only / review tasks must return False
+    assert not _is_creation_objective("Review the git diff of the latest commit on native-worker-3 and confirm all changes adhere to clean code principles.")
+    assert not _is_creation_objective("Search tests/python/unit/ for any unused imports or deprecated pytest warnings")
+    assert not _is_creation_objective("Check git status and explain the changes")
+    assert not _is_creation_objective("Audit codebase security vulnerabilities")
+    assert not _is_creation_objective("What is the current system status?")
+
+    # Creation / generation tasks must return True
+    assert _is_creation_objective("generate an exploratory notebook in the CSV directory")
+    assert _is_creation_objective("write and execute a Python script in the CSV directory that trains a Random Forest model")
+    assert _is_creation_objective("create a new test file structure and save it to disk")
+    assert _is_creation_objective("convert and export data to output.json")
+
+
+def test_extract_claimed_deliverables_ignores_reviews():
+    from aja.orchestration.direct_loop import _extract_claimed_deliverables
+
+    # Code review comments referencing backticked files must NOT be extracted as claimed deliverables
+    review_content = (
+        "I have reviewed the git diff:\n"
+        "1. `libs/aja-core/aja/core/conversation.py`: adherence to clean code confirmed.\n"
+        "2. `libs/aja-core/aja/orchestration/direct_loop.py`: well structured.\n"
+        "3. `tests/python/unit/test_direct_loop_isolation.py`: test coverage is adequate.\n"
+        "Current Deliverable Status: All clean."
+    )
+    assert _extract_claimed_deliverables(review_content) == []
+
+    # Explicit creation statements MUST be extracted
+    created_content = (
+        "The model training finished. The script is saved as: D:\\projects\\train.py\n"
+        "The visual plot is created at: D:\\projects\\plot.png\n"
+        "Summary data exported to: output.json"
+    )
+    extracted = _extract_claimed_deliverables(created_content)
+    assert "D:\\projects\\train.py" in extracted
+    assert "D:\\projects\\plot.png" in extracted
+    assert "output.json" in extracted
+
+
+def test_code_review_objective_bypasses_deliverable_verification():
+    from aja.orchestration.direct_loop import run_direct_loop
+
+    class ReviewGateway:
+        async def chat(self, model=None, prompt=None, system=None, tools=None):
+            # Model references files that do NOT exist on disk in CWD
+            return (
+                "Review of commit:\n"
+                "- `nonexistent_module.py`: clean syntax.\n"
+                "- `missing_util.py`: no issues detected."
+            )
+
+    history = []
+    outcome = asyncio.run(
+        run_direct_loop(
+            "Review the git diff of the latest commit on native-worker-3 and confirm all changes adhere to clean code principles.",
+            gateway=ReviewGateway(),
+            tools_registry=RecordingRegistry(),
+            executor=RecordingExecutor(),
+            session_history=history,
+            max_turns=3,
+            history_compressor=lambda h, model=None, provider=None: None,
+            result_truncator=lambda raw: raw[:50],
+            trace_id_fn=lambda: "",
+        )
+    )
+
+    # Must complete cleanly in 1 turn without deliverable verification failure
+    assert outcome["status"] == "completed"
+    assert outcome["turns"] == 1
+    # History must not contain any deliverable failure prompt
+    assert not any("Missing Deliverable" in m.get("content", "") for m in history)
+    assert not any("write_file" in m.get("content", "") for m in history)
+
+
+def test_standardized_tool_calls_and_role_tool_in_history():
+    from aja.orchestration.direct_loop import run_direct_loop
+
+    class ToolGateway:
+        def __init__(self):
+            self.turn = 0
+
+        async def chat(self, model=None, prompt=None, system=None, tools=None):
+            self.turn += 1
+            if self.turn == 1:
+                return {
+                    "content": "Running git diff",
+                    "tool_calls": [
+                        {"name": "git_diff", "arguments": json.dumps({"ref": "HEAD~1"})}
+                    ],
+                }
+            return "Review completed after inspecting diff."
+
+    history = []
+    outcome = asyncio.run(
+        run_direct_loop(
+            "Check git diff and summarize",
+            gateway=ToolGateway(),
+            tools_registry=RecordingRegistry(),
+            executor=RecordingExecutor(),
+            session_history=history,
+            history_compressor=lambda h, model=None, provider=None: None,
+            result_truncator=lambda raw: raw[:50],
+            trace_id_fn=lambda: "",
+        )
+    )
+
+    assert outcome["status"] == "completed"
+    assert outcome["turns"] == 2
+
+    # Turn 1 assistant message must have standard tool_calls
+    asst_msg = next(m for m in history if m.get("role") == "assistant" and m.get("tool_calls"))
+    assert len(asst_msg["tool_calls"]) == 1
+    tc = asst_msg["tool_calls"][0]
+    assert tc["type"] == "function"
+    assert tc["function"]["name"] == "git_diff"
+    assert "ref" in tc["function"]["arguments"]
+
+    # Turn 1 tool result must have role="tool" and matching tool_call_id
+    tool_msg = next(m for m in history if m.get("role") == "tool")
+    assert tool_msg["tool_call_id"] == tc["id"]
+    assert tool_msg["content"] == "ok"
+
+
+def test_anthropic_adapter_maps_tool_calls_and_tool_results():
+    from aja.orchestration.providers.anthropic_adapter import AnthropicAdapter
+
+    messages = [
+        {"role": "user", "content": "Run diff"},
+        {
+            "role": "assistant",
+            "content": "Checking diff",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "git_diff", "arguments": '{"ref": "HEAD"}'},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_123", "content": "diff output"},
+    ]
+
+    body = AnthropicAdapter._build_body(
+        model="claude-3-5-sonnet",
+        messages=messages,
+        system="System prompt",
+        tools=None,
+        temperature=None,
+        extra_body=None,
+        max_tokens=1024,
+    )
+
+    chat_messages = body["messages"]
+    # Assistant message must contain text + tool_use block
+    asst = chat_messages[1]
+    assert asst["role"] == "assistant"
+    assert isinstance(asst["content"], list)
+    assert asst["content"][0] == {"type": "text", "text": "Checking diff"}
+    assert asst["content"][1] == {
+        "type": "tool_use",
+        "id": "call_123",
+        "name": "git_diff",
+        "input": {"ref": "HEAD"},
+    }
+
+    # Tool message must be translated to role="user" with tool_result block
+    tool_user = chat_messages[2]
+    assert tool_user["role"] == "user"
+    assert isinstance(tool_user["content"], list)
+    assert tool_user["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "call_123",
+        "content": "diff output",
+    }
+
+
+def test_atomic_compress_history_with_tool_calls():
+    from aja.orchestration.context_window import compress_history
+
+    # History with objective, assistant tool call + 2 tool results, then next assistant turn
+    history = [
+        {"role": "user", "content": "Initial objective"},
+        {
+            "role": "assistant",
+            "content": "Calling tools",
+            "tool_calls": [
+                {"id": "call_1", "function": {"name": "t1", "arguments": "{}"}},
+                {"id": "call_2", "function": {"name": "t2", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "result 1" * 1000},
+        {"role": "tool", "tool_call_id": "call_2", "content": "result 2" * 1000},
+        {"role": "assistant", "content": "Final synthesis"},
+    ]
+
+    compress_history(history, model="copilot", provider="copilot", reserve_tokens=9000)
+
+    # When pruned, history must not contain orphaned role="tool" messages without preceding tool_calls
+    roles = [m.get("role") for m in history]
+    if "tool" in roles:
+        tool_idx = roles.index("tool")
+        assert tool_idx > 0
+        assert history[tool_idx - 1].get("role") == "assistant"
+        assert history[tool_idx - 1].get("tool_calls")
+
