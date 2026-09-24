@@ -14,8 +14,9 @@ Token estimates are deliberately conservative (~3.5 chars/token).
 
 from __future__ import annotations
 
+import json
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 
 # Lazy-import AJA config at module level so tests can patch `CONFIG` directly.
 # Silently set to None if unavailable (test isolation, fresh installs, etc.).
@@ -178,20 +179,59 @@ def truncate_tool_result(raw: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> st
     return truncated
 
 
+def atomic_prune_messages(messages: List[Dict[str, Any]], target_drops: int = 1) -> int:
+    """Safely drop at least `target_drops` older turns/steps from index 1 forward,
+    preserving messages[0] (initial prompt / objective).
+
+    Guarantees that an assistant message with `tool_calls` and all its
+    corresponding `role == 'tool'` response messages are pruned together
+    atomically, never leaving orphaned tool_calls or role='tool' messages.
+    Also defensively cleans up any orphaned tool responses at index 1.
+
+    Returns the number of messages dropped.
+    """
+    if not isinstance(messages, list) or len(messages) <= 2:
+        return 0
+
+    dropped = 0
+    while len(messages) > 2 and dropped < target_drops:
+        item = messages.pop(1)
+        dropped += 1
+        if item.get("tool_calls"):
+            while len(messages) > 2 and messages[1].get("role") == "tool":
+                messages.pop(1)
+                dropped += 1
+        while len(messages) > 2 and messages[1].get("role") == "tool":
+            messages.pop(1)
+            dropped += 1
+
+    # Defensive final sweep: ensure index 1 is not an orphaned role="tool"
+    while len(messages) > 2 and messages[1].get("role") == "tool":
+        messages.pop(1)
+        dropped += 1
+
+    return dropped
+
+
 def compress_history(
     history: List[dict],
     model: str = "",
     provider: str = "",
     reserve_tokens: int = 2_048,
+    system_prompt: str = "",
+    tools: Optional[List[dict]] = None,
+    **kwargs: Any,
 ) -> None:
-    """
-    Slide the rolling window on *history* (mutated **in-place**) so the
+    """Slide the rolling window on *history* (mutated **in-place**) so the
     estimated total token count stays within the model's safe budget.
 
     Strategy:
-    - Always preserve the **first message** (it often contains the original
-      task objective which anchors the whole session).
-    - Drop the **second-oldest** message on each iteration until we're safe.
+    - Always preserve the **first message** (it contains the task objective).
+    - Atomically drop older turns from index 1 forward.
+    - If `system_prompt` and `tools` are passed, calculate explicit overhead
+      so tool schemas (~5,000 tokens) do not blow past provider limits.
+    - For small context models like Copilot (12,288 total cap), reserve adequate
+      headroom so multi-turn sessions never cause prompt overflow.
     - Stop when only 2 messages remain (first + last), regardless of budget.
 
     Args:
@@ -199,13 +239,36 @@ def compress_history(
         model:          Lowercase model name string for limit resolution.
         provider:       Lowercase provider name string (fallback for limit).
         reserve_tokens: Tokens to hold back for system prompt + response.
+        system_prompt:  Optional system prompt text to compute baseline overhead.
+        tools:          Optional tool schema list to compute tool token overhead.
     """
     if len(history) <= 2:
         return
 
-    limit = resolve_model_limit(model, provider) - reserve_tokens
+    needle = (model or provider or "").lower()
+
+    # Calculate explicit overhead from system prompt and tool schemas if provided
+    overhead = 0
+    if system_prompt:
+        overhead += estimate_tokens(system_prompt)
+    if tools:
+        try:
+            overhead += estimate_tokens(json.dumps(tools))
+        except Exception:
+            pass
+
+    # If overhead not explicitly provided, apply realistic reserve for models with small windows
+    if overhead == 0 and "copilot" in needle:
+        # Copilot has a strict 12,288 total token cap. Native tool schemas (~5,100 tokens)
+        # plus standard system prompt (~1,800 tokens) consume ~6,900 tokens.
+        effective_reserve = max(reserve_tokens, 6_500)
+    else:
+        effective_reserve = reserve_tokens + overhead
+
+    raw_limit = resolve_model_limit(model, provider)
+    limit = raw_limit - effective_reserve
     if limit <= 0:
-        limit = max(1024, int(_DEFAULT_LIMIT * _BUDGET_FRACTION))
+        limit = max(1024, int(raw_limit * 0.4))
 
     def _total_tokens() -> int:
         total = 0
@@ -216,10 +279,4 @@ def compress_history(
         return total
 
     while _total_tokens() > limit and len(history) > 2:
-        # Drop the second-oldest message (index 1) to preserve the first one (the objective)
-        item = history.pop(1)
-        # If we dropped an assistant message with tool_calls, atomically drop
-        # any immediately following tool responses to prevent orphaned role="tool" messages
-        if item.get("tool_calls"):
-            while len(history) > 2 and history[1].get("role") == "tool":
-                history.pop(1)
+        atomic_prune_messages(history, target_drops=1)

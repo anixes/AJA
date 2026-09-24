@@ -105,8 +105,9 @@ class TestResolveModelLimit(unittest.TestCase):
         self.assertEqual(limit, int(_DEFAULT_LIMIT * _BUDGET_FRACTION))
 
     def test_copilot_provider_resolves(self):
+        from aja.orchestration.context_window import _BUDGET_FRACTION
         limit = self.resolve(provider="copilot")
-        self.assertGreater(limit, 50_000)
+        self.assertEqual(limit, int(12_288 * _BUDGET_FRACTION))
 
     def test_budget_fraction_applied(self):
         from aja.orchestration.context_window import _BUDGET_FRACTION

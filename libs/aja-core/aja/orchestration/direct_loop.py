@@ -196,7 +196,18 @@ async def run_direct_loop(
         iteration += 1
 
         try:
-            compressor(history, model=model, provider=provider)
+            compressor(
+                history,
+                model=model,
+                provider=provider,
+                system_prompt=system_prompt,
+                tools=tools_registry.get_schemas(interactive=interactive),
+            )
+        except TypeError:
+            try:
+                compressor(history, model=model, provider=provider)
+            except Exception as e:
+                logger.debug("History compression fallback skipped: %s", e)
         except Exception as e:  # best-effort: compression must never kill the loop
             logger.debug("History compression skipped: %s", e)
 

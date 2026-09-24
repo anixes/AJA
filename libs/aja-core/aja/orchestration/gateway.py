@@ -746,11 +746,11 @@ class LLMGateway:
                         "[Gateway] Prompt token limit exceeded (%s). Pruning history and retrying...",
                         redact_secrets(str(e)),
                     )
+                    from aja.orchestration.context_window import atomic_prune_messages
+
                     mid_count = len(prompt) - 2
                     drop_count = max(1, mid_count // 2)
-                    for _ in range(drop_count):
-                        if len(prompt) > 2:
-                            prompt.pop(1)
+                    atomic_prune_messages(prompt, target_drops=drop_count)
                     continue
 
                 if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):

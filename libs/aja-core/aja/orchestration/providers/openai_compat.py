@@ -304,11 +304,11 @@ class OpenAICompatAdapter:
                         "[%s] Prompt token limit exceeded (%s). Pruning history and retrying...",
                         self.provider, redact_secrets(str(e)),
                     )
+                    from aja.orchestration.context_window import atomic_prune_messages
+
                     mid_count = len(merged_messages) - 2
                     drop_count = max(1, mid_count // 2)
-                    for _ in range(drop_count):
-                        if len(merged_messages) > 2:
-                            merged_messages.pop(1)
+                    atomic_prune_messages(merged_messages, target_drops=drop_count)
                     continue
 
                 if isinstance(status_code, int) and status_code in _NON_RETRYABLE_STATUS:

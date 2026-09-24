@@ -175,3 +175,29 @@ def test_query_past_experiences():
         experience_store.store = backup_store
         experience_store.learning_enabled = backup_enabled
         experience_store.embedding_service = backup_service
+
+
+def test_shell_and_bash_tool_aliases():
+    registry = NativeToolRegistry()
+    assert "shell" in registry.tools
+    assert "bash" in registry.tools
+
+    with patch("subprocess.run") as mock_run:
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = "hello alias"
+        mock_res.stderr = ""
+        mock_run.return_value = mock_res
+
+        # Test execute with name="shell" and arguments={"command": "echo hello alias"}
+        res = registry.execute("shell", {"command": "echo hello alias"})
+        assert res == "hello alias"
+
+        # Test execute with name="bash" and arguments={"cmd": "echo hello alias"}
+        res2 = registry.execute("bash", {"cmd": "echo hello alias"})
+        assert res2 == "hello alias"
+
+        # Test dispatch normalization
+        act = registry.dispatch("shell", {"command": "echo hello alias"}, trace_id="tr-1")
+        assert act.tool == "run_shell_command"
+        assert act.args["cmd"] == "echo hello alias"

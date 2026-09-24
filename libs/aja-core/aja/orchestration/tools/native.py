@@ -105,6 +105,8 @@ class NativeToolRegistry:
         self.tools["multi_replace"] = self.multi_replace
         self.tools["sleep"] = self.sleep
         self.tools["run_shell_command"] = self.run_shell_command
+        self.tools["shell"] = self.run_shell_command
+        self.tools["bash"] = self.run_shell_command
         self.tools["list_directory"] = self.list_directory
         self.tools["find_files"] = self.find_files
         self.tools["get_file_info"] = self.get_file_info
@@ -869,6 +871,11 @@ class NativeToolRegistry:
 
     def execute(self, name: str, arguments: Dict[str, Any]) -> str:
         name = desanitize_tool_name(name)
+        if name in ("shell", "bash"):
+            name = "run_shell_command"
+            if "cmd" not in arguments and "command" in arguments:
+                arguments = dict(arguments)
+                arguments["cmd"] = arguments.pop("command")
         if name not in self.tools:
             return f"Error: Tool '{name}' not found."
         try:
@@ -897,6 +904,11 @@ class NativeToolRegistry:
     def dispatch(self, name: str, arguments: Dict[str, Any], trace_id: str) -> Any:
         from aja.orchestration.activity_rt import Activity, ActivityType, RetryPolicy
         original_name = desanitize_tool_name(name)
+        if original_name in ("shell", "bash"):
+            original_name = "run_shell_command"
+            if "cmd" not in arguments and "command" in arguments:
+                arguments = dict(arguments)
+                arguments["cmd"] = arguments.pop("command")
         schema = next(
             (
                 t["function"]
@@ -1153,7 +1165,10 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Error during sleep: {e}"
 
-    def run_shell_command(self, cmd: str) -> str:
+    def run_shell_command(self, cmd: str = "", command: str = "") -> str:
+        cmd = cmd or command
+        if not cmd:
+            return "Error: No command provided to run_shell_command."
         from aja.security.command_guard import classify_command
         classification = classify_command(cmd)
         if classification["decision"] == "deny":

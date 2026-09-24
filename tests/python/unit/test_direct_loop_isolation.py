@@ -548,3 +548,48 @@ def test_atomic_compress_history_with_tool_calls():
         assert history[tool_idx - 1].get("role") == "assistant"
         assert history[tool_idx - 1].get("tool_calls")
 
+
+def test_atomic_prune_messages_preserves_tool_pairs():
+    from aja.orchestration.context_window import atomic_prune_messages
+
+    messages = [
+        {"role": "user", "content": "Goal"},
+        {"role": "assistant", "content": "I call tools", "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "res1"},
+        {"role": "assistant", "content": "Step 2", "tool_calls": [{"id": "c2"}]},
+        {"role": "tool", "tool_call_id": "c2", "content": "res2"},
+        {"role": "assistant", "content": "Final"},
+    ]
+
+    # Dropping 1 should drop the assistant message AND its child tool response together
+    dropped = atomic_prune_messages(messages, target_drops=1)
+    assert dropped >= 2
+    assert messages[0]["content"] == "Goal"
+    assert messages[1]["content"] == "Step 2"
+    assert messages[1].get("tool_calls")
+    assert messages[2].get("role") == "tool"
+
+
+def test_compress_history_dynamic_tool_overhead():
+    from aja.orchestration.context_window import compress_history
+
+    history = [
+        {"role": "user", "content": "Goal"},
+        {"role": "assistant", "content": "reply 1 " * 800},
+        {"role": "user", "content": "turn 2"},
+        {"role": "assistant", "content": "reply 2 " * 800},
+    ]
+    # Fake large tool schemas: 5,000 tokens ≈ 17,500 chars
+    fake_tools = [{"type": "function", "function": {"name": f"tool_{i}", "description": "x" * 500}} for i in range(35)]
+    system_prompt = "You are AJA. " * 500
+
+    compress_history(
+        history,
+        model="copilot",
+        provider="copilot",
+        system_prompt=system_prompt,
+        tools=fake_tools,
+    )
+    # History should have been compressed to protect the 12,288 token budget against tool overhead
+    assert len(history) <= 3
+

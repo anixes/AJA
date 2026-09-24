@@ -3,3 +3,6 @@ def test_basic_math():
 
 def test_multiplication():
     assert 3 * 3 == 9
+
+def test_division():
+    assert 10 / 2 == 5
