@@ -1330,6 +1330,15 @@ class NativeToolRegistry:
             if res.returncode != 0:
                 return f"Error running git diff: {res.stderr}"
             if not res.stdout:
+                if ref and ".." not in ref and "~" not in ref and not staged:
+                    ref_trimmed = ref.strip()
+                    fallback_cmd = ["git", "diff", f"{ref_trimmed}~1", ref_trimmed]
+                    if path:
+                        fallback_cmd.append(cmd[-1])
+                    fb_res = subprocess.run(fallback_cmd, text=True, capture_output=True, cwd=str(PROJECT_ROOT))
+                    if fb_res.returncode == 0 and fb_res.stdout:
+                        return fb_res.stdout
+
                 if not ref and not staged:
                     return (
                         "No uncommitted working tree changes detected.\n"

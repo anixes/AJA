@@ -32,7 +32,7 @@ def test_git_tools(tmp_path):
         
         # Test git_diff
         res_diff = registry.execute("git_diff", {})
-        assert res_diff == "No changes detected."
+        assert "No changes detected" in res_diff or "No uncommitted working tree changes detected" in res_diff
         
         # Stage the file and commit
         subprocess.run(["git", "add", "test.txt"], cwd=str(tmp_path), capture_output=True)
