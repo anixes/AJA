@@ -114,7 +114,7 @@ def _extract_claimed_deliverables(content: str) -> List[str]:
 
     # Following creation context words: e.g. "saved as: D:\foo\bar.ipynb" or "saved as foo.py"
     creation_context_pattern = re.compile(
-        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|exported\s+to|written\s+to|converted\s+and\s+saved\s+as)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
+        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|exported\s+to|written\s+to|converted\s+and\s+saved\s+as|(?:(?:at|to)\s+(?:the\s+)?)?following\s+location)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
         re.IGNORECASE,
     )
 
