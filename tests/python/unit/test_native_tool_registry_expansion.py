@@ -286,3 +286,28 @@ def test_send_telegram_message_redacts_token_on_error(monkeypatch):
         assert secret_token not in res
         assert "[REDACTED_BOT_TOKEN]" in res
 
+
+def test_send_telegram_message_dispatch_permission_allowed(monkeypatch):
+    import asyncio
+    from aja.orchestration.tools.executor import ToolExecutor
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+        mock_post.return_value = mock_resp
+
+        results = asyncio.run(ToolExecutor().dispatch_tool_calls(
+            [{"tool": "send_telegram_message", "args": {"message": "ping from dispatch"}}],
+            trace_id="tr-test-perm",
+        ))
+        assert len(results) == 1
+        res = results[0]
+        assert res.success is True
+        assert res.permission_decision == "allow"
+        assert res.authorized_scope == "python.send_telegram_message"
+        assert "successfully sent" in res.data
+
+

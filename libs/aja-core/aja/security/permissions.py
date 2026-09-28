@@ -39,6 +39,8 @@ class PermissionPolicy:
                 "shell.destructive": "ask",
                 "shell.exec.dangerous": "ask",
                 "python.*": "allow",
+                "notify.*": "allow",
+                "mobile.*": "allow",
                 "mcp.*": "ask",
                 # Web research tools (Phase 6): read-only network operations,
                 # allowed by default so autonomous research missions work

@@ -855,7 +855,7 @@ class NativeToolRegistry:
                 "name": "send_telegram_message",
                 "activity_type": "python",
                 "retry_policy": "safe",
-                "required_scope": "notify.telegram",
+                "required_scope": "python.send_telegram_message",
                 "description": "Send a notification message or ping to the operator via Telegram. Uses TELEGRAM_BOT_TOKEN (or TELEGRAM_TOKEN) and TELEGRAM_ALLOWED_USER_ID from the environment if chat_id is omitted.",
                 "parameters": {
                     "type": "object",
