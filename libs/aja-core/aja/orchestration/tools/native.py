@@ -1630,6 +1630,10 @@ class NativeToolRegistry:
         """Send a message or ping to the operator via Telegram."""
         import os
         import requests
+        try:
+            import aja.config  # ensure .env is loaded
+        except Exception:
+            pass
 
         msg = message or kwargs.get("text") or kwargs.get("content") or ""
         if not msg:
