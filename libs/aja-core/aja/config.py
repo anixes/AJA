@@ -5,9 +5,12 @@
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
+import filelock
+import platformdirs
 
 from aja.config_schema import AJAConfig
 
@@ -26,12 +29,8 @@ for primary, alias in [
 
 logger = logging.getLogger(__name__)
 
-import importlib.resources
 
-import filelock
-
-
-def find_project_root():
+def find_project_root() -> Path:
     """
     Finds the AJA project root.
 
@@ -47,10 +46,6 @@ def find_project_root():
     # Installed-wheel fallback: use the user data directory as the project root
     return Path(platformdirs.user_data_dir("AJA", "Anixes"))
 
-
-import shutil
-
-import platformdirs
 
 PROJECT_ROOT = find_project_root()
 AJA_DIVERSITY_BETA = True
@@ -95,28 +90,25 @@ if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
 
 
 # Load and validate configuration with Pydantic
-def load_and_validate_config() -> AJAConfig:
-    config_path = DATA_DIR / "aja.json"
-    if not config_path.exists() and (PROJECT_ROOT / "aja.json").exists():
-        config_path = PROJECT_ROOT / "aja.json"
-
-    if config_path.exists():
+def load_and_validate_config(config_path: Path | None = None) -> AJAConfig:
+    target_path = config_path or CONFIG_PATH
+    if target_path.exists():
         try:
-            with config_path.open("r", encoding="utf-8") as f:
+            with target_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             return AJAConfig.model_validate(data)
         except Exception as e:
-            logger.error("Configuration validation failed for %s: %s", config_path, e)
+            logger.error("Configuration validation failed for %s: %s", target_path, e)
             try:
                 from rich import print as rprint
 
                 rprint(
-                    f"\n[bold red]Configuration Validation Error:[/] Malformed config in {config_path}"
+                    f"\n[bold red]Configuration Validation Error:[/] Malformed config in {target_path}"
                 )
                 rprint(f"[bold red]{e}[/]\n")
             except ImportError:
                 print(
-                    f"\nConfiguration Validation Error: Malformed config in {config_path}"
+                    f"\nConfiguration Validation Error: Malformed config in {target_path}"
                 )
                 print(f"{e}\n")
             return AJAConfig()

@@ -29,12 +29,15 @@ silent when omitted; observability is exposed via :class:`DirectLoopHooks`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+from pathlib import Path
 import re
-import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +80,12 @@ def _default_trace_id_fn() -> str:
 
 
 def _extract_bash_commands(content: str) -> List[str]:
-    commands: List[str] = []
-    marker = "```bash" if "```bash" in content else ("```sh" if "```sh" in content else None)
-    if marker:
-        for part in content.split(marker)[1:]:
-            cmd = part.split("```")[0].strip()
-            if cmd:
-                commands.append(cmd)
-    return commands
+    """Extract bash and sh code blocks from Markdown content."""
+    if not content:
+        return []
+    pattern = re.compile(r"```(?:bash|sh)\s*\n?(.*?)\s*```", re.DOTALL)
+    commands = [m.group(1).strip() for m in pattern.finditer(content)]
+    return [cmd for cmd in commands if cmd]
 
 
 def _is_creation_objective(objective: str) -> bool:
@@ -125,6 +126,68 @@ def _extract_claimed_deliverables(content: str) -> List[str]:
             found.add(raw)
 
     return sorted(list(found))
+
+
+def _find_missing_deliverables(content: str) -> List[str]:
+    """Check disk for files claimed as created or saved, returning any that do not exist."""
+    claimed_paths = _extract_claimed_deliverables(content)
+    missing_paths = []
+    for p_str in claimed_paths:
+        try:
+            p = Path(p_str)
+            if not p.is_absolute():
+                candidate = Path.cwd() / p
+                if not candidate.exists():
+                    proj_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
+                    if proj_root and (Path(proj_root) / p).exists():
+                        candidate = Path(proj_root) / p
+                p = candidate
+            if not p.exists():
+                missing_paths.append(p_str)
+        except Exception:
+            pass
+    return missing_paths
+
+
+async def _run_verification_checks(
+    *,
+    verification_fn: Optional[Callable[[], Any]],
+    verification_cmd: Optional[str],
+    auto_verify: bool,
+) -> Tuple[bool, str]:
+    """Execute configured verification gates and return (passed, failure_prompt)."""
+    # 1. Custom verification function
+    if verification_fn:
+        try:
+            res = await verification_fn() if asyncio.iscoroutinefunction(verification_fn) else verification_fn()
+            if isinstance(res, dict) and not res.get("passed", True):
+                return False, res.get("message") or res.get("error") or str(res)
+            if hasattr(res, "passed") and not res.passed:
+                return False, getattr(res, "to_feedback_prompt", lambda: str(res))()
+        except Exception as e:
+            return False, f"Verification function error: {e}"
+
+    # 2. Command verifier
+    if verification_cmd:
+        from aja.orchestration.verification_runner import run_command_verifier
+
+        c_res = await run_command_verifier(verification_cmd)
+        if not c_res.passed:
+            return False, c_res.to_feedback_prompt()
+
+    # 3. Auto-verify syntax on Python files if enabled
+    if auto_verify:
+        from aja.orchestration.verification_runner import verify_python_syntax
+
+        py_files = [
+            p for p in Path(".").glob("**/*.py")
+            if "venv" not in p.parts and ".git" not in p.parts
+        ][:50]
+        s_res = verify_python_syntax(py_files)
+        if not s_res.passed:
+            return False, s_res.to_feedback_prompt()
+
+    return True, ""
 
 
 
@@ -353,26 +416,7 @@ async def run_direct_loop(
             # Deliverable Verification Gate: ensure files claimed as created/saved actually exist on disk
             # ONLY run if the objective involves creating/generating/saving deliverables!
             if _is_creation_objective(objective):
-                from pathlib import Path
-                import os
-
-                claimed_paths = _extract_claimed_deliverables(content)
-                missing_paths = []
-                for p_str in claimed_paths:
-                    try:
-                        p = Path(p_str)
-                        if not p.is_absolute():
-                            candidate = Path.cwd() / p
-                            if not candidate.exists():
-                                proj_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
-                                if proj_root and (Path(proj_root) / p).exists():
-                                    candidate = Path(proj_root) / p
-                            p = candidate
-                        if not p.exists():
-                            missing_paths.append(p_str)
-                    except Exception:
-                        pass
-
+                missing_paths = _find_missing_deliverables(content)
                 if missing_paths and deliverable_attempts < max_deliverable_retries:
                     deliverable_attempts += 1
                     if console:
@@ -399,51 +443,16 @@ async def run_direct_loop(
                         f"[bold cyan]🔍 [Verification Gate] Running verification (attempt {verification_attempts}/{max_verification_retries})...[/]"
                     )
 
-                passed = True
-                failure_prompt = ""
-
-                # 1. Custom verification function
-                if verification_fn:
-                    try:
-                        import asyncio
-                        res = await verification_fn() if asyncio.iscoroutinefunction(verification_fn) else verification_fn()
-                        if isinstance(res, dict) and not res.get("passed", True):
-                            passed = False
-                            failure_prompt = res.get("message") or res.get("error") or str(res)
-                        elif hasattr(res, "passed") and not res.passed:
-                            passed = False
-                            failure_prompt = getattr(res, "to_feedback_prompt", lambda: str(res))()
-                    except Exception as e:
-                        passed = False
-                        failure_prompt = f"Verification function error: {e}"
-
-                # 2. Command verifier
-                if passed and verification_cmd:
-                    from aja.orchestration.verification_runner import run_command_verifier
-
-                    c_res = await run_command_verifier(verification_cmd)
-                    if not c_res.passed:
-                        passed = False
-                        failure_prompt = c_res.to_feedback_prompt()
-
-                # 3. Auto-verify syntax on Python files if enabled
-                if passed and auto_verify:
-                    from aja.orchestration.verification_runner import verify_python_syntax
-                    from pathlib import Path
-
-                    py_files = [
-                        p for p in Path(".").glob("**/*.py")
-                        if "venv" not in p.parts and ".git" not in p.parts
-                    ][:50]
-                    s_res = verify_python_syntax(py_files)
-                    if not s_res.passed:
-                        passed = False
-                        failure_prompt = s_res.to_feedback_prompt()
+                passed, failure_prompt = await _run_verification_checks(
+                    verification_fn=verification_fn,
+                    verification_cmd=verification_cmd,
+                    auto_verify=auto_verify,
+                )
 
                 if not passed:
                     if console:
                         console.print(
-                            f"[bold red]✘ [Verification Gate Failed][/bold red] Injecting failure feedback for self-correction..."
+                            "[bold red]✘ [Verification Gate Failed][/bold red] Injecting failure feedback for self-correction..."
                         )
                     feedback_msg = (
                         f"{failure_prompt}\n\n"
@@ -452,9 +461,8 @@ async def run_direct_loop(
                     )
                     history.append({"role": "user", "content": feedback_msg})
                     continue  # Loop again to allow the model to fix the error!
-                else:
-                    if console:
-                        console.print(f"[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
+                elif console:
+                    console.print("[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
 
             elif needs_verification and verification_attempts >= max_verification_retries:
                 if console:

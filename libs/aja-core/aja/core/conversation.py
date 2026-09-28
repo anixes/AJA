@@ -601,8 +601,8 @@ class ConversationCore:
                 rec = await _maybe_await(self._mission_store.create_mission(intent.task))
                 if isinstance(rec, dict) and rec.get("mission_id"):
                     mid = rec["mission_id"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Mission creation in mission_store failed: %s", e)
         if not mid:
             mid = f"M-{uuid.uuid4().hex[:8]}"
 
@@ -621,15 +621,15 @@ class ConversationCore:
                 created = await _maybe_await(self._task_store.create_task(dict(task_entry)))
                 if isinstance(created, dict):
                     task_id = created.get("task_id") or created.get("id")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Task creation in task_store failed: %s", e)
         if not task_id:
             try:
                 from aja.persistence.tasks import create_task, update_task_status
                 task_id = create_task({"task": intent.task, "mission_id": mid})
                 update_task_status(task_id, "RUNNING")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Persistence task creation failed: %s", e)
 
         yield Delta(
             text=(
@@ -661,16 +661,16 @@ class ConversationCore:
                     from aja.persistence.tasks import update_task_status
                     final_db_status = "COMPLETED" if (has_final and not has_error) else "FAILED"
                     update_task_status(task_id, final_db_status)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to update final task status: %s", e)
             task_entry["status"] = "completed" if (has_final and not has_error) else "failed"
         except Exception:
             if task_id:
                 try:
                     from aja.persistence.tasks import update_task_status
                     update_task_status(task_id, "FAILED")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to update failure task status: %s", e)
             task_entry["status"] = "failed"
             raise
 

@@ -1,10 +1,12 @@
+from dataclasses import dataclass, field
 import fnmatch
+import os
 import re
 import sys
+import threading
 import time
-import uuid
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Optional
+import uuid
 
 from aja.security.command_guard import command_allowed
 
@@ -83,10 +85,6 @@ class PermissionPolicy:
         # Prefer the most specific remaining rule.
         matches.sort(key=lambda item: _specificity(item[0]), reverse=True)
         return matches[0][1], matches[0][0]
-
-
-import threading
-
 
 class PermissionEngine:
     _session_grants: set[str] = set()
@@ -214,7 +212,6 @@ class PermissionEngine:
                 except Exception:
                     return False
 
-            import os
             if not sys.stdin or not sys.stdin.isatty() or os.environ.get("PYTEST_CURRENT_TEST"):
                 return False
 

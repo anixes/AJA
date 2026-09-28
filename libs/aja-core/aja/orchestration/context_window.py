@@ -179,6 +179,15 @@ def truncate_tool_result(raw: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> st
     return truncated
 
 
+def _pop_leading_tool_messages(messages: List[Dict[str, Any]]) -> int:
+    """Pop consecutive role='tool' messages at index 1 to maintain valid turn pairing."""
+    dropped = 0
+    while len(messages) > 2 and messages[1].get("role") == "tool":
+        messages.pop(1)
+        dropped += 1
+    return dropped
+
+
 def atomic_prune_messages(messages: List[Dict[str, Any]], target_drops: int = 1) -> int:
     """Safely drop at least `target_drops` older turns/steps from index 1 forward,
     preserving messages[0] (initial prompt / objective).
@@ -195,20 +204,12 @@ def atomic_prune_messages(messages: List[Dict[str, Any]], target_drops: int = 1)
 
     dropped = 0
     while len(messages) > 2 and dropped < target_drops:
-        item = messages.pop(1)
-        dropped += 1
-        if item.get("tool_calls"):
-            while len(messages) > 2 and messages[1].get("role") == "tool":
-                messages.pop(1)
-                dropped += 1
-        while len(messages) > 2 and messages[1].get("role") == "tool":
-            messages.pop(1)
-            dropped += 1
-
-    # Defensive final sweep: ensure index 1 is not an orphaned role="tool"
-    while len(messages) > 2 and messages[1].get("role") == "tool":
         messages.pop(1)
         dropped += 1
+        dropped += _pop_leading_tool_messages(messages)
+
+    # Defensive final sweep: ensure index 1 is not an orphaned role="tool"
+    dropped += _pop_leading_tool_messages(messages)
 
     return dropped
 
