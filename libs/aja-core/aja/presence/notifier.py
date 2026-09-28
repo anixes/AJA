@@ -38,11 +38,13 @@ def _can_send(event_type: str, message: str) -> bool:
     return True
 
 def _send_telegram(message: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or TELEGRAM_BOT_TOKEN
+    chat_id = os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID") or TELEGRAM_CHAT_ID
+    if not token or not chat_id:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": f"🤖 *Agent Alert*\n\n{message}",
         "parse_mode": "Markdown"
     }

@@ -126,6 +126,8 @@ class NativeToolRegistry:
         self.tools["fetch_url"] = self.fetch_url
         self.tools["inspect_host_hardware"] = self.inspect_host_hardware
         self.tools["manage_local_models"] = self.manage_local_models
+        self.tools["send_telegram_message"] = self.send_telegram_message
+        self.tools["notify_telegram"] = self.send_telegram_message
         try:
             from aja.orchestration.tools.mobile import (
                 mobile_send_sms,
@@ -847,6 +849,30 @@ class NativeToolRegistry:
                 }
             }
         })
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": "send_telegram_message",
+                "activity_type": "python",
+                "retry_policy": "safe",
+                "required_scope": "notify.telegram",
+                "description": "Send a notification message or ping to the operator via Telegram. Uses TELEGRAM_BOT_TOKEN (or TELEGRAM_TOKEN) and TELEGRAM_ALLOWED_USER_ID from the environment if chat_id is omitted.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "message": {
+                            "type": "string",
+                            "description": "The message text to send to the operator via Telegram."
+                        },
+                        "chat_id": {
+                            "type": "string",
+                            "description": "Optional Telegram chat ID or user ID. If omitted, defaults to the configured TELEGRAM_ALLOWED_USER_ID."
+                        }
+                    },
+                    "required": ["message"]
+                }
+            }
+        })
         try:
             from aja.api.mcp_client import get_default_mcp_manager
             for schema in get_default_mcp_manager().get_registry_schemas():
@@ -876,6 +902,14 @@ class NativeToolRegistry:
             if "cmd" not in arguments and "command" in arguments:
                 arguments = dict(arguments)
                 arguments["cmd"] = arguments.pop("command")
+        elif name in ("notify_telegram", "send_telegram_message"):
+            name = "send_telegram_message"
+            if "message" not in arguments and "text" in arguments:
+                arguments = dict(arguments)
+                arguments["message"] = arguments.pop("text")
+            elif "message" not in arguments and "content" in arguments:
+                arguments = dict(arguments)
+                arguments["message"] = arguments.pop("content")
         if name not in self.tools:
             return f"Error: Tool '{name}' not found."
         try:
@@ -909,6 +943,14 @@ class NativeToolRegistry:
             if "cmd" not in arguments and "command" in arguments:
                 arguments = dict(arguments)
                 arguments["cmd"] = arguments.pop("command")
+        elif original_name in ("notify_telegram", "send_telegram_message"):
+            original_name = "send_telegram_message"
+            if "message" not in arguments and "text" in arguments:
+                arguments = dict(arguments)
+                arguments["message"] = arguments.pop("text")
+            elif "message" not in arguments and "content" in arguments:
+                arguments = dict(arguments)
+                arguments["message"] = arguments.pop("content")
         schema = next(
             (
                 t["function"]
@@ -1583,3 +1625,47 @@ class NativeToolRegistry:
             return f"Error: Unknown action '{action}'. Valid actions: status, list, start, stop, activate."
         except Exception as e:
             return f"Error managing local models: {e}"
+
+    def send_telegram_message(self, message: str = "", chat_id: Optional[str] = None, **kwargs) -> str:
+        """Send a message or ping to the operator via Telegram."""
+        import os
+        import requests
+
+        msg = message or kwargs.get("text") or kwargs.get("content") or ""
+        if not msg:
+            return "Error: 'message' parameter is required for sending a Telegram message."
+
+        token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+        target_chat_id = chat_id or os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+
+        if not token:
+            return (
+                "Error: Telegram bot token not configured. Please set TELEGRAM_BOT_TOKEN "
+                "(or TELEGRAM_TOKEN) in your environment or .env file."
+            )
+        if not target_chat_id:
+            return (
+                "Error: Telegram chat/user ID not configured. Please specify a chat_id or set "
+                "TELEGRAM_ALLOWED_USER_ID (or TELEGRAM_CHAT_ID) in your environment or .env file."
+            )
+
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": str(target_chat_id),
+            "text": msg,
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=10)
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if resp.status_code == 200 and data.get("ok"):
+                return f"Telegram message successfully sent to chat {target_chat_id}."
+            desc = data.get("description", resp.text)
+            return f"Error sending Telegram message: HTTP {resp.status_code} - {desc}"
+        except Exception as e:
+            safe_err = redact_secrets(str(e))
+            if token:
+                safe_err = safe_err.replace(token, "[REDACTED_BOT_TOKEN]")
+            return f"Error sending Telegram message: {safe_err}"

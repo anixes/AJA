@@ -201,3 +201,88 @@ def test_shell_and_bash_tool_aliases():
         act = registry.dispatch("shell", {"command": "echo hello alias"}, trace_id="tr-1")
         assert act.tool == "run_shell_command"
         assert act.args["cmd"] == "echo hello alias"
+
+
+def test_send_telegram_message_schema():
+    registry = NativeToolRegistry()
+    schema_names = [s["function"]["name"] for s in registry.get_schemas()]
+    assert "send_telegram_message" in schema_names
+
+
+def test_send_telegram_message_success(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    registry = NativeToolRegistry()
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+        mock_post.return_value = mock_resp
+
+        res = registry.execute("send_telegram_message", {"message": "ping from test"})
+        assert "Telegram message successfully sent to chat 445566" in res
+
+        mock_post.assert_called_once_with(
+            "https://api.telegram.org/bot123:mock_token/sendMessage",
+            json={"chat_id": "445566", "text": "ping from test"},
+            timeout=10,
+        )
+
+
+def test_send_telegram_message_alias_and_param_mapping(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    registry = NativeToolRegistry()
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+        mock_post.return_value = mock_resp
+
+        # Test execute via notify_telegram alias with text argument
+        res = registry.execute("notify_telegram", {"text": "hello via alias"})
+        assert "Telegram message successfully sent to chat 445566" in res
+        assert mock_post.call_args[1]["json"]["text"] == "hello via alias"
+
+        # Test dispatch normalization
+        act = registry.dispatch("notify_telegram", {"text": "hello via alias"}, trace_id="tr-tg")
+        assert act.tool == "send_telegram_message"
+        assert act.args["message"] == "hello via alias"
+
+
+def test_send_telegram_message_missing_config(monkeypatch):
+    registry = NativeToolRegistry()
+
+    # Missing token
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    res_no_tok = registry.execute("send_telegram_message", {"message": "ping"})
+    assert "bot token not configured" in res_no_tok.lower()
+
+    # Missing chat id
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    monkeypatch.delenv("TELEGRAM_ALLOWED_USER_ID", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    res_no_chat = registry.execute("send_telegram_message", {"message": "ping"})
+    assert "chat/user id not configured" in res_no_chat.lower()
+
+    # Empty message
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    res_empty = registry.execute("send_telegram_message", {"message": ""})
+    assert "'message' parameter is required" in res_empty
+
+
+def test_send_telegram_message_redacts_token_on_error(monkeypatch):
+    secret_token = "123456:secret_bot_token_abc"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", secret_token)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    registry = NativeToolRegistry()
+
+    with patch("requests.post", side_effect=RuntimeError(f"Failed to reach https://api.telegram.org/bot{secret_token}/sendMessage")):
+        res = registry.execute("send_telegram_message", {"message": "ping"})
+        assert secret_token not in res
+        assert "[REDACTED_BOT_TOKEN]" in res
+

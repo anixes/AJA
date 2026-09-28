@@ -14,6 +14,17 @@ from aja.config_schema import AJAConfig
 # Load environment variables from .env file (override stale OS variables)
 load_dotenv(override=True)
 
+# Normalize Telegram env aliases across components
+if not os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_TOKEN"):
+    os.environ["TELEGRAM_BOT_TOKEN"] = os.environ["TELEGRAM_TOKEN"]
+elif not os.environ.get("TELEGRAM_TOKEN") and os.environ.get("TELEGRAM_BOT_TOKEN"):
+    os.environ["TELEGRAM_TOKEN"] = os.environ["TELEGRAM_BOT_TOKEN"]
+
+if not os.environ.get("TELEGRAM_CHAT_ID") and os.environ.get("TELEGRAM_ALLOWED_USER_ID"):
+    os.environ["TELEGRAM_CHAT_ID"] = os.environ["TELEGRAM_ALLOWED_USER_ID"]
+elif not os.environ.get("TELEGRAM_ALLOWED_USER_ID") and os.environ.get("TELEGRAM_CHAT_ID"):
+    os.environ["TELEGRAM_ALLOWED_USER_ID"] = os.environ["TELEGRAM_CHAT_ID"]
+
 logger = logging.getLogger(__name__)
 
 import importlib.resources
