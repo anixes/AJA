@@ -15,15 +15,14 @@ from aja.config_schema import AJAConfig
 load_dotenv(override=True)
 
 # Normalize Telegram env aliases across components
-if not os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_TOKEN"):
-    os.environ["TELEGRAM_BOT_TOKEN"] = os.environ["TELEGRAM_TOKEN"]
-elif not os.environ.get("TELEGRAM_TOKEN") and os.environ.get("TELEGRAM_BOT_TOKEN"):
-    os.environ["TELEGRAM_TOKEN"] = os.environ["TELEGRAM_BOT_TOKEN"]
-
-if not os.environ.get("TELEGRAM_CHAT_ID") and os.environ.get("TELEGRAM_ALLOWED_USER_ID"):
-    os.environ["TELEGRAM_CHAT_ID"] = os.environ["TELEGRAM_ALLOWED_USER_ID"]
-elif not os.environ.get("TELEGRAM_ALLOWED_USER_ID") and os.environ.get("TELEGRAM_CHAT_ID"):
-    os.environ["TELEGRAM_ALLOWED_USER_ID"] = os.environ["TELEGRAM_CHAT_ID"]
+for primary, alias in [
+    ("TELEGRAM_BOT_TOKEN", "TELEGRAM_TOKEN"),
+    ("TELEGRAM_CHAT_ID", "TELEGRAM_ALLOWED_USER_ID"),
+]:
+    val = os.environ.get(primary) or os.environ.get(alias)
+    if val:
+        os.environ.setdefault(primary, val)
+        os.environ.setdefault(alias, val)
 
 logger = logging.getLogger(__name__)
 

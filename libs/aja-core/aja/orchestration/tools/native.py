@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 import traceback
@@ -895,21 +895,31 @@ class NativeToolRegistry:
         target["name"] = safe
         return sanitized
 
+    @staticmethod
+    def _normalize_tool_call(name: str, arguments: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """Normalize tool aliases and argument variations."""
+        normalized_name = desanitize_tool_name(name)
+        normalized_args = arguments
+
+        if normalized_name in ("shell", "bash"):
+            normalized_name = "run_shell_command"
+            if "cmd" not in normalized_args and "command" in normalized_args:
+                normalized_args = dict(normalized_args)
+                normalized_args["cmd"] = normalized_args.pop("command")
+        elif normalized_name in ("notify_telegram", "send_telegram_message"):
+            normalized_name = "send_telegram_message"
+            if "message" not in normalized_args:
+                if "text" in normalized_args:
+                    normalized_args = dict(normalized_args)
+                    normalized_args["message"] = normalized_args.pop("text")
+                elif "content" in normalized_args:
+                    normalized_args = dict(normalized_args)
+                    normalized_args["message"] = normalized_args.pop("content")
+
+        return normalized_name, normalized_args
+
     def execute(self, name: str, arguments: Dict[str, Any]) -> str:
-        name = desanitize_tool_name(name)
-        if name in ("shell", "bash"):
-            name = "run_shell_command"
-            if "cmd" not in arguments and "command" in arguments:
-                arguments = dict(arguments)
-                arguments["cmd"] = arguments.pop("command")
-        elif name in ("notify_telegram", "send_telegram_message"):
-            name = "send_telegram_message"
-            if "message" not in arguments and "text" in arguments:
-                arguments = dict(arguments)
-                arguments["message"] = arguments.pop("text")
-            elif "message" not in arguments and "content" in arguments:
-                arguments = dict(arguments)
-                arguments["message"] = arguments.pop("content")
+        name, arguments = self._normalize_tool_call(name, arguments)
         if name not in self.tools:
             return f"Error: Tool '{name}' not found."
         try:
@@ -937,20 +947,7 @@ class NativeToolRegistry:
 
     def dispatch(self, name: str, arguments: Dict[str, Any], trace_id: str) -> Any:
         from aja.orchestration.activity_rt import Activity, ActivityType, RetryPolicy
-        original_name = desanitize_tool_name(name)
-        if original_name in ("shell", "bash"):
-            original_name = "run_shell_command"
-            if "cmd" not in arguments and "command" in arguments:
-                arguments = dict(arguments)
-                arguments["cmd"] = arguments.pop("command")
-        elif original_name in ("notify_telegram", "send_telegram_message"):
-            original_name = "send_telegram_message"
-            if "message" not in arguments and "text" in arguments:
-                arguments = dict(arguments)
-                arguments["message"] = arguments.pop("text")
-            elif "message" not in arguments and "content" in arguments:
-                arguments = dict(arguments)
-                arguments["message"] = arguments.pop("content")
+        original_name, arguments = self._normalize_tool_call(name, arguments)
         schema = next(
             (
                 t["function"]
