@@ -8,6 +8,7 @@ import pytest
 
 from aja.orchestration.direct_loop import (
     _extract_claimed_deliverables,
+    _find_missing_deliverables,
     run_direct_loop,
 )
 from aja.orchestration.tools.native import NativeToolRegistry
@@ -43,6 +44,52 @@ def test_extract_claimed_deliverables():
     msg4 = "I checked the dataset and found 891 rows. Let me know if you would like me to plot charts."
     extracted4 = _extract_claimed_deliverables(msg4)
     assert len(extracted4) == 0
+
+    # 5. False positive conversational phrasing with spaces must NOT be extracted
+    msg5 = "The report has been saved to the output folder as report.md"
+    extracted5 = _extract_claimed_deliverables(msg5)
+    assert extracted5 == []
+
+    # 6. Delimited paths with spaces should be extracted
+    msg6 = "The summary was saved as `my custom report.csv` and exported to \"final results.json\"."
+    extracted6 = _extract_claimed_deliverables(msg6)
+    assert "my custom report.csv" in extracted6
+    assert "final results.json" in extracted6
+
+
+def test_find_missing_deliverables_resolves_active_workspace(tmp_path: Path):
+    from aja.workspace.context import WorkspaceContext, set_current_workspace, reset_current_workspace
+
+    ws_dir = tmp_path / "workspace_alpha"
+    ws_dir.mkdir(parents=True)
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir(parents=True)
+
+    ctx = WorkspaceContext(
+        id="ws-alpha",
+        name="workspace_alpha",
+        path=ws_dir,
+        storage_dir=storage_dir,
+    )
+
+    # Create a deliverable file inside the workspace
+    ws_file = ws_dir / "deliverable_output.py"
+    ws_file.write_text("print('workspace file')", encoding="utf-8")
+
+    token = set_current_workspace(ctx)
+    try:
+        # File exists in active workspace, should NOT be reported as missing
+        content_found = "I have finished the task and saved as: deliverable_output.py"
+        missing = _find_missing_deliverables(content_found)
+        assert missing == []
+
+        # File does not exist anywhere, should be reported missing
+        content_missing = "I have finished the task and saved as: nonexistent_output.py"
+        missing_real = _find_missing_deliverables(content_missing)
+        assert missing_real == ["nonexistent_output.py"]
+    finally:
+        reset_current_workspace(token)
+
 
 
 def test_write_file_auto_wraps_ipynb(tmp_path: Path):

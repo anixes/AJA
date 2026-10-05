@@ -114,14 +114,21 @@ def _extract_claimed_deliverables(content: str) -> List[str]:
         return []
 
     # Following creation context words: e.g. "saved as: D:\foo\bar.ipynb" or "saved as foo.py"
+    # Bare relative paths exclude whitespace to prevent false matches on conversational English (e.g. "saved to the output folder as report.md").
+    # Paths with spaces are supported when quoted, backticked, or absolute.
     creation_context_pattern = re.compile(
-        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|exported\s+to|written\s+to|converted\s+and\s+saved\s+as|(?:(?:at|to)\s+(?:the\s+)?)?following\s+location)[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\s\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b",
+        r"(?:saved\s+(?:as|to)|created\s+(?:at|as|and\s+saved\s+as)|exported\s+to|written\s+to|converted\s+and\s+saved\s+as|(?:(?:at|to)\s+(?:the\s+)?)?following\s+location)"
+        r"(?:"
+        r"[\s\:\*]*[`\'\"]([^\`\'\"\r\n]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))[`\'\"]"
+        r"|"
+        r"[\s\:\*\`\'\"]+([A-Za-z]:\\[^\r\n\*`\'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|/[^\r\n\*`\'\"]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf)|[\w\-\.\/\\]+?\.(?:ipynb|py|csv|json|html|txt|md|png|jpg|jpeg|svg|pdf))\b"
+        r")",
         re.IGNORECASE,
     )
 
     found = set()
     for m in creation_context_pattern.finditer(content):
-        raw = m.group(1).strip().rstrip("'*`\".,;: ")
+        raw = (m.group(1) or m.group(2) or "").strip().rstrip("'*`\".,;: ")
         if raw and "." in raw:
             found.add(raw)
 
@@ -132,18 +139,42 @@ def _find_missing_deliverables(content: str) -> List[str]:
     """Check disk for files claimed as created or saved, returning any that do not exist."""
     claimed_paths = _extract_claimed_deliverables(content)
     missing_paths = []
+
+    # Determine potential root locations for relative paths:
+    # 1. Active workspace root (if set)
+    # 2. Process current working directory
+    # 3. Environment or config project root
+    search_roots = []
+    try:
+        from aja.workspace.context import get_current_workspace
+        ctx = get_current_workspace()
+        if ctx and ctx.path:
+            search_roots.append(ctx.path.resolve())
+    except Exception:
+        pass
+
+    search_roots.append(Path.cwd().resolve())
+
+    env_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
+    if env_root:
+        search_roots.append(Path(env_root).resolve())
+    try:
+        from aja.config import PROJECT_ROOT
+        if PROJECT_ROOT:
+            search_roots.append(Path(PROJECT_ROOT).resolve())
+    except Exception:
+        pass
+
     for p_str in claimed_paths:
         try:
             p = Path(p_str)
-            if not p.is_absolute():
-                candidate = Path.cwd() / p
-                if not candidate.exists():
-                    proj_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
-                    if proj_root and (Path(proj_root) / p).exists():
-                        candidate = Path(proj_root) / p
-                p = candidate
-            if not p.exists():
-                missing_paths.append(p_str)
+            if p.is_absolute():
+                if not p.exists():
+                    missing_paths.append(p_str)
+            else:
+                exists = any((root / p).exists() for root in search_roots)
+                if not exists:
+                    missing_paths.append(p_str)
         except Exception:
             pass
     return missing_paths
