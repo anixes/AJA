@@ -39,21 +39,16 @@ def cmd_status(agent_mode: bool = False):
                     data = json.load(f)
                 ts = data.get("timestamp") or b.stat().st_mtime
                 ttl = data.get("ttl", 3600)
-                if ts and (now - ts > ttl):
-                    try:
-                        b.unlink(missing_ok=True)
-                        arrow_file = b.with_suffix(".arrow")
-                        if arrow_file.exists():
-                            arrow_file.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-                    continue
+                is_stale = bool(ts and (now - ts > ttl))
 
                 obj = (
                     data.get("objective")
                     or data.get("goal")
                     or data.get("metadata", {}).get("objective", "Active Mission")
                 )
+                if is_stale:
+                    obj = f"[yellow]\\[stale][/yellow] {obj}"
+
                 updated_at = data.get("updated_at")
                 if not updated_at and ts:
                     updated_at = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
