@@ -284,7 +284,9 @@ class PermissionEngine:
         try:
             from aja.config import CONFIG
             if getattr(CONFIG.swarm_settings, "auto_proceed_local", False):
-                return True
+                # Sensitive secret files must never be auto-approved silently without an explicit session grant
+                if not scope.endswith(".sensitive"):
+                    return True
         except Exception:
             pass
 

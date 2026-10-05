@@ -392,9 +392,11 @@ def test_sensitive_secret_path_requires_permission(tmp_path):
     PermissionEngine.clear_session_grants()
     orig_root = aja.config.PROJECT_ROOT
     orig_allow = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
+    orig_auto = getattr(aja.config.CONFIG.swarm_settings, "auto_proceed_local", False)
     try:
         aja.config.PROJECT_ROOT = tmp_path
         aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
+        aja.config.CONFIG.swarm_settings.auto_proceed_local = False
         registry = NativeToolRegistry()
 
         # Create sensitive files in project root
@@ -414,6 +416,7 @@ def test_sensitive_secret_path_requires_permission(tmp_path):
     finally:
         aja.config.PROJECT_ROOT = orig_root
         aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_allow
+        aja.config.CONFIG.swarm_settings.auto_proceed_local = orig_auto
 
 
 def test_workspace_isolation_blocks_project_root_writes(tmp_path):
