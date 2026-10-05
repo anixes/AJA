@@ -188,10 +188,16 @@ class ACPServer:
         )
         task = asyncio.create_task(loop_coro)
         self.active_tasks[session_id] = task
+        from aja.security.permissions import (
+            set_current_permission_session,
+            reset_current_permission_session,
+        )
 
+        perm_token = set_current_permission_session(f"acp:{session_id}")
         try:
             outcome = await task
         finally:
+            reset_current_permission_session(perm_token)
             self.active_tasks.pop(session_id, None)
 
         # Emit completion notification

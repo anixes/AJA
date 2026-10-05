@@ -88,13 +88,98 @@ class PermissionPolicy:
         matches.sort(key=lambda item: _specificity(item[0]), reverse=True)
         return matches[0][1], matches[0][0]
 
+from contextvars import ContextVar
+
+_current_perm_session_var: ContextVar[Optional[str]] = ContextVar(
+    "current_permission_session_id", default=None
+)
+
+
+def get_current_permission_session() -> str:
+    explicit = _current_perm_session_var.get()
+    if explicit:
+        return explicit
+    try:
+        from aja.workspace.context import get_current_workspace
+        ws = get_current_workspace()
+        if ws and getattr(ws, "id", None):
+            return f"ws:{ws.id}"
+    except Exception:
+        pass
+    return "default"
+
+
+def set_current_permission_session(session_id: str) -> Any:
+    return _current_perm_session_var.set(session_id)
+
+
+def reset_current_permission_session(token: Any) -> None:
+    _current_perm_session_var.reset(token)
+
+
+class _SessionGrantsProxy:
+    """Provides a backward-compatible set-like interface to active session grants."""
+
+    def add(self, scope: str, ttl_s: float = 3600.0) -> None:
+        PermissionEngine.add_session_grant(scope, ttl_s=ttl_s)
+
+    def remove(self, scope: str) -> None:
+        PermissionEngine.remove_session_grant(scope)
+
+    def discard(self, scope: str) -> None:
+        PermissionEngine.remove_session_grant(scope)
+
+    def clear(self) -> None:
+        PermissionEngine.clear_session_grants()
+
+    def __contains__(self, scope: Any) -> bool:
+        return PermissionEngine.has_session_grant(str(scope))
+
+    def __iter__(self):
+        sid = get_current_permission_session()
+        grants = PermissionEngine._grants_store.get(sid, {})
+        now = time.monotonic()
+        return iter([k for k, exp in grants.items() if exp >= now])
+
+    def __len__(self) -> int:
+        return len(list(iter(self)))
+
+
 class PermissionEngine:
-    _session_grants: set[str] = set()
+    _grants_store: Dict[str, Dict[str, float]] = {}  # session_id -> {scope: expiry_time}
+    _session_grants: _SessionGrantsProxy = _SessionGrantsProxy()
     _ask_lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def clear_session_grants(cls) -> None:
-        cls._session_grants.clear()
+    def clear_session_grants(cls, session_id: Optional[str] = None) -> None:
+        if session_id:
+            cls._grants_store.pop(session_id, None)
+        else:
+            cls._grants_store.clear()
+
+    @classmethod
+    def add_session_grant(cls, scope: str, session_id: Optional[str] = None, ttl_s: float = 3600.0) -> None:
+        sid = session_id or get_current_permission_session()
+        now = time.monotonic()
+        if sid not in cls._grants_store:
+            cls._grants_store[sid] = {}
+        cls._grants_store[sid][scope] = now + ttl_s
+
+    @classmethod
+    def remove_session_grant(cls, scope: str, session_id: Optional[str] = None) -> None:
+        sid = session_id or get_current_permission_session()
+        if sid in cls._grants_store:
+            cls._grants_store[sid].pop(scope, None)
+
+    @classmethod
+    def has_session_grant(cls, scope: str, session_id: Optional[str] = None) -> bool:
+        sid = session_id or get_current_permission_session()
+        grants = cls._grants_store.get(sid, {})
+        now = time.monotonic()
+        expired = [k for k, exp in grants.items() if exp < now]
+        for k in expired:
+            del grants[k]
+        return scope in grants or any(_scope_matches(pattern, scope) for pattern in grants)
 
     def __init__(
         self,
@@ -116,17 +201,17 @@ class PermissionEngine:
         decision, matched_scope = self.policy.decision_for(scope)
         grant_id = f"grant-{uuid.uuid4().hex[:12]}"
 
-        # Check session grants cache first (e.g. user already approved fs.write.global in this session)
-        if scope in self._session_grants or any(_scope_matches(pattern, scope) for pattern in self._session_grants):
-            _emit(journal, "PERMISSION_GRANTED", {
+        # 1. Deny ALWAYS wins over any grants or allowances
+        if decision == "deny":
+            _emit(journal, "PERMISSION_DENIED", {
                 "scope": scope,
                 "matched_scope": matched_scope,
-                "decision": "allow",
-                "grant_id": grant_id,
-                "reason": f"{reason} (session grant)",
+                "decision": decision,
+                "reason": reason or "Permission policy denied this scope.",
             })
-            return AuthorizationResult(True, "allow", scope, reason, grant_id, matched_scope)
+            return AuthorizationResult(False, decision, scope, reason, None, matched_scope)
 
+        # 2. Allow
         if decision == "allow":
             _emit(journal, "PERMISSION_GRANTED", {
                 "scope": scope,
@@ -137,14 +222,17 @@ class PermissionEngine:
             })
             return AuthorizationResult(True, decision, scope, reason, grant_id, matched_scope)
 
-        if decision == "deny":
-            _emit(journal, "PERMISSION_DENIED", {
+        # 3. Check session grants for 'ask' scopes
+        effective_session = mission_id or get_current_permission_session()
+        if self.has_session_grant(scope, session_id=effective_session):
+            _emit(journal, "PERMISSION_GRANTED", {
                 "scope": scope,
                 "matched_scope": matched_scope,
-                "decision": decision,
-                "reason": reason or "Permission policy denied this scope.",
+                "decision": "allow",
+                "grant_id": grant_id,
+                "reason": f"{reason} (session grant)",
             })
-            return AuthorizationResult(False, decision, scope, reason, None, matched_scope)
+            return AuthorizationResult(True, "allow", scope, reason, grant_id, matched_scope)
 
         _emit(journal, "PERMISSION_REQUESTED", {
             "scope": scope,
@@ -167,7 +255,7 @@ class PermissionEngine:
             })
             return AuthorizationResult(False, "ask", scope, "Dry-run permission request defaulted to deny.", grant_id, matched_scope)
 
-        approved = self._ask(scope, reason)
+        approved = self._ask(scope, reason, session_id=effective_session)
         if approved:
             _emit(journal, "PERMISSION_GRANTED", {
                 "scope": scope,
@@ -187,29 +275,29 @@ class PermissionEngine:
         })
         return AuthorizationResult(False, "ask", scope, "Permission request timed out or was denied.", grant_id, matched_scope)
 
-    def _ask(self, scope: str, reason: str) -> bool:
+    def _ask(self, scope: str, reason: str, session_id: Optional[str] = None) -> bool:
         timeout_s = self.policy.ask_timeout_s
         if timeout_s <= 0:
             return False
 
+        effective_session = session_id or get_current_permission_session()
         try:
             from aja.config import CONFIG
             if getattr(CONFIG.swarm_settings, "auto_proceed_local", False):
-                self._session_grants.add(scope)
                 return True
         except Exception:
             pass
 
         with self._ask_lock:
             # Re-check session grants inside lock in case a concurrent worker already obtained approval
-            if scope in self._session_grants or any(_scope_matches(pattern, scope) for pattern in self._session_grants):
+            if self.has_session_grant(scope, session_id=effective_session):
                 return True
 
             if self.approval_provider:
                 try:
                     res = bool(self.approval_provider(scope, reason, timeout_s))
                     if res:
-                        self._session_grants.add(scope)
+                        self.add_session_grant(scope, session_id=effective_session)
                     return res
                 except Exception:
                     return False
@@ -237,7 +325,7 @@ class PermissionEngine:
             print()
             approved = "".join(chars).strip().lower() in {"y", "yes"}
             if approved:
-                self._session_grants.add(scope)
+                self.add_session_grant(scope, session_id=effective_session)
             return approved
 
 
