@@ -1075,12 +1075,33 @@ class NativeToolRegistry:
     def _validate_path(self, path: str, mode: str = "read") -> Optional[str]:
         from aja.config import PROJECT_ROOT, CONFIG
         from aja.workspace.context import get_current_workspace
+        from aja.security.permissions import PermissionEngine
         try:
             ctx = get_current_workspace()
             active_root = ctx.path.resolve() if (ctx and ctx.path) else Path(PROJECT_ROOT).resolve()
             proj_root = Path(PROJECT_ROOT).resolve()
 
             p = self._resolve_path(path)
+
+            # Check for sensitive secret paths (credentials, env files, keys)
+            name_lower = p.name.lower()
+            parts_lower = [part.lower() for part in p.parts]
+            is_sensitive = (
+                name_lower == ".env"
+                or name_lower.startswith(".env.")
+                or ".ssh" in parts_lower
+                or name_lower in ("id_rsa", "id_ed25519", "authorized_keys", "known_hosts", "credentials.json", ".netrc")
+                or ".aws" in parts_lower
+                or p.suffix.lower() in (".pem", ".key")
+            )
+            if is_sensitive:
+                scope = f"fs.{mode}.sensitive"
+                reason = f"Agent attempting to {mode} sensitive secret file: {p}"
+                engine = self.engine or PermissionEngine()
+                result = engine.authorize(scope, reason=reason)
+                if not result.allowed:
+                    return f"Security Error: Access to sensitive path '{path}' was denied by security policy."
+
             if not p.is_relative_to(active_root) and not p.is_relative_to(proj_root):
                 allow_oob = False
                 if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
@@ -1092,11 +1113,8 @@ class NativeToolRegistry:
                     return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
                 scope = f"fs.{mode}.global"
                 reason = f"Agent attempting to {mode} an out-of-bounds path: {p}"
-                if self.engine:
-                    result = self.engine.authorize(scope, reason=reason)
-                else:
-                    from aja.security.permissions import PermissionEngine
-                    result = PermissionEngine().authorize(scope, reason=reason)
+                engine = self.engine or PermissionEngine()
+                result = engine.authorize(scope, reason=reason)
                 if not result.allowed:
                     return f"Security Error: Path '{path}' is outside the authorized project root and permission was denied."
             return None
@@ -1649,18 +1667,30 @@ class NativeToolRegistry:
             return "Error: 'message' parameter is required for sending a Telegram message."
 
         token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
-        target_chat_id = chat_id or os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+        allowed_config = os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID") or ""
+        allowed_ids = [cid.strip() for cid in allowed_config.split(",") if cid.strip()]
 
         if not token:
             return (
                 "Error: Telegram bot token not configured. Please set TELEGRAM_BOT_TOKEN "
                 "(or TELEGRAM_TOKEN) in your environment or .env file."
             )
-        if not target_chat_id:
+        if not allowed_ids:
             return (
                 "Error: Telegram chat/user ID not configured. Please specify a chat_id or set "
                 "TELEGRAM_ALLOWED_USER_ID (or TELEGRAM_CHAT_ID) in your environment or .env file."
             )
+
+        if chat_id:
+            chat_id_str = str(chat_id).strip()
+            if chat_id_str not in allowed_ids:
+                return (
+                    f"Security Error: Sending Telegram messages to unauthorized chat_id '{chat_id}' is prohibited. "
+                    f"Messages may only be sent to the configured operator ({allowed_ids[0]})."
+                )
+            target_chat_id = chat_id_str
+        else:
+            target_chat_id = allowed_ids[0]
 
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {

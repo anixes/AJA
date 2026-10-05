@@ -18,14 +18,17 @@ from aja.config_schema import AJAConfig
 load_dotenv(override=True)
 
 # Normalize Telegram env aliases across components
-for primary, alias in [
-    ("TELEGRAM_BOT_TOKEN", "TELEGRAM_TOKEN"),
-    ("TELEGRAM_CHAT_ID", "TELEGRAM_ALLOWED_USER_ID"),
-]:
-    val = os.environ.get(primary) or os.environ.get(alias)
-    if val:
-        os.environ.setdefault(primary, val)
-        os.environ.setdefault(alias, val)
+bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+if bot_token:
+    os.environ.setdefault("TELEGRAM_BOT_TOKEN", bot_token)
+    os.environ.setdefault("TELEGRAM_TOKEN", bot_token)
+
+# One-way sync: ALLOWED_USER_ID can default destination CHAT_ID,
+# but an untrusted notification CHAT_ID must NEVER grant authorization into ALLOWED_USER_ID!
+allowed_user = os.environ.get("TELEGRAM_ALLOWED_USER_ID")
+if allowed_user and not os.environ.get("TELEGRAM_CHAT_ID"):
+    primary_chat = allowed_user.split(",")[0].strip()
+    os.environ.setdefault("TELEGRAM_CHAT_ID", primary_chat)
 
 logger = logging.getLogger(__name__)
 

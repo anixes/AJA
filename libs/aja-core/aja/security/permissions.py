@@ -55,6 +55,8 @@ class PermissionPolicy:
                 "desktop.interact": "ask",
                 "fs.read.global": "allow",
                 "fs.write.global": "ask",
+                "fs.read.sensitive": "ask",
+                "fs.write.sensitive": "ask",
             },
             ask_timeout_s=60.0,
         )

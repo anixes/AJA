@@ -334,3 +334,38 @@ def test_git_diff_ref_option_injection_prevented(tmp_path):
         aja.config.PROJECT_ROOT = orig_root
 
 
+def test_send_telegram_message_rejects_unauthorized_chat_id(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "445566")
+    registry = NativeToolRegistry()
+
+    # Model attempts sending to unauthorized chat_id
+    res = registry.execute("send_telegram_message", {"message": "secret leak", "chat_id": "999888"})
+    assert "Security Error" in res
+    assert "unauthorized chat_id '999888'" in res
+
+
+def test_sensitive_secret_path_requires_permission(tmp_path):
+    orig_root = aja.config.PROJECT_ROOT
+    try:
+        aja.config.PROJECT_ROOT = tmp_path
+        registry = NativeToolRegistry()
+
+        # Create sensitive files in project root
+        env_file = tmp_path / ".env"
+        env_file.write_text("SUPER_SECRET=12345", encoding="utf-8")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("FAKE_PRIVATE_KEY", encoding="utf-8")
+
+        # In non-interactive test environment without session grants, reading sensitive file returns Security Error
+        err_env = registry.read_file(str(env_file))
+        assert "Security Error" in err_env
+        assert "sensitive path" in err_env.lower() or "denied" in err_env.lower()
+
+        err_key = registry.read_file(str(ssh_key))
+        assert "Security Error" in err_key
+        assert "sensitive path" in err_key.lower() or "denied" in err_key.lower()
+    finally:
+        aja.config.PROJECT_ROOT = orig_root
+
+

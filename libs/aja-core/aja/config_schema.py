@@ -33,6 +33,8 @@ class PermissionPolicyConfig(BaseModel):
             "desktop.interact": "ask",
             "fs.read.global": "allow",
             "fs.write.global": "ask",
+            "fs.read.sensitive": "ask",
+            "fs.write.sensitive": "ask",
         }
     )
     ask_timeout_s: float = Field(default=60.0, ge=0.0)
