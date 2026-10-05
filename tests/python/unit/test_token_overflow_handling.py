@@ -162,3 +162,57 @@ async def test_gateway_chat_rate_limit_does_not_prune():
     assert len(call_records) == 2
     # No pruning on rate limit
     assert len(call_records[0]) == len(call_records[1])
+
+
+def test_copilot_model_limit_resolution():
+    from aja.orchestration.context_window import resolve_model_limit
+
+    # When provider is Copilot, limit must be capped at Copilot ceiling (12,288 * 0.8 = 9830)
+    # even if model string is claude-3-5-sonnet (200k) or gpt-4o (128k)
+    copilot_claude = resolve_model_limit(model="claude-3-5-sonnet", provider="copilot")
+    assert copilot_claude == int(12_288 * 0.8)
+
+    copilot_gpt4o = resolve_model_limit(model="gpt-4o", provider="copilot")
+    assert copilot_gpt4o == int(12_288 * 0.8)
+
+    # When provider is not Copilot, the full model context window applies
+    anthropic_claude = resolve_model_limit(model="claude-3-5-sonnet", provider="anthropic")
+    assert anthropic_claude == int(200_000 * 0.8)
+
+    # If the model itself has a smaller limit than Copilot (e.g. gpt-4 with 8192), smaller limit applies
+    copilot_gpt4 = resolve_model_limit(model="gpt-4", provider="copilot")
+    assert copilot_gpt4 == int(8_192 * 0.8)
+
+
+def test_compress_history_preserves_copilot_history_floor():
+    from aja.orchestration.context_window import compress_history
+
+    # 5 conversational turns with modest token counts (~300 tokens each)
+    history = [
+        {"role": "user", "content": "Primary task: Build the feature"},
+        {"role": "assistant", "content": "Turn 1 answer: " + "abc " * 200},
+        {"role": "user", "content": "Follow-up question 1"},
+        {"role": "assistant", "content": "Turn 2 answer: " + "def " * 200},
+        {"role": "user", "content": "Follow-up question 2"},
+        {"role": "assistant", "content": "Turn 3 answer: " + "ghi " * 200},
+    ]
+
+    # Native tools schemas (~5,000 tokens) and system prompt (~1,800 tokens)
+    fake_tools = [
+        {"type": "function", "function": {"name": f"native_tool_{i}", "description": "desc " * 60}}
+        for i in range(25)
+    ]
+    system_prompt = "You are AJA OS kernel. " * 300
+
+    compress_history(
+        history,
+        model="claude-3-5-sonnet",
+        provider="copilot",
+        system_prompt=system_prompt,
+        tools=fake_tools,
+    )
+
+    # Thanks to the 2,500 token history floor, history is NOT starved down to 2 messages!
+    assert len(history) > 2
+    assert history[0]["content"] == "Primary task: Build the feature"
+

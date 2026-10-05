@@ -131,13 +131,31 @@ def resolve_model_limit(model: str = "", provider: str = "") -> int:
         pass  # CONFIG unavailable or misconfigured — continue to next tier
 
     # --- Tier 2: Built-in lookup table --------------------------------------
-    needle = (model or provider or "").lower()
-    for key, limit in _MODEL_LIMITS.items():
-        if key in needle:
-            return int(limit * _BUDGET_FRACTION)
+    model_needle = (model or "").lower()
+    provider_needle = (provider or "").lower()
+    is_copilot = "copilot" in provider_needle or "copilot" in model_needle
 
-    # --- Tier 3: Safe default floor -----------------------------------------
-    return int(_DEFAULT_LIMIT * _BUDGET_FRACTION)
+    limit = None
+    for key, cap in _MODEL_LIMITS.items():
+        if key in model_needle:
+            limit = cap
+            break
+
+    if limit is None and is_copilot:
+        limit = _MODEL_LIMITS["copilot"]
+    elif limit is None:
+        for key, cap in _MODEL_LIMITS.items():
+            if key in provider_needle:
+                limit = cap
+                break
+
+    if limit is None:
+        limit = _DEFAULT_LIMIT
+
+    if is_copilot:
+        limit = min(limit, _MODEL_LIMITS["copilot"])
+
+    return int(limit * _BUDGET_FRACTION)
 
 
 def truncate_tool_result(raw: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
@@ -248,7 +266,7 @@ def compress_history(
     if len(history) <= 2:
         return
 
-    needle = (model or provider or "").lower()
+    is_copilot = "copilot" in (provider or "").lower() or "copilot" in (model or "").lower()
 
     # Calculate explicit overhead from system prompt and tool schemas if provided
     overhead = 0
@@ -261,7 +279,7 @@ def compress_history(
             pass
 
     # If overhead not explicitly provided, apply realistic reserve for models with small windows
-    if overhead == 0 and "copilot" in needle:
+    if overhead == 0 and is_copilot:
         # Copilot has a strict 12,288 total token cap. Native tool schemas (~5,100 tokens)
         # plus standard system prompt (~1,800 tokens) consume ~6,900 tokens.
         effective_reserve = max(reserve_tokens, 6_500)
@@ -270,8 +288,10 @@ def compress_history(
 
     raw_limit = resolve_model_limit(model, provider)
     limit = raw_limit - effective_reserve
-    if limit <= 0:
-        limit = max(1024, int(raw_limit * 0.4))
+    # History floor: guarantee enough budget for multi-turn history even with heavy tool/prompt overhead
+    history_floor = 2_500 if is_copilot else 4_096
+    if limit < history_floor:
+        limit = max(history_floor, int(raw_limit * 0.35))
 
     def _total_tokens() -> int:
         total = 0
