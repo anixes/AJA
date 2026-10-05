@@ -276,6 +276,30 @@ async def test_no_recall_block_when_disabled():
     assert first["role"] != "system"
 
 
+@pytest.mark.anyio
+async def test_system_prompt_fallback_synthesizes_cognitive_prompt():
+    gateway = FakeGateway(["test response"])
+    core = make_core(gateway=gateway, system_prompt=None)
+    await drain(core, msg("analyze this repository"))
+    assert len(gateway.calls) == 1
+    sys_prompt = gateway.calls[0].get("system")
+    assert sys_prompt is not None
+    assert "Soul of AJA" in sys_prompt
+    assert "Unified Action Space" in sys_prompt
+    assert "analyze this repository" in sys_prompt
+
+
+@pytest.mark.anyio
+async def test_system_prompt_explicit_override_is_respected():
+    gateway = FakeGateway(["custom response"])
+    core = make_core(gateway=gateway, system_prompt="You are a specialized test agent.")
+    await drain(core, msg("run checks"))
+    assert len(gateway.calls) == 1
+    sys_prompt = gateway.calls[0].get("system")
+    assert sys_prompt == "You are a specialized test agent."
+
+
+
 # --------------------------------------------------------------------------- #
 # Auth + persistence
 # --------------------------------------------------------------------------- #
