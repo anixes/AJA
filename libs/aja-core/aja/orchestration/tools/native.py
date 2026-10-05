@@ -1363,12 +1363,8 @@ class NativeToolRegistry:
             cmd = ["git", "diff"]
             if staged:
                 cmd.append("--staged")
-            if ref:
-                ref_clean = ref.strip().lower()
-                if ref_clean in ("latest", "last", "latest_commit", "last_commit"):
-                    cmd.extend(["HEAD~1", "HEAD"])
-                else:
-                    cmd.append(ref.strip())
+            
+            target_path = None
             if path:
                 err = self._validate_path(path, mode="read")
                 if err:
@@ -1376,9 +1372,23 @@ class NativeToolRegistry:
                 p = self._resolve_path(path)
                 try:
                     rel_p = p.relative_to(Path(PROJECT_ROOT).resolve())
-                    cmd.append(str(rel_p))
+                    target_path = str(rel_p)
                 except Exception:
-                    cmd.append(str(p))
+                    target_path = str(p)
+
+            if ref:
+                ref_str = ref.strip()
+                if ref_str.startswith("-") or any(c in ref_str for c in "\0\r\n"):
+                    return f"Error: Invalid git revision ref '{ref}'. Option flags are prohibited."
+                cmd.append("--end-of-options")
+                ref_clean = ref_str.lower()
+                if ref_clean in ("latest", "last", "latest_commit", "last_commit"):
+                    cmd.extend(["HEAD~1", "HEAD"])
+                else:
+                    cmd.append(ref_str)
+
+            if target_path:
+                cmd.extend(["--", target_path])
 
             res = subprocess.run(cmd, text=True, capture_output=True, cwd=str(PROJECT_ROOT))
             if res.returncode != 0:
@@ -1386,9 +1396,11 @@ class NativeToolRegistry:
             if not res.stdout:
                 if ref and ".." not in ref and "~" not in ref and not staged:
                     ref_trimmed = ref.strip()
-                    fallback_cmd = ["git", "diff", f"{ref_trimmed}~1", ref_trimmed]
-                    if path:
-                        fallback_cmd.append(cmd[-1])
+                    if ref_trimmed.startswith("-") or any(c in ref_trimmed for c in "\0\r\n"):
+                        return f"Error: Invalid git revision ref '{ref}'. Option flags are prohibited."
+                    fallback_cmd = ["git", "diff", "--end-of-options", f"{ref_trimmed}~1", ref_trimmed]
+                    if target_path:
+                        fallback_cmd.extend(["--", target_path])
                     fb_res = subprocess.run(fallback_cmd, text=True, capture_output=True, cwd=str(PROJECT_ROOT))
                     if fb_res.returncode == 0 and fb_res.stdout:
                         return fb_res.stdout

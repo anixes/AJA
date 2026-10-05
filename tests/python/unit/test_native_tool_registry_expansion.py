@@ -311,3 +311,26 @@ def test_send_telegram_message_dispatch_permission_allowed(monkeypatch):
         assert "successfully sent" in res.data
 
 
+def test_git_diff_ref_option_injection_prevented(tmp_path):
+    orig_root = aja.config.PROJECT_ROOT
+    try:
+        aja.config.PROJECT_ROOT = tmp_path
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+        registry = NativeToolRegistry()
+
+        target_file = tmp_path / "injected_output.txt"
+        assert not target_file.exists()
+
+        # Attempt option injection via ref
+        res = registry.git_diff(ref=f"--output={target_file}")
+        assert "Error: Invalid git revision ref" in res
+        assert not target_file.exists()
+
+        # Attempt control character injection
+        res_ctrl = registry.git_diff(ref="HEAD\n--output=evil")
+        assert "Error: Invalid git revision ref" in res_ctrl
+        assert not target_file.exists()
+    finally:
+        aja.config.PROJECT_ROOT = orig_root
+
+
