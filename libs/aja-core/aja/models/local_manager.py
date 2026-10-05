@@ -27,14 +27,80 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_data_dir() -> Path:
-    env_dir = os.getenv("AJA_DATA_DIR")
-    if env_dir:
-        return Path(env_dir).resolve()
+    # If DATA_DIR is explicitly patched or set on this module, honor it
+    current_module = sys.modules.get(__name__)
+    if current_module and hasattr(current_module, "DATA_DIR") and current_module.DATA_DIR is not None:
+        return Path(current_module.DATA_DIR).resolve()
     try:
-        import platformdirs
-        return Path(platformdirs.user_data_dir("AJA", "Anixes"))
+        from aja.config import DATA_DIR as CONFIG_DATA_DIR
+        return Path(CONFIG_DATA_DIR).resolve()
     except Exception:
-        return Path.home() / ".aja"
+        env_dir = os.getenv("AJA_DATA_DIR")
+        if env_dir:
+            return Path(env_dir).resolve()
+        try:
+            import platformdirs
+            return Path(platformdirs.user_data_dir("AJA", "Anixes"))
+        except Exception:
+            return Path.home() / ".aja"
+
+
+DATA_DIR: Path = _resolve_data_dir()
+
+
+def _resolve_config_path() -> Path:
+    """Resolve the canonical aja.json configuration path, aligning with aja.config."""
+    try:
+        from aja.config import CONFIG_PATH as GLOBAL_CONFIG_PATH, _get_data_dir, PROJECT_ROOT
+
+        current_data_dir = _resolve_data_dir()
+        default_data_dir = _get_data_dir()
+        # If DATA_DIR was explicitly redirected or isolated (e.g. in tests or custom env)
+        if current_data_dir != default_data_dir:
+            return current_data_dir / "aja.json"
+
+        # Check if lazily loaded CONFIG_PATH exists or points to PROJECT_ROOT
+        if GLOBAL_CONFIG_PATH.exists():
+            return GLOBAL_CONFIG_PATH
+        if (PROJECT_ROOT / "aja.json").exists():
+            return PROJECT_ROOT / "aja.json"
+        return GLOBAL_CONFIG_PATH
+    except Exception:
+        return _resolve_data_dir() / "aja.json"
+
+
+def _load_config() -> Dict[str, Any]:
+    """Safely load aja.json with cross-process file locking."""
+    cfg_path = _resolve_config_path()
+    if not cfg_path.exists():
+        return {}
+    lock_path = cfg_path.parent / f".{cfg_path.name}.lock"
+    try:
+        import filelock
+        with filelock.FileLock(str(lock_path), timeout=5):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+
+def _save_config(data: Dict[str, Any]) -> None:
+    """Safely save aja.json with cross-process file locking."""
+    cfg_path = _resolve_config_path()
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = cfg_path.parent / f".{cfg_path.name}.lock"
+    try:
+        import filelock
+        with filelock.FileLock(str(lock_path), timeout=10):
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+    except Exception:
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
 
 
 @dataclass
@@ -719,14 +785,7 @@ class LocalModelManager:
                             cls.start_llama_server(dm.name)
                             break
 
-            cfg_path = _resolve_data_dir() / "aja.json"
-            data: Dict[str, Any] = {}
-            if cfg_path.exists():
-                try:
-                    with open(cfg_path, encoding="utf-8") as f:
-                        data = json.load(f)
-                except Exception:
-                    data = {}
+            data = _load_config()
 
             if "swarm_settings" not in data:
                 data["swarm_settings"] = {}
@@ -758,9 +817,7 @@ class LocalModelManager:
                 target_mode = "cloud" if current_mode == "cloud" else "hybrid"
             data["swarm_settings"]["operating_mode"] = target_mode
 
-            _resolve_data_dir().mkdir(parents=True, exist_ok=True)
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+            _save_config(data)
 
             # Update live config if already loaded
             config_mod = sys.modules.get("aja.config")
@@ -784,14 +841,7 @@ class LocalModelManager:
     @classmethod
     def get_active_model(cls) -> Dict[str, Any]:
         """Return currently active mode, active model, and vision model."""
-        cfg_path = _resolve_data_dir() / "aja.json"
-        data: Dict[str, Any] = {}
-        if cfg_path.exists():
-            try:
-                with open(cfg_path, encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                pass
+        data = _load_config()
 
         swarm = data.get("swarm_settings", {})
         models = swarm.get("models", {})
@@ -863,20 +913,11 @@ class LocalModelManager:
         if mode_clean not in ("local", "cloud", "hybrid", "swarm"):
             return False
         try:
-            cfg_path = _resolve_data_dir() / "aja.json"
-            data: Dict[str, Any] = {}
-            if cfg_path.exists():
-                try:
-                    with open(cfg_path, encoding="utf-8") as f:
-                        data = json.load(f)
-                except Exception:
-                    data = {}
+            data = _load_config()
             if "swarm_settings" not in data:
                 data["swarm_settings"] = {}
             data["swarm_settings"]["operating_mode"] = mode_clean
-            _resolve_data_dir().mkdir(parents=True, exist_ok=True)
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+            _save_config(data)
             config_mod = sys.modules.get("aja.config")
             if config_mod:
                 config_mod.AJA_OPERATING_MODE = mode_clean

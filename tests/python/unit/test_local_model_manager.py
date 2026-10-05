@@ -184,3 +184,52 @@ def test_start_llama_server_command_args(tmp_path):
         assert "-c" in captured_cmd
         assert "8192" in captured_cmd
         assert "--jinja" in captured_cmd
+
+
+def test_local_model_manager_resolves_project_root_config_and_locks(tmp_path):
+    """Verify LocalModelManager synchronizes with PROJECT_ROOT/aja.json and uses filelock."""
+    from aja.models.local_manager import _resolve_config_path, _load_config, _save_config
+
+    proj_root = tmp_path / "project"
+    proj_root.mkdir()
+    proj_json = proj_root / "aja.json"
+    proj_json.write_text(json.dumps({"swarm_settings": {"operating_mode": "local"}}), encoding="utf-8")
+
+    sys_data = tmp_path / "system_data"
+    sys_data.mkdir()
+
+    with patch("aja.config.PROJECT_ROOT", proj_root), \
+         patch("aja.config.DATA_DIR", sys_data), \
+         patch("aja.config._get_data_dir", return_value=sys_data), \
+         patch("aja.models.local_manager.DATA_DIR", sys_data), \
+         patch("aja.config.CONFIG_PATH", proj_json):
+
+        resolved = _resolve_config_path()
+        assert resolved == proj_json
+
+        loaded = _load_config()
+        assert loaded.get("swarm_settings", {}).get("operating_mode") == "local"
+
+        loaded["swarm_settings"]["operating_mode"] = "cloud"
+        _save_config(loaded)
+
+        updated = json.loads(proj_json.read_text(encoding="utf-8"))
+        assert updated["swarm_settings"]["operating_mode"] == "cloud"
+
+
+def test_set_operating_mode_persists(tmp_path):
+    """Verify set_operating_mode validates mode string, updates aja.json, and syncs in-memory config."""
+    test_json = tmp_path / "aja.json"
+    with patch("aja.models.local_manager.DATA_DIR", tmp_path), patch("aja.config.DATA_DIR", tmp_path):
+        # Invalid mode rejected
+        assert LocalModelManager.set_operating_mode("invalid_mode") is False
+
+        # Valid mode accepted
+        assert LocalModelManager.set_operating_mode("swarm") is True
+        assert test_json.exists()
+        saved = json.loads(test_json.read_text(encoding="utf-8"))
+        assert saved["swarm_settings"]["operating_mode"] == "swarm"
+
+        import aja.config
+        assert aja.config.AJA_OPERATING_MODE == "swarm"
+
