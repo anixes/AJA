@@ -234,7 +234,10 @@ class OpenAICompatAdapter:
             kwargs["extra_body"] = extra_body
 
         attempts = max(1, int(retries))
-        for attempt in range(attempts):
+        attempt = 0
+        overflow_retries = 0
+        max_overflow_retries = 3
+        while attempt < attempts:
             try:
                 response = await self._get_client().chat.completions.create(**kwargs)
                 # Some providers (Copilot Claude passthrough, llama.cpp usage
@@ -295,20 +298,48 @@ class OpenAICompatAdapter:
                 )
 
                 err_str = str(e).lower()
+                is_rate_limit = (
+                    status_code == 429
+                    or "rate_limit" in err_str
+                    or "rate limit" in err_str
+                    or "per minute" in err_str
+                    or "tpm" in err_str
+                    or "rpm" in err_str
+                    or "quota" in err_str
+                    or "too many requests" in err_str
+                )
                 is_token_overflow = (
-                    "token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str)
-                ) or "context_length_exceeded" in err_str or "model_max_prompt_tokens_exceeded" in err_str
+                    not is_rate_limit
+                    and (
+                        ("token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str or "too long" in err_str))
+                        or "context_length_exceeded" in err_str
+                        or "model_max_prompt_tokens_exceeded" in err_str
+                        or "max_tokens" in err_str
+                    )
+                )
 
-                if is_token_overflow and len(merged_messages) > 2:
+                if is_token_overflow and len(merged_messages) > 3 and overflow_retries < max_overflow_retries:
+                    overflow_retries += 1
                     logger.warning(
-                        "[%s] Prompt token limit exceeded (%s). Pruning history and retrying...",
-                        self.provider, redact_secrets(str(e)),
+                        "[%s] Prompt token limit exceeded (%s). Pruning history (overflow retry %d/%d)...",
+                        self.provider, redact_secrets(str(e)), overflow_retries, max_overflow_retries,
                     )
                     from aja.orchestration.context_window import atomic_prune_messages
 
-                    mid_count = len(merged_messages) - 2
+                    mid_count = len(merged_messages) - 3
                     drop_count = max(1, mid_count // 2)
-                    atomic_prune_messages(merged_messages, target_drops=drop_count)
+                    atomic_prune_messages(merged_messages, target_drops=drop_count, preserve_first=2)
+                    continue
+
+                if is_rate_limit:
+                    logger.warning(
+                        "[%s] Rate limit encountered (%s). Backing off (attempt %d/%d)...",
+                        self.provider, redact_secrets(str(e)), attempt + 1, attempts,
+                    )
+                    if attempt == attempts - 1:
+                        return LLMResponse(content="", model=model)
+                    await _backoff_sleep(attempt)
+                    attempt += 1
                     continue
 
                 if isinstance(status_code, int) and status_code in _NON_RETRYABLE_STATUS:
@@ -330,6 +361,7 @@ class OpenAICompatAdapter:
                 if attempt == attempts - 1:
                     return LLMResponse(content="", model=model)
                 await _backoff_sleep(attempt)
+                attempt += 1
 
         return LLMResponse(content="", model=model)
 

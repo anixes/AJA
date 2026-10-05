@@ -179,37 +179,39 @@ def truncate_tool_result(raw: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> st
     return truncated
 
 
-def _pop_leading_tool_messages(messages: List[Dict[str, Any]]) -> int:
-    """Pop consecutive role='tool' messages at index 1 to maintain valid turn pairing."""
+def _pop_leading_tool_messages(messages: List[Dict[str, Any]], start_idx: int = 1) -> int:
+    """Pop consecutive role='tool' messages at start_idx to maintain valid turn pairing."""
     dropped = 0
-    while len(messages) > 2 and messages[1].get("role") == "tool":
-        messages.pop(1)
+    while len(messages) > start_idx + 1 and messages[start_idx].get("role") == "tool":
+        messages.pop(start_idx)
         dropped += 1
     return dropped
 
 
-def atomic_prune_messages(messages: List[Dict[str, Any]], target_drops: int = 1) -> int:
-    """Safely drop at least `target_drops` older turns/steps from index 1 forward,
-    preserving messages[0] (initial prompt / objective).
+def atomic_prune_messages(
+    messages: List[Dict[str, Any]], target_drops: int = 1, preserve_first: int = 1
+) -> int:
+    """Safely drop at least `target_drops` older turns/steps starting after `preserve_first`,
+    preserving messages[:preserve_first] (e.g. initial prompt / objective, or system + user task).
 
     Guarantees that an assistant message with `tool_calls` and all its
     corresponding `role == 'tool'` response messages are pruned together
     atomically, never leaving orphaned tool_calls or role='tool' messages.
-    Also defensively cleans up any orphaned tool responses at index 1.
+    Also defensively cleans up any orphaned tool responses at index preserve_first.
 
     Returns the number of messages dropped.
     """
-    if not isinstance(messages, list) or len(messages) <= 2:
+    if not isinstance(messages, list) or len(messages) <= preserve_first + 1:
         return 0
 
     dropped = 0
-    while len(messages) > 2 and dropped < target_drops:
-        messages.pop(1)
+    while len(messages) > preserve_first + 1 and dropped < target_drops:
+        messages.pop(preserve_first)
         dropped += 1
-        dropped += _pop_leading_tool_messages(messages)
+        dropped += _pop_leading_tool_messages(messages, start_idx=preserve_first)
 
-    # Defensive final sweep: ensure index 1 is not an orphaned role="tool"
-    dropped += _pop_leading_tool_messages(messages)
+    # Defensive final sweep: ensure index preserve_first is not an orphaned role="tool"
+    dropped += _pop_leading_tool_messages(messages, start_idx=preserve_first)
 
     return dropped
 

@@ -407,7 +407,10 @@ class LLMGateway:
             logger.debug("[Gateway] Adapter path failed (%s), falling back to legacy.", adapter_err)
 
         # ── Legacy Path ───────────────────────────────────────────────────
-        for attempt in range(1, retries + 1):
+        attempt = 1
+        overflow_retries = 0
+        max_overflow_retries = 3
+        while attempt <= retries:
             try:
                 if self.provider == "google":
                     return await self._google_generate_content(
@@ -737,20 +740,48 @@ class LLMGateway:
                     getattr(e, "response", None), "status_code", None
                 )
                 err_str = str(e).lower()
+                is_rate_limit = (
+                    status_code == 429
+                    or "rate_limit" in err_str
+                    or "rate limit" in err_str
+                    or "per minute" in err_str
+                    or "tpm" in err_str
+                    or "rpm" in err_str
+                    or "quota" in err_str
+                    or "too many requests" in err_str
+                )
                 is_token_overflow = (
-                    "token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str)
-                ) or "context_length_exceeded" in err_str or "model_max_prompt_tokens_exceeded" in err_str
+                    not is_rate_limit
+                    and (
+                        ("token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str or "too long" in err_str))
+                        or "context_length_exceeded" in err_str
+                        or "model_max_prompt_tokens_exceeded" in err_str
+                        or "max_tokens" in err_str
+                    )
+                )
 
-                if is_token_overflow and isinstance(prompt, list) and len(prompt) > 2:
+                if is_token_overflow and isinstance(prompt, list) and len(prompt) > 2 and overflow_retries < max_overflow_retries:
+                    overflow_retries += 1
                     logger.warning(
-                        "[Gateway] Prompt token limit exceeded (%s). Pruning history and retrying...",
-                        redact_secrets(str(e)),
+                        "[Gateway] Prompt token limit exceeded (%s). Pruning history (overflow retry %d/%d)...",
+                        redact_secrets(str(e)), overflow_retries, max_overflow_retries,
                     )
                     from aja.orchestration.context_window import atomic_prune_messages
 
                     mid_count = len(prompt) - 2
                     drop_count = max(1, mid_count // 2)
-                    atomic_prune_messages(prompt, target_drops=drop_count)
+                    atomic_prune_messages(prompt, target_drops=drop_count, preserve_first=1)
+                    continue
+
+                if is_rate_limit:
+                    logger.warning(
+                        "[Gateway] Rate limit encountered (%s). Backing off (attempt %d/%d)...",
+                        redact_secrets(str(e)), attempt, retries,
+                    )
+                    if attempt >= retries:
+                        return None
+                    await _backoff_sleep(attempt)
+                    attempt += 1
                     continue
 
                 if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):
@@ -760,7 +791,7 @@ class LLMGateway:
                     )
                     return None
                 logger.warning("[Gateway] Error on attempt %d/%d: %s", attempt, retries, redact_secrets(str(e)))
-                if attempt == retries:
+                if attempt >= retries:
                     return None
                 if self.provider == "copilot":
                     try:
@@ -777,6 +808,9 @@ class LLMGateway:
                     except Exception:
                         pass
                 await _backoff_sleep(attempt)
+                attempt += 1
+
+        return None
 
     async def chat_stream(
         self,
