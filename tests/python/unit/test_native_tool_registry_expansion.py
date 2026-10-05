@@ -388,9 +388,13 @@ def test_run_shell_command_signature_clean():
 
 
 def test_sensitive_secret_path_requires_permission(tmp_path):
+    from aja.security.permissions import PermissionEngine
+    PermissionEngine.clear_session_grants()
     orig_root = aja.config.PROJECT_ROOT
+    orig_allow = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
     try:
         aja.config.PROJECT_ROOT = tmp_path
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
         registry = NativeToolRegistry()
 
         # Create sensitive files in project root
@@ -409,12 +413,16 @@ def test_sensitive_secret_path_requires_permission(tmp_path):
         assert "sensitive path" in err_key.lower() or "denied" in err_key.lower()
     finally:
         aja.config.PROJECT_ROOT = orig_root
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_allow
 
 
 def test_workspace_isolation_blocks_project_root_writes(tmp_path):
     from aja.workspace.context import WorkspaceContext, set_current_workspace, reset_current_workspace
+    from aja.security.permissions import PermissionEngine
+    PermissionEngine.clear_session_grants()
 
     orig_root = aja.config.PROJECT_ROOT
+    orig_allow = getattr(aja.config.CONFIG.swarm_settings, "allow_out_of_bounds_paths", False)
     proj_dir = tmp_path / "aja_project"
     proj_dir.mkdir()
     ws_dir = tmp_path / "user_workspace"
@@ -424,6 +432,7 @@ def test_workspace_isolation_blocks_project_root_writes(tmp_path):
 
     try:
         aja.config.PROJECT_ROOT = proj_dir
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = False
         ws = WorkspaceContext(
             id="ws-123",
             name="test-ws",
@@ -449,5 +458,6 @@ def test_workspace_isolation_blocks_project_root_writes(tmp_path):
             reset_current_workspace(tok)
     finally:
         aja.config.PROJECT_ROOT = orig_root
+        aja.config.CONFIG.swarm_settings.allow_out_of_bounds_paths = orig_allow
 
 

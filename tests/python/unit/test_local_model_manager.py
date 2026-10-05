@@ -108,21 +108,31 @@ def test_engine_probing_offline_resilience():
 
 def test_local_model_activation_persists(tmp_path):
     """Verify that activating a local model sets operating_mode='hybrid' and updates runtime config."""
+    import aja.config
+    orig_worker = getattr(aja.config, "AJA_WORKER_MODEL", None)
+    orig_planner = getattr(aja.config, "AJA_PLANNER_MODEL", None)
+    orig_active = getattr(aja.config, "AJA_ACTIVE_MODEL", None)
+    orig_mode = getattr(aja.config, "AJA_OPERATING_MODE", None)
     test_json = tmp_path / "aja.json"
 
-    with patch("aja.models.local_manager.DATA_DIR", tmp_path), patch("aja.config.DATA_DIR", tmp_path):
-        success = LocalModelManager.activate_model("ollama:qwen2.5-coder:7b", role="worker")
-        assert success is True
+    try:
+        with patch("aja.models.local_manager.DATA_DIR", tmp_path), patch("aja.config.DATA_DIR", tmp_path):
+            success = LocalModelManager.activate_model("ollama:qwen2.5-coder:7b", role="worker")
+            assert success is True
 
-        # Check persisted json
-        assert test_json.exists()
-        saved = json.loads(test_json.read_text(encoding="utf-8"))
-        assert saved["swarm_settings"]["models"]["worker"] == "ollama:qwen2.5-coder:7b"
-        assert saved["swarm_settings"]["operating_mode"] == "hybrid"
+            # Check persisted json
+            assert test_json.exists()
+            saved = json.loads(test_json.read_text(encoding="utf-8"))
+            assert saved["swarm_settings"]["models"]["worker"] == "ollama:qwen2.5-coder:7b"
+            assert saved["swarm_settings"]["operating_mode"] == "hybrid"
 
-        # Check in-memory config update
-        import aja.config
-        assert aja.config.AJA_WORKER_MODEL == "ollama:qwen2.5-coder:7b"
+            # Check in-memory config update
+            assert aja.config.AJA_WORKER_MODEL == "ollama:qwen2.5-coder:7b"
+    finally:
+        aja.config.AJA_WORKER_MODEL = orig_worker
+        aja.config.AJA_PLANNER_MODEL = orig_planner
+        aja.config.AJA_ACTIVE_MODEL = orig_active
+        aja.config.AJA_OPERATING_MODE = orig_mode
 
 
 def test_scan_disk_gguf_models(tmp_path):

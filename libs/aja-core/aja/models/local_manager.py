@@ -809,11 +809,14 @@ class LocalModelManager:
 
             # Set unified active model
             data["swarm_settings"]["active_model"] = model_uri
-            # Backward-compatible role assignment
-            data["swarm_settings"]["models"]["planner"] = model_uri
-            data["swarm_settings"]["models"]["worker"] = model_uri
-            if role in ("planner", "worker"):
-                data["swarm_settings"]["models"][role] = model_uri
+            # Role assignment
+            if role == "planner":
+                data["swarm_settings"]["models"]["planner"] = model_uri
+            elif role == "worker":
+                data["swarm_settings"]["models"]["worker"] = model_uri
+            else:
+                data["swarm_settings"]["models"]["planner"] = model_uri
+                data["swarm_settings"]["models"]["worker"] = model_uri
 
             # Set vision model if capability detected
             if spec.has_vision:
@@ -836,8 +839,10 @@ class LocalModelManager:
             config_mod = sys.modules.get("aja.config")
             if config_mod:
                 config_mod.AJA_ACTIVE_MODEL = model_uri
-                config_mod.AJA_PLANNER_MODEL = model_uri
-                config_mod.AJA_WORKER_MODEL = model_uri
+                if role in ("planner", "primary", "all"):
+                    config_mod.AJA_PLANNER_MODEL = model_uri
+                if role in ("worker", "primary", "all"):
+                    config_mod.AJA_WORKER_MODEL = model_uri
                 if spec.has_vision:
                     config_mod.AJA_VISION_MODEL = model_uri
                 config_mod.AJA_OPERATING_MODE = target_mode
