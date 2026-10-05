@@ -293,13 +293,17 @@ def compress_history(
     if limit < history_floor:
         limit = max(history_floor, int(raw_limit * 0.35))
 
-    def _total_tokens() -> int:
-        total = 0
-        for msg in history:
-            total += estimate_tokens(str(msg.get("content") or ""))
-            if msg.get("tool_calls"):
-                total += estimate_tokens(str(msg.get("tool_calls")))
-        return total
+    def _msg_tokens(msg: Dict[str, Any]) -> int:
+        tokens = estimate_tokens(str(msg.get("content") or ""))
+        if msg.get("tool_calls"):
+            tokens += estimate_tokens(str(msg.get("tool_calls")))
+        return tokens
 
-    while _total_tokens() > limit and len(history) > 2:
+    total_tokens = sum(_msg_tokens(msg) for msg in history)
+    while total_tokens > limit and len(history) > 2:
+        before_len = len(history)
         atomic_prune_messages(history, target_drops=1)
+        after_len = len(history)
+        if after_len >= before_len:
+            break
+        total_tokens = sum(_msg_tokens(msg) for msg in history)

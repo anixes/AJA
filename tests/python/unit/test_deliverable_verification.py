@@ -136,6 +136,19 @@ def test_write_file_auto_wraps_ipynb(tmp_path: Path):
         py_file = tmp_path / "script.py"
         reg.write_file(str(py_file), py_code)
         assert py_file.read_text(encoding="utf-8") == py_code
+
+        # 5. Jupytext percent format with [markdown] cell strips comment '# ' prefix
+        jupytext_path = tmp_path / "jupytext.ipynb"
+        jupytext_code = "# %% [markdown]\n# # My Header\n# This is documentation.\n# \n# %% [code]\nprint(42)"
+        reg.write_file(str(jupytext_path), jupytext_code)
+        data_jupytext = json.loads(jupytext_path.read_text(encoding="utf-8"))
+        assert len(data_jupytext["cells"]) == 2
+        md_cell = data_jupytext["cells"][0]
+        assert md_cell["cell_type"] == "markdown"
+        md_src = "".join(md_cell["source"])
+        assert "# My Header\n" in md_src
+        assert "This is documentation.\n" in md_src
+        assert not md_src.startswith("# # My Header")
     finally:
         aja.config.PROJECT_ROOT = orig_root
 

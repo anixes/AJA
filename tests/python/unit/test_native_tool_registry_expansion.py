@@ -345,6 +345,48 @@ def test_send_telegram_message_rejects_unauthorized_chat_id(monkeypatch):
     assert "unauthorized chat_id '999888'" in res
 
 
+def test_send_telegram_message_destination_and_allowlist_separation(monkeypatch):
+    import inspect
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:mock_token")
+    # Allowed list contains multiple IDs
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "111, 222, 333")
+    # Default destination is explicitly configured to 222
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "222, 999")
+    registry = NativeToolRegistry()
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+        mock_post.return_value = mock_resp
+
+        # 1. Without explicit chat_id, destination defaults to TELEGRAM_CHAT_ID (first entry "222")
+        res1 = registry.execute("send_telegram_message", {"message": "msg1"})
+        assert "Telegram message successfully sent to chat 222" in res1
+        assert mock_post.call_args[1]["json"]["chat_id"] == "222"
+
+        # 2. With authorized explicit chat_id (333 is in allowed list)
+        mock_post.reset_mock()
+        res2 = registry.execute("send_telegram_message", {"message": "msg2", "chat_id": "333"})
+        assert "Telegram message successfully sent to chat 333" in res2
+        assert mock_post.call_args[1]["json"]["chat_id"] == "333"
+
+        # 3. Explicit chat_id not in allowed list is blocked
+        res3 = registry.execute("send_telegram_message", {"message": "msg3", "chat_id": "888"})
+        assert "Security Error" in res3
+        assert "unauthorized chat_id '888'" in res3
+
+
+def test_run_shell_command_signature_clean():
+    import inspect
+    registry = NativeToolRegistry()
+    sig = inspect.signature(registry.run_shell_command)
+    # The signature must only have cmd parameter (command alias handled via dispatch normalization)
+    param_names = list(sig.parameters.keys())
+    assert param_names == ["cmd"], f"Expected ['cmd'], got {param_names}"
+
+
+
 def test_sensitive_secret_path_requires_permission(tmp_path):
     orig_root = aja.config.PROJECT_ROOT
     try:

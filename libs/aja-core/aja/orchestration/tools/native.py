@@ -82,11 +82,22 @@ def _convert_to_jupyter_notebook(content: str) -> str:
             first_line = blk.strip().split("\n", 1)[0]
             if "[markdown]" in first_line.lower():
                 body = blk.replace(first_line, "", 1).lstrip("\n")
+                lines = body.splitlines(keepends=True)
+                cleaned_lines = []
+                for line in lines:
+                    if line.startswith("# "):
+                        cleaned_lines.append(line[2:])
+                    elif line == "#\n":
+                        cleaned_lines.append("\n")
+                    elif line == "#":
+                        cleaned_lines.append("")
+                    else:
+                        cleaned_lines.append(line)
                 cells.append({
                     "cell_type": "markdown",
                     "id": uuid.uuid4().hex[:8],
                     "metadata": {},
-                    "source": body.splitlines(keepends=True),
+                    "source": cleaned_lines,
                 })
             else:
                 cells.append({
@@ -1226,8 +1237,7 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Error during sleep: {e}"
 
-    def run_shell_command(self, cmd: str = "", command: str = "") -> str:
-        cmd = cmd or command
+    def run_shell_command(self, cmd: str = "") -> str:
         if not cmd:
             return "Error: No command provided to run_shell_command."
         from aja.security.command_guard import classify_command
@@ -1657,7 +1667,7 @@ class NativeToolRegistry:
         except Exception as e:
             return f"Error managing local models: {e}"
 
-    def send_telegram_message(self, message: str = "", chat_id: Optional[str] = None, **kwargs) -> str:
+    def send_telegram_message(self, message: str = "", chat_id: Optional[str] = None) -> str:
         """Send a message or ping to the operator via Telegram."""
         import os
         import requests
@@ -1666,13 +1676,17 @@ class NativeToolRegistry:
         except Exception:
             pass
 
-        msg = message or kwargs.get("text") or kwargs.get("content") or ""
-        if not msg:
+        if not message:
             return "Error: 'message' parameter is required for sending a Telegram message."
 
         token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
-        allowed_config = os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID") or ""
+        allowed_config = os.environ.get("TELEGRAM_ALLOWED_USER_ID") or ""
         allowed_ids = [cid.strip() for cid in allowed_config.split(",") if cid.strip()]
+        dest_chat = os.environ.get("TELEGRAM_CHAT_ID")
+        if dest_chat:
+            dest_chat = dest_chat.split(",")[0].strip()
+        if not allowed_ids and dest_chat:
+            allowed_ids = [dest_chat]
 
         if not token:
             return (
@@ -1694,12 +1708,15 @@ class NativeToolRegistry:
                 )
             target_chat_id = chat_id_str
         else:
-            target_chat_id = allowed_ids[0]
+            if dest_chat and dest_chat in allowed_ids:
+                target_chat_id = dest_chat
+            else:
+                target_chat_id = allowed_ids[0]
 
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {
             "chat_id": str(target_chat_id),
-            "text": msg,
+            "text": message,
         }
         try:
             resp = requests.post(url, json=payload, timeout=10)

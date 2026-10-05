@@ -29,44 +29,57 @@ logger = logging.getLogger(__name__)
 def _resolve_data_dir() -> Path:
     # If DATA_DIR is explicitly patched or set on this module, honor it
     current_module = sys.modules.get(__name__)
-    if current_module and hasattr(current_module, "DATA_DIR") and current_module.DATA_DIR is not None:
+    if current_module and getattr(current_module, "DATA_DIR", None) is not None:
         return Path(current_module.DATA_DIR).resolve()
-    try:
-        from aja.config import DATA_DIR as CONFIG_DATA_DIR
-        return Path(CONFIG_DATA_DIR).resolve()
-    except Exception:
-        env_dir = os.getenv("AJA_DATA_DIR")
-        if env_dir:
-            return Path(env_dir).resolve()
+    # Check env var first without importing config
+    env_dir = os.getenv("AJA_DATA_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+    # If aja.config is already imported in sys.modules, use it
+    if "aja.config" in sys.modules:
         try:
-            import platformdirs
-            return Path(platformdirs.user_data_dir("AJA", "Anixes"))
+            return Path(sys.modules["aja.config"].DATA_DIR).resolve()
         except Exception:
-            return Path.home() / ".aja"
+            pass
+    # Otherwise fallback to platformdirs/home without importing aja.config
+    try:
+        import platformdirs
+        return Path(platformdirs.user_data_dir("AJA", "Anixes"))
+    except Exception:
+        return Path.home() / ".aja"
 
 
-DATA_DIR: Path = _resolve_data_dir()
+DATA_DIR: Optional[Path] = None
 
 
 def _resolve_config_path() -> Path:
     """Resolve the canonical aja.json configuration path, aligning with aja.config."""
-    try:
-        from aja.config import CONFIG_PATH as GLOBAL_CONFIG_PATH, _get_data_dir, PROJECT_ROOT
+    current_data_dir = _resolve_data_dir()
+    env_dir = os.getenv("AJA_DATA_DIR")
+    if env_dir and Path(env_dir).resolve() == current_data_dir:
+        return current_data_dir / "aja.json"
 
-        current_data_dir = _resolve_data_dir()
-        default_data_dir = _get_data_dir()
-        # If DATA_DIR was explicitly redirected or isolated (e.g. in tests or custom env)
-        if current_data_dir != default_data_dir:
-            return current_data_dir / "aja.json"
+    # Only inspect aja.config if it is already in sys.modules
+    if "aja.config" in sys.modules:
+        try:
+            cfg_mod = sys.modules["aja.config"]
+            default_data_dir = cfg_mod._get_data_dir()
+            if current_data_dir != default_data_dir:
+                return current_data_dir / "aja.json"
+            if cfg_mod.CONFIG_PATH.exists():
+                return cfg_mod.CONFIG_PATH
+            if (cfg_mod.PROJECT_ROOT / "aja.json").exists():
+                return cfg_mod.PROJECT_ROOT / "aja.json"
+            return cfg_mod.CONFIG_PATH
+        except Exception:
+            pass
 
-        # Check if lazily loaded CONFIG_PATH exists or points to PROJECT_ROOT
-        if GLOBAL_CONFIG_PATH.exists():
-            return GLOBAL_CONFIG_PATH
-        if (PROJECT_ROOT / "aja.json").exists():
-            return PROJECT_ROOT / "aja.json"
-        return GLOBAL_CONFIG_PATH
-    except Exception:
-        return _resolve_data_dir() / "aja.json"
+    # If aja.config is not imported yet, check env or project root
+    env_proj = os.getenv("AJA_PROJECT_ROOT") or os.getenv("PROJECT_ROOT")
+    if env_proj and (Path(env_proj) / "aja.json").exists():
+        return Path(env_proj) / "aja.json"
+
+    return current_data_dir / "aja.json"
 
 
 def _load_config() -> Dict[str, Any]:

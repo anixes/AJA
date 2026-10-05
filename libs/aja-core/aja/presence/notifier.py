@@ -39,17 +39,24 @@ def _can_send(event_type: str, message: str) -> bool:
 
 def _send_telegram(message: str):
     token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or TELEGRAM_BOT_TOKEN
-    chat_id = os.environ.get("TELEGRAM_ALLOWED_USER_ID") or os.environ.get("TELEGRAM_CHAT_ID") or TELEGRAM_CHAT_ID
-    if not token or not chat_id:
+    raw_chat_id = os.environ.get("TELEGRAM_CHAT_ID") or os.environ.get("TELEGRAM_ALLOWED_USER_ID") or TELEGRAM_CHAT_ID
+    if not token or not raw_chat_id:
         return
+    chat_id = raw_chat_id.split(",")[0].strip()
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": f"🤖 *Agent Alert*\n\n{message}",
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
     }
     try:
-        requests.post(url, json=payload, timeout=5)
+        resp = requests.post(url, json=payload, timeout=5)
+        if resp.status_code == 400:
+            plain_payload = {
+                "chat_id": chat_id,
+                "text": f"🤖 Agent Alert\n\n{message}",
+            }
+            requests.post(url, json=plain_payload, timeout=5)
     except Exception as e:
         print(f"[Notifier] Telegram send failed: {e}")
 

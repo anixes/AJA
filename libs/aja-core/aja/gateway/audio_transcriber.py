@@ -7,6 +7,7 @@ import asyncio
 import base64
 import logging
 import os
+import threading
 from typing import Optional
 import aiohttp
 
@@ -153,13 +154,16 @@ async def _transcribe_with_whisper(
 
 
 _LOCAL_WHISPER_MODEL = None
+_WHISPER_LOCK = threading.Lock()
 
 
 def _get_local_whisper_model():
     global _LOCAL_WHISPER_MODEL
     if _LOCAL_WHISPER_MODEL is None:
-        import whisper  # raises ImportError if not installed
-        _LOCAL_WHISPER_MODEL = whisper.load_model("base")
+        with _WHISPER_LOCK:
+            if _LOCAL_WHISPER_MODEL is None:
+                import whisper  # raises ImportError if not installed
+                _LOCAL_WHISPER_MODEL = whisper.load_model("base")
     return _LOCAL_WHISPER_MODEL
 
 

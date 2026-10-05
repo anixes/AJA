@@ -33,6 +33,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 import re
 from dataclasses import dataclass
@@ -158,12 +159,9 @@ def _find_missing_deliverables(content: str) -> List[str]:
     env_root = os.environ.get("AJA_PROJECT_ROOT") or os.environ.get("PROJECT_ROOT")
     if env_root:
         search_roots.append(Path(env_root).resolve())
-    try:
-        from aja.config import PROJECT_ROOT
-        if PROJECT_ROOT:
-            search_roots.append(Path(PROJECT_ROOT).resolve())
-    except Exception:
-        pass
+    config_mod = sys.modules.get("aja.config")
+    if config_mod and hasattr(config_mod, "PROJECT_ROOT") and config_mod.PROJECT_ROOT:
+        search_roots.append(Path(config_mod.PROJECT_ROOT).resolve())
 
     for p_str in claimed_paths:
         try:
@@ -282,26 +280,34 @@ async def run_direct_loop(
             {"role": "user", "content": f"Please execute this task directly: {objective}"}
         ]
 
+    tool_schemas = tools_registry.get_schemas(interactive=interactive)
+    import inspect
+    try:
+        _comp_sig = inspect.signature(compressor)
+        _comp_has_extra = "tools" in _comp_sig.parameters and "system_prompt" in _comp_sig.parameters
+    except Exception:
+        _comp_has_extra = False
+
     iteration = 0
     verification_attempts = 0
     deliverable_attempts = 0
     max_deliverable_retries = 3
+    empty_response_nudges = 0
+    max_empty_nudges = 2
     while iteration < max_turns:
         iteration += 1
 
         try:
-            compressor(
-                history,
-                model=model,
-                provider=provider,
-                system_prompt=system_prompt,
-                tools=tools_registry.get_schemas(interactive=interactive),
-            )
-        except TypeError:
-            try:
+            if _comp_has_extra:
+                compressor(
+                    history,
+                    model=model,
+                    provider=provider,
+                    system_prompt=system_prompt,
+                    tools=tool_schemas,
+                )
+            else:
                 compressor(history, model=model, provider=provider)
-            except Exception as e:
-                logger.debug("History compression fallback skipped: %s", e)
         except Exception as e:  # best-effort: compression must never kill the loop
             logger.debug("History compression skipped: %s", e)
 
@@ -310,7 +316,7 @@ async def run_direct_loop(
                 model=model,
                 prompt=history,
                 system=system_prompt,
-                tools=tools_registry.get_schemas(interactive=interactive),
+                tools=tool_schemas,
             )
         except Exception as e:
             if console:
@@ -430,8 +436,9 @@ async def run_direct_loop(
             history.append({"role": "assistant", "content": content})
         else:
             # Both content and tool_calls are empty
-            has_prior_activity = any(m.get("role") in ("tool", "user") and m.get("content") for m in history)
-            if has_prior_activity and iteration < max_turns:
+            has_prior_activity = any(m.get("role") in ("tool", "assistant") and m.get("content") for m in history)
+            if has_prior_activity and empty_response_nudges < max_empty_nudges and iteration < max_turns:
+                empty_response_nudges += 1
                 history.append({
                     "role": "user",
                     "content": "[Please provide your final answer or summary based on the results above.]",
