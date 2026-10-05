@@ -46,23 +46,28 @@ def update_task_status(task_id: str, status: str):
 
 def fetch_pending_tasks(limit: int = 10) -> List[Dict]:
     table = _manager.get_table("core_tasks")
-    # LanceDB query via Arrow
-    results = (
-        table.search()
-        .where("status IN ('INTERRUPTED', 'PENDING', 'FAILED')")
-        .limit(limit)
-        .to_list()
-    )
+    # LanceDB query via Arrow — fetch all matching, then prioritize and slice
+    try:
+        results = (
+            table.search()
+            .where("status IN ('INTERRUPTED', 'PENDING', 'FAILED')")
+            .to_list()
+        )
+    except Exception:
+        results = []
     # Sort in memory for correct prioritization (INTERRUPTED > PENDING > FAILED)
     priority_map = {"INTERRUPTED": 1, "PENDING": 2, "FAILED": 3}
-    results.sort(key=lambda x: (priority_map.get(x["status"], 9), x["updated_at"]))
-    return results
+    results.sort(key=lambda x: (priority_map.get(x.get("status"), 9), str(x.get("updated_at") or "")))
+    return results[:limit]
 
 
 def fetch_recent_tasks(limit: int = 10) -> List[Dict]:
     table = _manager.get_table("core_tasks")
-    results = table.search().limit(limit * 3).to_list()
-    results.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    try:
+        results = table.search().to_list()
+    except Exception:
+        results = []
+    results.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
     return results[:limit]
 
 
