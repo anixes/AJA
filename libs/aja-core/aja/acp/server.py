@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import sys
+import threading
 import uuid
 from typing import Any, Dict, Optional, TextIO
 
@@ -42,6 +43,13 @@ class ACPServer:
         self.dry_run = dry_run
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
+        self._write_lock = threading.Lock()
+
+    def _write_line(self, line: str) -> None:
+        """Thread and coroutine-safe serialized write to out_stream."""
+        with self._write_lock:
+            self.out_stream.write(line)
+            self.out_stream.flush()
 
     def _resolve_components(self):
         if self.gateway is None:
@@ -64,9 +72,7 @@ class ACPServer:
             "method": method,
             "params": params,
         }
-        raw = json.dumps(msg, ensure_ascii=False)
-        self.out_stream.write(raw + "\n")
-        self.out_stream.flush()
+        self._write_line(json.dumps(msg, ensure_ascii=False) + "\n")
 
     def send_response(self, req_id: Any, result: Any = None, error: Any = None):
         """Send a JSON-RPC response."""
@@ -75,9 +81,7 @@ class ACPServer:
             msg["error"] = error
         else:
             msg["result"] = result
-        raw = json.dumps(msg, ensure_ascii=False)
-        self.out_stream.write(raw + "\n")
-        self.out_stream.flush()
+        self._write_line(json.dumps(msg, ensure_ascii=False) + "\n")
 
     async def handle_message(self, raw_line: str) -> Optional[Dict[str, Any]]:
         """Parse and route a single JSON-RPC message. Returns the response dict if request."""
@@ -196,6 +200,22 @@ class ACPServer:
         perm_token = set_current_permission_session(f"acp:{session_id}")
         try:
             outcome = await task
+        except asyncio.CancelledError:
+            self.send_notification(
+                "session/update",
+                {
+                    "sessionId": session_id,
+                    "state": "cancelled",
+                    "message": "Turn cancelled.",
+                },
+            )
+            return {
+                "sessionId": session_id,
+                "status": "cancelled",
+                "verified": False,
+                "turns": 0,
+                "response": "Cancelled by operator.",
+            }
         finally:
             reset_current_permission_session(perm_token)
             self.active_tasks.pop(session_id, None)
@@ -233,14 +253,27 @@ class ACPServer:
             return {"sessionId": session_id, "status": "cancelled"}
         return {"sessionId": session_id, "status": "not_running"}
 
+    async def _process_and_reply(self, raw_line: str) -> None:
+        """Process a line and write response to out_stream."""
+        try:
+            resp = await self.handle_message(raw_line)
+            if resp is not None:
+                self._write_line(json.dumps(resp, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.exception("Error processing ACP message: %s", e)
+
     async def run_stdio(self):
         """Run the stdio message loop continuously until EOF."""
-        while True:
-            line = await asyncio.to_thread(self.in_stream.readline)
-            if not line:
-                break  # EOF: editor closed pipe
+        running_tasks = set()
+        try:
+            while True:
+                line = await asyncio.to_thread(self.in_stream.readline)
+                if not line:
+                    break  # EOF: editor closed pipe
 
-            resp = await self.handle_message(line)
-            if resp is not None:
-                self.out_stream.write(json.dumps(resp, ensure_ascii=False) + "\n")
-                self.out_stream.flush()
+                task = asyncio.create_task(self._process_and_reply(line))
+                running_tasks.add(task)
+                task.add_done_callback(running_tasks.discard)
+        finally:
+            if running_tasks:
+                await asyncio.gather(*running_tasks, return_exceptions=True)

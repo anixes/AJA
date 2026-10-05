@@ -125,3 +125,79 @@ def test_acp_parse_and_method_errors():
         assert "Method not found" in resp["error"]["message"]
 
     asyncio.run(_run())
+
+
+def test_acp_stdio_cancel_during_prompt():
+    class SlowGateway:
+        def __init__(self):
+            self.provider = "mock"
+            self.started_event = asyncio.Event()
+
+        async def chat(self, **kwargs):
+            self.started_event.set()
+            # Simulate long-running execution
+            await asyncio.sleep(10.0)
+            return "Should never finish"
+
+    async def _run():
+        gw = SlowGateway()
+
+        # Custom async stream simulating incoming lines from client with real-time delay
+        class MockInStream:
+            def __init__(self, lines):
+                self.lines = list(lines)
+
+            def readline(self):
+                if not self.lines:
+                    return ""
+                return self.lines.pop(0)
+
+        out_buf = io.StringIO()
+        server = ACPServer(
+            out_stream=out_buf,
+            gateway=gw,
+            tools_registry=MockACPRegistry(),
+            executor=MockACPExecutor(),
+            dry_run=True,
+        )
+
+        server.sessions["acp-test"] = {
+            "id": "acp-test",
+            "workspaceFolders": [],
+            "history": [],
+        }
+
+        # Step 1: Start prompt in background task via handle_message or run_stdio
+        prompt_req = {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "session/prompt",
+            "params": {"sessionId": "acp-test", "prompt": "run long test"},
+        }
+
+        prompt_task = asyncio.create_task(server.handle_message(json.dumps(prompt_req)))
+
+        # Wait until slow gateway is executing
+        await asyncio.wait_for(gw.started_event.wait(), timeout=2.0)
+        assert "acp-test" in server.active_tasks
+
+        # Step 2: Cancel while prompt is running
+        cancel_req = {
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "session/cancel",
+            "params": {"sessionId": "acp-test"},
+        }
+        cancel_resp = await server.handle_message(json.dumps(cancel_req))
+
+        assert cancel_resp["id"] == 11
+        assert cancel_resp["result"]["status"] == "cancelled"
+
+        # Step 3: Prompt task should have returned cancelled response
+        prompt_resp = await asyncio.wait_for(prompt_task, timeout=2.0)
+        assert prompt_resp["id"] == 10
+        assert prompt_resp["result"]["status"] == "cancelled"
+        assert "acp-test" not in server.active_tasks
+
+    asyncio.run(_run())
+
