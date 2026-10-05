@@ -369,3 +369,43 @@ def test_sensitive_secret_path_requires_permission(tmp_path):
         aja.config.PROJECT_ROOT = orig_root
 
 
+def test_workspace_isolation_blocks_project_root_writes(tmp_path):
+    from aja.workspace.context import WorkspaceContext, set_current_workspace, reset_current_workspace
+
+    orig_root = aja.config.PROJECT_ROOT
+    proj_dir = tmp_path / "aja_project"
+    proj_dir.mkdir()
+    ws_dir = tmp_path / "user_workspace"
+    ws_dir.mkdir()
+    storage_dir = tmp_path / "ws_storage"
+    storage_dir.mkdir()
+
+    try:
+        aja.config.PROJECT_ROOT = proj_dir
+        ws = WorkspaceContext(
+            id="ws-123",
+            name="test-ws",
+            path=ws_dir,
+            storage_dir=storage_dir,
+        )
+        tok = set_current_workspace(ws)
+        try:
+            registry = NativeToolRegistry()
+
+            # Writing to workspace is allowed
+            ws_file = ws_dir / "user_code.py"
+            res_ws = registry.write_file(str(ws_file), "print('user')")
+            assert "Successfully wrote" in res_ws
+            assert ws_file.exists()
+
+            # Writing to project root from workspace is treated as out-of-bounds
+            proj_file = proj_dir / "backdoor.py"
+            res_proj = registry.write_file(str(proj_file), "malicious code")
+            assert "Security Error" in res_proj
+            assert not proj_file.exists()
+        finally:
+            reset_current_workspace(tok)
+    finally:
+        aja.config.PROJECT_ROOT = orig_root
+
+

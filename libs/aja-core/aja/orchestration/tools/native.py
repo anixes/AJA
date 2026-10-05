@@ -1053,7 +1053,7 @@ class NativeToolRegistry:
             },
         )
 
-    def _resolve_path(self, path: str) -> Path:
+    def _resolve_path(self, path: str, mode: str = "read") -> Path:
         """Resolve a path against active workspace or project root with fallback."""
         from aja.config import PROJECT_ROOT
         from aja.workspace.context import get_current_workspace
@@ -1067,7 +1067,8 @@ class NativeToolRegistry:
         p = Path(path)
         if not p.is_absolute():
             candidate = (active_root / p).resolve()
-            if not candidate.exists() and (proj_root / p).exists():
+            # Only fallback to AJA project root for read operations, never writes!
+            if mode == "read" and not candidate.exists() and (proj_root / p).exists():
                 return (proj_root / p).resolve()
             return candidate
         return p.resolve()
@@ -1081,7 +1082,7 @@ class NativeToolRegistry:
             active_root = ctx.path.resolve() if (ctx and ctx.path) else Path(PROJECT_ROOT).resolve()
             proj_root = Path(PROJECT_ROOT).resolve()
 
-            p = self._resolve_path(path)
+            p = self._resolve_path(path, mode=mode)
 
             # Check for sensitive secret paths (credentials, env files, keys)
             name_lower = p.name.lower()
@@ -1102,7 +1103,10 @@ class NativeToolRegistry:
                 if not result.allowed:
                     return f"Security Error: Access to sensitive path '{path}' was denied by security policy."
 
-            if not p.is_relative_to(active_root) and not p.is_relative_to(proj_root):
+            # When an active workspace exists, write operations must stay inside active_root.
+            # Only read operations may read from AJA proj_root without out-of-bounds permission.
+            is_in_bounds = p.is_relative_to(active_root) or (mode == "read" and p.is_relative_to(proj_root))
+            if not is_in_bounds:
                 allow_oob = False
                 if ctx and "allow_out_of_bounds_paths" in ctx.config_overrides:
                     allow_oob = bool(ctx.config_overrides["allow_out_of_bounds_paths"])
@@ -1140,7 +1144,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = self._resolve_path(path)
+            p = self._resolve_path(path, mode="write")
             p.parent.mkdir(parents=True, exist_ok=True)
             if p.suffix.lower() == ".ipynb" and not content.strip().startswith("{"):
                 content = _convert_to_jupyter_notebook(content)
@@ -1357,7 +1361,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = self._resolve_path(path)
+            p = self._resolve_path(path, mode="write")
             p.mkdir(parents=True, exist_ok=True)
             return f"Successfully created directory structure: {p.resolve()}"
         except Exception as e:
@@ -1515,7 +1519,7 @@ class NativeToolRegistry:
         if err:
             return err
         try:
-            p = self._resolve_path(path)
+            p = self._resolve_path(path, mode="write")
             if not p.exists():
                 return f"Error: Path '{path}' does not exist."
             
@@ -1544,8 +1548,8 @@ class NativeToolRegistry:
             return err_dest
         import shutil
         try:
-            s = self._resolve_path(src)
-            d = self._resolve_path(dest)
+            s = self._resolve_path(src, mode="read")
+            d = self._resolve_path(dest, mode="write")
             
             if not s.exists():
                 return f"Error: Source path '{src}' does not exist."
@@ -1569,8 +1573,8 @@ class NativeToolRegistry:
             return err_dest
         import shutil
         try:
-            s = self._resolve_path(src)
-            d = self._resolve_path(dest)
+            s = self._resolve_path(src, mode="write")
+            d = self._resolve_path(dest, mode="write")
             
             if not s.exists():
                 return f"Error: Source path '{src}' does not exist."
