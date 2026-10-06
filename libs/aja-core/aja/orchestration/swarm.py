@@ -57,7 +57,7 @@ class SwarmEngine:
             self.model = model_resolved
             if "gemini" in model_resolved.lower():
                 self.provider = "google"
-            elif any(k in model_resolved.lower() for k in ("gemma", "llama", "qwen", "phi", "deepseek", "mistral")):
+            elif any(k in model_resolved.lower() for k in ("gemma", "llama", "qwen", "deepseek", "mistral", "phi-", "phi3", "phi4", "phi_")):
                 self.provider = "llama_cpp"
             elif "copilot" in model_resolved.lower():
                 self.provider = "copilot"

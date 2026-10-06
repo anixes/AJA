@@ -298,7 +298,7 @@ def test_completion_async_passes_none_through(monkeypatch):
             return None
 
     monkeypatch.setattr(llm_mod, "get_gateway_for_model",
-                        lambda m: (FakeGW(), "m"))
+                        lambda m, *args, **kwargs: (FakeGW(), "m"))
     assert asyncio.run(llm_mod.completion_async("hi")) is None
 
 
@@ -310,7 +310,7 @@ def test_completion_async_passes_str_through(monkeypatch):
             return "answer"
 
     monkeypatch.setattr(llm_mod, "get_gateway_for_model",
-                        lambda m: (FakeGW(), "m"))
+                        lambda m, *args, **kwargs: (FakeGW(), "m"))
     assert asyncio.run(llm_mod.completion_async("hi")) == "answer"
 
 

@@ -674,13 +674,7 @@ async def completion_async(prompt, system_prompt="You are a helpful assistant.",
         except Exception:
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
-    if capability:
-        try:
-            gw, model_name = get_gateway_for_model(model, capability=capability)
-        except TypeError:
-            gw, model_name = get_gateway_for_model(model)
-    else:
-        gw, model_name = get_gateway_for_model(model)
+    gw, model_name = get_gateway_for_model(model, capability=capability)
     return await gw.chat(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature, tools=tools)
 
 
@@ -704,13 +698,7 @@ async def completion_stream(prompt, system_prompt="You are a helpful assistant."
         except Exception:
             model = "llama_cpp:LFM2.5-VL-1.6B"
 
-    if capability:
-        try:
-            gw, model_name = get_gateway_for_model(model, capability=capability)
-        except TypeError:
-            gw, model_name = get_gateway_for_model(model)
-    else:
-        gw, model_name = get_gateway_for_model(model)
+    gw, model_name = get_gateway_for_model(model, capability=capability)
     async for chunk in gw.chat_stream(model=model_name, prompt=prompt, system=system_prompt, temperature=temperature):
         yield chunk
 

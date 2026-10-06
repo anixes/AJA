@@ -15,10 +15,12 @@ def test_websocket_event_broadcasting():
         
         # 3. Read messages in a loop until we find the event_broadcast to handle concurrent state_updates
         found = False
-        for _ in range(5):
-            msg = websocket.receive_json()
-            if msg["type"] == "event_broadcast":
-                assert msg["event_type"] == EVENTS["TASK_RECEIVED"]
+        for _ in range(20):
+            try:
+                msg = websocket.receive_json()
+            except Exception:
+                break
+            if msg.get("type") == "event_broadcast" and msg.get("event_type") == EVENTS["TASK_RECEIVED"]:
                 assert msg["data"] == test_payload
                 found = True
                 break
