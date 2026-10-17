@@ -8,5 +8,7 @@
   "google": "https://generativelanguage.googleapis.com/v1beta/openai",
   "copilot": "https://api.githubcopilot.com",
   "anthropic": "https://api.anthropic.com/v1",
-  "_comment_anthropic": "Anthropic exposes an OpenAI-compatible layer at /v1/chat/completions. NOTE: this path is untested until ANTHROPIC_API_KEY is configured."
+  "_comment_anthropic": "Anthropic exposes an OpenAI-compatible layer at /v1/chat/completions. NOTE: this path is untested until ANTHROPIC_API_KEY is configured.",
+  "gate": "https://gateway.constellationgate.ai/v1",
+  "constellation": "https://gateway.constellationgate.ai/v1"
 }

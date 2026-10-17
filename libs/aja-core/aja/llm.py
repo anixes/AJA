@@ -145,7 +145,7 @@ def resolve_provider_model(
 
     # 1. Local / Offline Override
     if mode_clean in ("offline", "local"):
-        if provider in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+        if provider in ["google", "openai", "anthropic", "openrouter", "copilot", "gate", "constellation"]:
             logger.info("[LLM] LOCAL MODE: Redirecting %s:%s -> llama_cpp:%s", provider, model_name, local_model_fallback)
             provider = "llama_cpp"
             model_name = local_model_fallback
@@ -205,18 +205,18 @@ def get_gateway_for_model(model_str, capability: Optional[str] = None):
                 if worker_model:
                     if ":" in worker_model:
                         prov, m_name = worker_model.split(":", 1)
-                        if prov not in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                        if prov not in ["google", "openai", "anthropic", "openrouter", "copilot", "gate", "constellation"]:
                             local_model_fallback = m_name
-                    elif worker_model not in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                    elif worker_model not in ["google", "openai", "anthropic", "openrouter", "copilot", "gate", "constellation"]:
                         local_model_fallback = worker_model
 
                 planner_model = models_cfg.get("planner", "")
                 if planner_model:
                     if ":" in planner_model:
                         prov, m_name = planner_model.split(":", 1)
-                        if prov in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                        if prov in ["google", "openai", "anthropic", "openrouter", "copilot", "gate", "constellation"]:
                             cloud_model_fallback = m_name
-                    elif planner_model in ["google", "openai", "anthropic", "openrouter", "copilot"]:
+                    elif planner_model in ["google", "openai", "anthropic", "openrouter", "copilot", "gate", "constellation"]:
                         pass
                     else:
                         cloud_model_fallback = planner_model
@@ -231,6 +231,12 @@ def get_gateway_for_model(model_str, capability: Optional[str] = None):
     api_key = os.getenv(f"{provider.upper()}_API_KEY", "")
     if not api_key and provider == "google":
         api_key = os.getenv("GEMINI_API_KEY", "")
+    elif not api_key and provider in ("gate", "constellation"):
+        api_key = (
+            os.getenv("GATE_API_KEY")
+            or os.getenv("GATEWAY_KEY")
+            or os.getenv("CONSTELLATION_API_KEY", "")
+        )
 
     # Hash the key instead of truncating: a truncated prefix can collide
     # between distinct keys and never refreshes after key rotation.

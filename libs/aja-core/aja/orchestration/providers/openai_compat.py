@@ -36,6 +36,8 @@ PROVIDER_BASE_URLS: Dict[str, str] = {
     "llama_cpp": os.getenv("LLAMA_CPP_URL", "http://localhost:8080/v1"),
     "ollama": os.getenv("OLLAMA_URL", "http://localhost:11434/v1"),
     "copilot": "https://api.githubcopilot.com",
+    "gate": "https://gateway.constellationgate.ai/v1",
+    "constellation": "https://gateway.constellationgate.ai/v1",
 }
 
 _PROVIDER_ENV_KEYS: Dict[str, tuple] = {
@@ -46,6 +48,8 @@ _PROVIDER_ENV_KEYS: Dict[str, tuple] = {
     "together": ("TOGETHER_API_KEY",),
     "copilot": ("COPILOT_GITHUB_TOKEN",),
     "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY", "AI_KEY"),
+    "gate": ("GATE_API_KEY", "GATEWAY_KEY", "CONSTELLATION_API_KEY"),
+    "constellation": ("CONSTELLATION_API_KEY", "GATEWAY_KEY", "GATE_API_KEY"),
 }
 
 # Deterministic client errors that will fail identically on retry.

@@ -31,7 +31,7 @@ def _register_defaults() -> None:
     from aja.orchestration.providers.openai_compat import OpenAICompatAdapter
 
     for name in ("openai", "openrouter", "together", "groq", "nvidia",
-                 "llama_cpp", "ollama", "copilot"):
+                 "llama_cpp", "ollama", "copilot", "gate", "constellation"):
         register_adapter(name, OpenAICompatAdapter)
 
     try:

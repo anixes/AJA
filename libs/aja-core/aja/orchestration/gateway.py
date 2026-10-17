@@ -75,6 +75,8 @@ def load_providers():
         "ollama": os.getenv("OLLAMA_URL", "http://localhost:11434/v1"),
         "google": "https://generativelanguage.googleapis.com/v1beta/openai",
         "copilot": "https://api.githubcopilot.com",
+        "gate": "https://gateway.constellationgate.ai/v1",
+        "constellation": "https://gateway.constellationgate.ai/v1",
     }
 
 
@@ -239,6 +241,13 @@ class LLMGateway:
             self.api_key = raw_key or os.getenv("OPENAI_API_KEY", "no-key-required")
         elif self.provider == "openrouter":
             self.api_key = raw_key or os.getenv("OPENROUTER_API_KEY", "no-key-required")
+        elif self.provider in ("gate", "constellation"):
+            self.api_key = (
+                raw_key
+                or os.getenv("GATE_API_KEY")
+                or os.getenv("GATEWAY_KEY")
+                or os.getenv("CONSTELLATION_API_KEY", "no-key-required")
+            )
         elif not raw_key:
             self.api_key = "no-key-required"
         else:
@@ -828,7 +837,7 @@ class LLMGateway:
             model = model[8:]
 
         # If model is OpenAI compatible
-        if self.provider in ("openai", "openrouter", "copilot", "llama_cpp", "ollama", "together", "groq", "nvidia"):
+        if self.provider in ("openai", "openrouter", "copilot", "llama_cpp", "ollama", "together", "groq", "nvidia", "gate", "constellation"):
             yielded_any = False
             try:
                 if isinstance(prompt, list):

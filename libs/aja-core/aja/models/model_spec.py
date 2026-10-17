@@ -57,7 +57,7 @@ def infer_capabilities(model_name: str, provider: str = "") -> Set[ModelCapabili
 
     # 3. Native Tool Calling
     # Cloud providers and modern instruct models support tools
-    if low_provider in ("google", "openai", "copilot", "anthropic", "openrouter"):
+    if low_provider in ("google", "openai", "copilot", "anthropic", "openrouter", "gate", "constellation"):
         caps.add(ModelCapability.TOOLS)
     elif "instruct" in low_name or "coder" in low_name or "tools" in low_name or "hermes" in low_name:
         caps.add(ModelCapability.TOOLS)

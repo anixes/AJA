@@ -18,7 +18,7 @@ _FAMILY_CHARS_PER_TOKEN = {
     "gemma": 4.0,
 }
 
-_CLOUD_PROVIDERS = {"google", "openai", "openrouter", "copilot", "anthropic"}
+_CLOUD_PROVIDERS = {"google", "openai", "openrouter", "copilot", "anthropic", "gate", "constellation"}
 _LOCAL_PROVIDERS = {"llama_cpp", "ollama"}
 
 _LOCAL_MODEL_HINTS = {
