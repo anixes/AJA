@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for expanding the AJA Durable Execution & Swarm Runtime console with Conversational AJA Chat (including interactive slash commands and Kanban task flows) and an Interactive HTN Plan Tree DAG Viewer with node-level inspection, dry-run simulation, and OITL approval controls.",
+  "updatedAt": "2026-10-17T06:39:53.634392166Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
