@@ -170,9 +170,12 @@ class CommandRegistry:
 
             bg = "--bg" in args
             dry_run = "--dry-run" in args
-            objective_parts = [a for a in args[1:] if a not in ("--bg", "--dry-run")]
+            swarm = "--swarm" in args
+            no_plan = "--no-plan" in args
+            filtered_flags = {"--bg", "--dry-run", "--swarm", "--no-plan"}
+            objective_parts = [a for a in args[1:] if a not in filtered_flags]
             objective = " ".join(objective_parts)
-            cmd_run(objective, background=bg, dry_run=dry_run)
+            cmd_run(objective, background=bg, dry_run=dry_run, swarm=swarm, no_plan=no_plan)
 
         elif cmd == "chat":
             _launch_repl()

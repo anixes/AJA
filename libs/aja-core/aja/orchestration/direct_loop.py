@@ -180,9 +180,13 @@ def _find_missing_deliverables(content: str) -> List[str]:
 
 async def _run_verification_checks(
     *,
-    verification_fn: Optional[Callable[[], Any]],
-    verification_cmd: Optional[str],
-    auto_verify: bool,
+    verification_fn: Optional[Callable[[], Any]] = None,
+    verification_cmd: Optional[str] = None,
+    auto_verify: bool = False,
+    ladder_verify: bool = False,
+    test_target: Optional[str] = None,
+    check_git: bool = True,
+    cwd: Optional[Path | str] = None,
 ) -> Tuple[bool, str]:
     """Execute configured verification gates and return (passed, failure_prompt)."""
     # 1. Custom verification function
@@ -200,21 +204,21 @@ async def _run_verification_checks(
     if verification_cmd:
         from aja.orchestration.verification_runner import run_command_verifier
 
-        c_res = await run_command_verifier(verification_cmd)
+        c_res = await run_command_verifier(verification_cmd, cwd=cwd)
         if not c_res.passed:
             return False, c_res.to_feedback_prompt()
 
-    # 3. Auto-verify syntax on Python files if enabled
-    if auto_verify:
-        from aja.orchestration.verification_runner import verify_python_syntax
+    # 3. Verification Ladder (runs Tier 1 Syntax -> Tier 2 Targeted Tests -> Tier 3 Git Diff Sanity)
+    if ladder_verify or auto_verify:
+        from aja.orchestration.verification_runner import run_verification_ladder
 
-        py_files = [
-            p for p in Path(".").glob("**/*.py")
-            if "venv" not in p.parts and ".git" not in p.parts
-        ][:50]
-        s_res = verify_python_syntax(py_files)
-        if not s_res.passed:
-            return False, s_res.to_feedback_prompt()
+        l_res = await run_verification_ladder(
+            test_target=test_target,
+            check_git=check_git,
+            cwd=cwd,
+        )
+        if not l_res.passed:
+            return False, l_res.to_feedback_prompt()
 
     return True, ""
 
@@ -242,6 +246,11 @@ async def run_direct_loop(
     trace_id_fn: Optional[Callable[[], str]] = None,
     verification_cmd: Optional[str] = None,
     auto_verify: bool = False,
+    ladder_verify: bool = False,
+    test_target: Optional[str] = None,
+    check_git: bool = True,
+    plan_path: Optional[Union[Path, str]] = None,
+    use_plan: bool = False,
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -264,6 +273,13 @@ async def run_direct_loop(
     compressor = history_compressor or _default_history_compressor
     truncator = result_truncator or _default_result_truncator
     trace_id_getter = trace_id_fn or _default_trace_id_fn
+
+    # Determine active Living Disk State plan
+    active_plan_path: Optional[Path] = None
+    if plan_path:
+        active_plan_path = Path(plan_path).resolve()
+    elif use_plan and Path("PLAN.md").exists():
+        active_plan_path = Path("PLAN.md").resolve()
 
     if not system_prompt:
         try:
@@ -290,6 +306,7 @@ async def run_direct_loop(
 
     iteration = 0
     verification_attempts = 0
+    plan_attempts = 0
     deliverable_attempts = 0
     max_deliverable_retries = 3
     empty_response_nudges = 0
@@ -311,11 +328,20 @@ async def run_direct_loop(
         except Exception as e:  # best-effort: compression must never kill the loop
             logger.debug("History compression skipped: %s", e)
 
+        turn_system = system_prompt
+        if active_plan_path and active_plan_path.exists():
+            from aja.orchestration.plan_state import render_compact_progress
+            try:
+                progress_block = render_compact_progress(active_plan_path)
+                turn_system = f"{system_prompt or ''}\n\n[Living Disk State: PLAN.md]\n{progress_block}".strip()
+            except Exception as e:
+                logger.debug("Plan progress render skipped: %s", e)
+
         try:
             response = await gateway.chat(
                 model=model,
                 prompt=history,
-                system=system_prompt,
+                system=turn_system,
                 tools=tool_schemas,
             )
         except Exception as e:
@@ -472,8 +498,40 @@ async def run_direct_loop(
                     history.append({"role": "user", "content": feedback_msg})
                     continue
 
-            # Autonomous Verification Gate (OpenCode 2 style self-healing loop)
-            needs_verification = bool(verification_cmd or auto_verify or verification_fn)
+            # Plan Completion Gate (Living Disk State)
+            if active_plan_path and active_plan_path.exists():
+                from aja.orchestration.plan_state import parse_plan
+                try:
+                    p_state = parse_plan(active_plan_path)
+                    if not p_state.is_complete:
+                        if plan_attempts < max_verification_retries:
+                            plan_attempts += 1
+                            curr = p_state.current_task
+                            curr_desc = f"#{curr.index} '{curr.text}'" if curr else "None"
+                            if console:
+                                console.print(
+                                    f"[bold red]✘ [Exit Contract Rejected: Incomplete Plan][/bold red] Remaining uncompleted tasks in {active_plan_path.name}"
+                                )
+                            feedback_msg = (
+                                f"[Exit Contract Violation: Incomplete Plan]\n"
+                                f"Cannot complete task while planned items remain uncompleted in {active_plan_path.name}.\n"
+                                f"Progress: {p_state.completed_count}/{p_state.total_count} tasks completed ({p_state.progress_pct}%).\n"
+                                f"Current uncompleted task: {curr_desc}.\n"
+                                f"Please execute and verify the remaining tasks, or mark them as cancelled ([-]) if descoped."
+                            )
+                            history.append({"role": "user", "content": feedback_msg})
+                            continue
+                        else:
+                            if console:
+                                console.print(
+                                    f"[bold yellow]⚠ [Exit Contract] Plan completion retries ({max_verification_retries}) exhausted.[/bold yellow]"
+                                )
+                            return {"status": "incomplete", "reason": "plan_incomplete", "turns": iteration}
+                except Exception as e:
+                    logger.debug("[DirectLoop] Plan verification check skipped: %s", e)
+
+            # Autonomous Verification Gate (Deterministic Multi-Tier Verification Ladder)
+            needs_verification = bool(verification_cmd or auto_verify or verification_fn or ladder_verify)
             if needs_verification and verification_attempts < max_verification_retries:
                 verification_attempts += 1
                 if console:
@@ -485,6 +543,10 @@ async def run_direct_loop(
                     verification_fn=verification_fn,
                     verification_cmd=verification_cmd,
                     auto_verify=auto_verify,
+                    ladder_verify=ladder_verify,
+                    test_target=test_target,
+                    check_git=check_git,
+                    cwd=None,
                 )
 
                 if not passed:
