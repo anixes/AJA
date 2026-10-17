@@ -141,6 +141,14 @@ def resolve_provider_model(
             if model_name.lower() in ("copilot", ""):
                 model_name = "gpt-4o"
 
+    if provider in ("gate", "constellation"):
+        low_m = model_name.lower().replace("-", "").replace(".", "").replace(" ", "").replace("_", "")
+        if not model_name.startswith("constellation/") and not "/" in model_name:
+            if "glm" in low_m:
+                model_name = "constellation/glm-5-3-flash-free"
+            elif "qwen" in low_m:
+                model_name = "constellation/qwen3-8-flash-free"
+
     mode_clean = (operating_mode or "hybrid").lower().strip()
 
     # 1. Local / Offline Override
