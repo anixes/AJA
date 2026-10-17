@@ -1,0 +1,8 @@
+{
+  "name": "AJA — Durable Execution & Swarm Runtime",
+  "description": "Local-first durable execution runtime, replay-authoritative orchestration substrate, and executive priority engine for autonomous agent swarms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

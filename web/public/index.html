@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AJA — Durable Execution &amp; Swarm Runtime</title>
+  <meta name="description" content="Local-first durable execution runtime, replay-authoritative orchestration substrate, and executive priority engine for autonomous agent swarms." />
+  <meta property="og:title" content="AJA — Durable Execution &amp; Swarm Runtime" />
+  <meta property="og:description" content="Local-first durable execution runtime, replay-authoritative orchestration substrate, and executive priority engine for autonomous agent swarms." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --background: #0b0f17;
+      --surface: #111827;
+      --border: #1e293b;
+      --primary: #6366f1;
+    }
+    body {
+      background-color: var(--background);
+      color: #e2e8f0;
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: 0.01em;
+    }
+    h1, h2, h3, .font-display {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
+
+  <!-- Strict 3-Zone Top Bar Contract -->
+  <header class="border-b border-slate-800 bg-[#0b0f17]/95 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-[1440px] mx-auto px-6 py-3.5 flex items-center justify-between gap-8">
+      <!-- Zone 1: Single text element wordmark -->
+      <a href="#overview" onclick="switchView('overview'); return false;" class="font-display text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0">
+        AJA Runtime
+      </a>
+
+      <!-- Zone 2: 4 concise single-line navigation links -->
+      <nav class="hidden md:flex items-center gap-7 text-sm font-medium text-slate-400">
+        <a href="#overview" id="nav-overview" onclick="switchView('overview'); return false;" class="text-white underline underline-offset-8 decoration-indigo-500 decoration-2 transition-colors whitespace-nowrap shrink-0">
+          Priority Desk
+        </a>
+        <a href="#htn" id="nav-htn" onclick="switchView('htn'); return false;" class="hover:text-white transition-colors whitespace-nowrap shrink-0">
+          HTN Plan Tree
+        </a>
+        <a href="#chat" id="nav-chat" onclick="switchView('chat'); return false;" class="hover:text-white transition-colors whitespace-nowrap shrink-0">
+          AJA Chat &amp; Kanban
+        </a>
+        <a href="#workers" id="nav-workers" onclick="switchView('workers'); return false;" class="hover:text-white transition-colors whitespace-nowrap shrink-0">
+          Workers &amp; Journal
+        </a>
+      </nav>
+
+      <!-- Zone 3: 1 primary action -->
+      <div class="flex items-center shrink-0">
+        <button onclick="openMissionModal()" class="px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-md transition-colors whitespace-nowrap shrink-0">
+          New Swarm Mission
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sub-Header Telemetry & Workspace Switcher Bar -->
+  <div class="border-b border-slate-800/80 bg-[#0f1522]">
+    <div class="max-w-[1440px] mx-auto px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs">
+      <div class="flex items-center gap-3 text-slate-400 mono">
+        <span>Replay-Authoritative Substrate</span>
+        <span aria-hidden="true">·</span>
+        <span>Planner: <strong id="bar-planner" class="text-slate-200 font-medium">gemini-3.8-flash</strong></span>
+        <span aria-hidden="true">·</span>
+        <span>Worker: <strong id="bar-worker" class="text-slate-200 font-medium">gemini-3.1-flash-lite</strong></span>
+      </div>
+
+      <div class="flex items-center gap-5 mono text-slate-400">
+        <span>Active Workers: <strong id="stat-agents" class="text-white">3</strong></span>
+        <span aria-hidden="true">·</span>
+        <span>Arrow Batons: <strong id="stat-batons" class="text-white">1</strong></span>
+        <span aria-hidden="true">·</span>
+        <span>HTN Plans: <strong id="stat-plans" class="text-white">1</strong></span>
+        <span aria-hidden="true">·</span>
+        <span>OITL Alerts: <strong id="stat-alerts" class="text-amber-400">2</strong></span>
+        <button onclick="refreshAll()" class="text-indigo-400 hover:text-indigo-300 underline underline-offset-4 whitespace-nowrap shrink-0">
+          Sync State
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile View Selector -->
+  <div class="md:hidden border-b border-slate-800 px-6 py-2 flex gap-2 overflow-x-auto bg-[#0b0f17]">
+    <button onclick="switchView('overview')" class="px-3 py-1.5 text-xs font-medium rounded bg-slate-800 text-white whitespace-nowrap shrink-0">Priority Desk</button>
+    <button onclick="switchView('htn')" class="px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-slate-400 whitespace-nowrap shrink-0">HTN Plan Tree</button>
+    <button onclick="switchView('chat')" class="px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-slate-400 whitespace-nowrap shrink-0">AJA Chat &amp; Kanban</button>
+    <button onclick="switchView('workers')" class="px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-slate-400 whitespace-nowrap shrink-0">Workers &amp; Journal</button>
+  </div>
+
+  <!-- Main 1440px Viewport Container -->
+  <main class="max-w-[1440px] w-full mx-auto px-6 py-6 flex-1">
+
+    <!-- ================================================================== -->
+    <!-- VIEW 1: PRIORITY DESK & SWARM OVERVIEW                             -->
+    <!-- ================================================================== -->
+    <div id="view-overview" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <!-- Left 8 Columns: Priority Engine + Active Arrow Batons -->
+      <div class="lg:col-span-8 space-y-8">
+        <!-- Quick Mission & Worker Recommender Bar -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div>
+              <h2 class="text-base font-semibold text-white">01. Swarm Mission Delegation &amp; Worker Recommender</h2>
+              <p class="text-xs text-slate-400 mt-0.5">Decompose objectives into durable HTN activities and rank available workers before dispatch.</p>
+            </div>
+            <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none mono">
+              <input id="quick-dry-run" type="checkbox" class="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0" />
+              <span>--dry-run simulation</span>
+            </label>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <input
+              id="mission-objective"
+              type="text"
+              placeholder="Enter mission objective (e.g., Fix memory leak in CUDA allocation and add unit tests)..."
+              class="flex-1 bg-[#0b0f17] border border-slate-800 rounded-md px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              onclick="recommendWorkers()"
+              class="px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition whitespace-nowrap shrink-0"
+            >
+              Rank Workers
+            </button>
+            <button
+              onclick="launchSwarmMission()"
+              class="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition whitespace-nowrap shrink-0"
+            >
+              Dispatch Mission
+            </button>
+          </div>
+
+          <div id="mission-feedback" class="hidden mt-4 pt-4 border-t border-slate-800 text-xs space-y-2"></div>
+        </section>
+
+        <!-- 5-Dimension Executive Priority Engine -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+            <div>
+              <h2 class="text-base font-semibold text-white">02. Executive Priority Engine</h2>
+              <p class="text-xs text-slate-400 mt-0.5">Multi-factor scoring across Urgency (40) · Stakeholder Weight (30) · Consequence (20) · Executive Intent (10)</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="relative">
+                <input
+                  id="priority-search"
+                  type="text"
+                  oninput="handlePrioritySearch(this.value)"
+                  placeholder="Filter by title or ID..."
+                  aria-label="Filter active tasks by title or ID"
+                  class="w-48 sm:w-56 bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 mono"
+                />
+              </div>
+              <div class="flex items-center gap-1 p-1 bg-[#0b0f17] border border-slate-800 rounded-md">
+                <button onclick="setPriorityFilter('all')" id="pf-all" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-white whitespace-nowrap shrink-0">All Active</button>
+                <button onclick="setPriorityFilter('top3')" id="pf-top3" class="px-2.5 py-1 text-xs font-medium rounded text-slate-400 hover:text-white whitespace-nowrap shrink-0">Top 3 Focus</button>
+              </div>
+              <button
+                onclick="toggleNewTaskForm()"
+                class="px-3.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition whitespace-nowrap shrink-0"
+              >
+                Add Task
+              </button>
+            </div>
+          </div>
+
+          <!-- New Task Inline Form -->
+          <div id="new-task-form" class="hidden mb-5 pb-5 border-b border-slate-800 space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <input id="task-title" type="text" placeholder="Task title (e.g. Follow up with hiring manager on offer)" class="sm:col-span-2 bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-sm text-white" />
+              <select id="task-priority" class="bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-sm text-white">
+                <option value="urgent">Urgent Priority</option>
+                <option value="high" selected>High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+              <input id="task-due" type="date" class="bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-xs text-slate-300 mono" />
+            </div>
+            <div class="flex items-center justify-end gap-2">
+              <button onclick="toggleNewTaskForm()" class="px-3 py-1.5 rounded-md bg-slate-800 text-slate-300 text-xs font-medium whitespace-nowrap shrink-0">Cancel</button>
+              <button onclick="createTask()" class="px-4 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium whitespace-nowrap shrink-0">Save Task</button>
+            </div>
+          </div>
+
+          <!-- Priority Table / Rows -->
+          <div id="priority-list" class="divide-y divide-slate-800/80"></div>
+        </section>
+
+        <!-- Active Arrow Batons -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-base font-semibold text-white">03. Active Arrow Batons &amp; Delegation Briefs</h2>
+              <p class="text-xs text-slate-400 mt-0.5">Zero-copy state handovers with auto-generated Definitions of Done.</p>
+            </div>
+            <button onclick="switchView('htn')" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium whitespace-nowrap shrink-0">
+              Inspect HTN Plan Tree →
+            </button>
+          </div>
+          <div id="batons-list" class="divide-y divide-slate-800/80"></div>
+        </section>
+      </div>
+
+      <!-- Right 4 Columns: OITL Safety Gate + Quick HTN Snapshot + Event Log -->
+      <div class="lg:col-span-4 space-y-8">
+        <!-- CommandGuard Safety Gate -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-white">CommandGuard Safety Gate</h2>
+            <span class="text-xs text-slate-400 mono">OITL Policy</span>
+          </div>
+          <div id="approval-box" class="text-xs text-slate-400"></div>
+        </section>
+
+        <!-- Live HTN Plan Tree Preview Card -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-white">Active HTN Plan DAG</h2>
+            <button onclick="switchView('htn')" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium whitespace-nowrap shrink-0">
+              Open Full DAG
+            </button>
+          </div>
+          <div id="overview-htn-summary" class="text-xs space-y-3"></div>
+        </section>
+
+        <!-- Replay Event Journal Preview -->
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-white">Replay Event Journal</h2>
+            <span class="text-xs text-slate-400 mono">Append-Only</span>
+          </div>
+          <div id="overview-events-list" class="divide-y divide-slate-800/80 max-h-80 overflow-y-auto pr-1"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 2: INTERACTIVE HTN PLAN TREE DAG VIEWER                       -->
+    <!-- ================================================================== -->
+    <div id="view-htn" class="hidden space-y-6">
+      <!-- Top HTN Controls & Plan Selector -->
+      <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-semibold text-white">AJA Live HTN Plan Tree DAG &amp; Durable Activity Inspector</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Hierarchical Task Network decomposition: Root Mission → Methods → Durable Leaf Activities with OITL governance.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <select id="htn-plan-select" onchange="selectHTNPlan(this.value)" class="bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-xs text-white mono"></select>
+            <button onclick="stepHTNPlan()" class="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition whitespace-nowrap shrink-0">
+              Step Next Activity
+            </button>
+            <button onclick="resetHTNPlan()" class="px-3.5 py-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition whitespace-nowrap shrink-0">
+              Reset Replay
+            </button>
+          </div>
+        </div>
+
+        <!-- Create New HTN Plan Bar -->
+        <div class="mt-4 pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <input
+            id="htn-new-objective"
+            type="text"
+            placeholder="Decompose new HTN mission (e.g., Profile CUDA memory allocation and patch reference cycle)..."
+            class="flex-1 bg-[#0b0f17] border border-slate-800 rounded-md px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          <label class="flex items-center gap-2 text-xs text-slate-300 mono cursor-pointer select-none px-2">
+            <input id="htn-new-dryrun" type="checkbox" class="rounded border-slate-700 bg-slate-900 text-indigo-600" />
+            <span>Dry-Run Mode</span>
+          </label>
+          <button onclick="createHTNPlanFromInput()" class="px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium border border-slate-700 transition whitespace-nowrap shrink-0">
+            Generate HTN DAG
+          </button>
+        </div>
+
+        <div id="htn-step-banner" class="hidden mt-4 p-3 rounded-md bg-[#0b0f17] border border-slate-800 text-xs mono text-slate-300"></div>
+      </section>
+
+      <!-- Split DAG Tree (7 cols) & Node Inspector / OITL Drawer (5 cols) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <!-- Left 7 Columns: Interactive Hierarchical DAG Tree -->
+        <section class="lg:col-span-7 border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+            <span class="text-sm font-semibold text-white">Hierarchical Execution Graph</span>
+            <div id="htn-metrics-bar" class="text-xs text-slate-400 mono"></div>
+          </div>
+          <div id="htn-tree-container" class="space-y-2"></div>
+        </section>
+
+        <!-- Right 5 Columns: Node Lineage Inspector & OITL Controls -->
+        <section class="lg:col-span-5 border border-slate-800 rounded-lg bg-[#111827] p-6 sticky top-20">
+          <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-semibold text-white">Node Lineage &amp; OITL Governance</h3>
+            <span id="inspector-node-type" class="text-xs text-slate-400 mono">Select a node</span>
+          </div>
+          <div id="htn-node-inspector" class="text-xs space-y-4"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 3: CONVERSATIONAL AJA CHAT & SLASH COMMAND STUDIO             -->
+    <!-- ================================================================== -->
+    <div id="view-chat" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Left 8 Columns: Interactive Chat & Slash Terminal -->
+      <section class="lg:col-span-8 border border-slate-800 rounded-lg bg-[#111827] flex flex-col h-[700px]">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-white">AJA Conversational Assistant &amp; Slash Command Terminal</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Type natural language or slash commands (`/swarm`, `/todo`, `/doing`, `/done`, `/kanban`, `/doctor`, `/status`, `/models`)</p>
+          </div>
+          <button onclick="sendQuickSlash('/clear')" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium whitespace-nowrap shrink-0">
+            Clear History
+          </button>
+        </div>
+
+        <!-- Quick Slash Command Buttons -->
+        <div class="px-6 py-2.5 border-b border-slate-800/80 bg-[#0b0f17] flex items-center gap-2 overflow-x-auto">
+          <span class="text-[11px] text-slate-500 mono shrink-0">Quick Commands:</span>
+          <button onclick="sendQuickSlash('/kanban')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/kanban</button>
+          <button onclick="sendQuickSlash('/doctor')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/doctor</button>
+          <button onclick="sendQuickSlash('/status')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/status</button>
+          <button onclick="sendQuickSlash('/models')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/models</button>
+          <button onclick="prefillChatInput('/swarm ')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-indigo-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/swarm &lt;objective&gt;</button>
+          <button onclick="prefillChatInput('/todo ')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/todo &lt;title&gt;</button>
+          <button onclick="sendQuickSlash('/help')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs mono whitespace-nowrap shrink-0">/help</button>
+        </div>
+
+        <!-- Messages Transcript -->
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4"></div>
+
+        <!-- Slash Command Autocomplete Palette -->
+        <div id="slash-palette" class="hidden px-6 py-2 bg-[#0b0f17] border-t border-slate-800 text-xs mono space-y-1 max-h-40 overflow-y-auto"></div>
+
+        <!-- Input Bar -->
+        <form onsubmit="submitChatMessage(event)" class="p-4 border-t border-slate-800 bg-[#0b0f17] flex items-center gap-3">
+          <span class="text-indigo-400 font-semibold mono text-xs shrink-0">User &gt;</span>
+          <input
+            id="chat-input"
+            type="text"
+            oninput="handleChatInputKey(this.value)"
+            placeholder="Ask AJA anything or type '/' for commands (e.g. /todo Verify Arrow IPC schema)..."
+            class="flex-1 bg-[#111827] border border-slate-800 rounded-md px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          <button type="submit" class="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition whitespace-nowrap shrink-0">
+            Send
+          </button>
+        </form>
+      </section>
+
+      <!-- Right 4 Columns: Live Synchronized Kanban & Model Selector -->
+      <div class="lg:col-span-4 space-y-6">
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-white">Task Kanban Summary</h3>
+            <span class="text-xs text-slate-400 mono">TaskManager</span>
+          </div>
+          <div id="chat-kanban-sidebar" class="space-y-4 text-xs"></div>
+        </section>
+
+        <section class="border border-slate-800 rounded-lg bg-[#111827] p-6">
+          <h3 class="text-base font-semibold text-white mb-2">Swarm Engine Model Assignment</h3>
+          <p class="text-xs text-slate-400 mb-4">Configure Planner (complex HTN decomposition) and Single Agent Worker (tool execution).</p>
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="block text-slate-400 mb-1">Swarm Planner Model</label>
+              <select id="select-planner-model" class="w-full bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-white mono">
+                <option value="constellation/glm-5-3-flash-free">constellation/glm-5-3-flash-free</option>
+                <option value="gemini-3.8-flash" selected>gemini-3.8-flash</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
+                <option value="copilot:gpt-4o">copilot:gpt-4o</option>
+                <option value="copilot:claude-sonnet-4.5">copilot:claude-sonnet-4.5</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Single Agent Worker Model</label>
+              <select id="select-worker-model" class="w-full bg-[#0b0f17] border border-slate-800 rounded-md px-3 py-2 text-white mono">
+                <option value="constellation/glm-5-3-flash-free">constellation/glm-5-3-flash-free</option>
+                <option value="gemini-3.1-flash-lite" selected>gemini-3.1-flash-lite</option>
+                <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+                <option value="copilot:gpt-4o-mini">copilot:gpt-4o-mini</option>
+              </select>
+            </div>
+            <button onclick="saveModelAssignment()" class="w-full py-2 rounded-md bg-slate-800 hover:bg-slate-700 text-white font-medium border border-slate-700 transition">
+              Update Models
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 4: WORKERS REGISTRY & REPLAY JOURNAL                          -->
+    <!-- ================================================================== -->
+    <div id="view-workers" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <section class="lg:col-span-6 border border-slate-800 rounded-lg bg-[#111827] p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white">Swarm Worker Capability Registry</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Registered autonomous workers, reliability scores, and execution capabilities.</p>
+          </div>
+          <button onclick="seedWorkers()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-medium whitespace-nowrap shrink-0">
+            Reset Defaults
+          </button>
+        </div>
+        <div id="workers-list" class="divide-y divide-slate-800/80"></div>
+      </section>
+
+      <section class="lg:col-span-6 border border-slate-800 rounded-lg bg-[#111827] p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white">Durable Replay Event Journal</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Authoritative append-only stream of tool calls, OITL gates, and baton handovers.</p>
+          </div>
+          <span class="text-xs text-slate-400 mono">GET /runtime/events</span>
+        </div>
+        <div id="events-list" class="divide-y divide-slate-800/80 max-h-[600px] overflow-y-auto pr-1"></div>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- New Mission Modal -->
+  <div id="mission-modal" class="hidden fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+    <div class="w-full max-w-lg border border-slate-800 rounded-lg bg-[#111827] p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-semibold text-white">Launch Autonomous Swarm Mission</h3>
+        <button onclick="closeMissionModal()" class="text-slate-400 hover:text-white text-xs mono">Close</button>
+      </div>
+      <p class="text-xs text-slate-400">Decomposes your objective into an HTN Plan Tree DAG, generates a Definition of Done, and dispatches an Apache Arrow baton.</p>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Mission Objective</label>
+          <input id="modal-objective" type="text" placeholder="e.g., Audit replay journal determinism and verify schema versioning" class="w-full bg-[#0b0f17] border border-slate-800 rounded-md px-3.5 py-2 text-sm text-white" />
+        </div>
+        <div class="flex items-center justify-between pt-1">
+          <label class="flex items-center gap-2 text-xs text-slate-300 mono cursor-pointer">
+            <input id="modal-dryrun" type="checkbox" class="rounded border-slate-700 bg-slate-900 text-indigo-600" />
+            <span>Run in --dry-run simulation mode</span>
+          </label>
+          <div class="flex gap-2">
+            <button onclick="closeMissionModal()" class="px-3.5 py-2 rounded-md bg-slate-800 text-slate-300 text-xs font-medium">Cancel</button>
+            <button onclick="submitModalMission()" class="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium">Launch &amp; View HTN DAG</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const HEADERS = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer dev-token-123'
+    };
+
+    let currentView = 'overview';
+    let priorityFilter = 'all';
+    let prioritySearchQuery = '';
+    let priorityEngineData = { top3: [], all_scored: [] };
+    let htnPlans = [];
+    let selectedPlanId = null;
+    let selectedNodeId = null;
+
+    const SLASH_COMMANDS = [
+      { cmd: '/swarm ', desc: 'Decompose objective into HTN Plan Tree & dispatch Arrow baton' },
+      { cmd: '/goal ', desc: 'Run persistent background mission' },
+      { cmd: '/kanban', desc: 'Render interactive Kanban task board' },
+      { cmd: '/todo ', desc: 'Add a new task to AJA memory' },
+      { cmd: '/doing ', desc: 'Move task ID to RUNNING / ACTIVE' },
+      { cmd: '/done ', desc: 'Mark task ID as COMPLETED' },
+      { cmd: '/failed ', desc: 'Mark task ID as FAILED' },
+      { cmd: '/rmtask ', desc: 'Delete task ID from memory' },
+      { cmd: '/doctor', desc: 'Run system readiness & determinism checks' },
+      { cmd: '/status', desc: 'Display active swarm health and baton count' },
+      { cmd: '/models', desc: 'Inspect or change Planner and Worker models' },
+      { cmd: '/clear', desc: 'Clear conversation history' },
+      { cmd: '/help', desc: 'Show all available AJA slash commands' }
+    ];
+
+    async function fetchJSON(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: { ...HEADERS, ...(options.headers || {}) }
+      });
+      return res.json();
+    }
+
+    function switchView(view) {
+      currentView = view;
+      ['overview', 'htn', 'chat', 'workers'].forEach(v => {
+        const section = document.getElementById(`view-${v}`);
+        const nav = document.getElementById(`nav-${v}`);
+        if (section) section.classList.toggle('hidden', v !== view);
+        if (nav) {
+          if (v === view) {
+            nav.className = 'text-white underline underline-offset-8 decoration-indigo-500 decoration-2 transition-colors whitespace-nowrap shrink-0';
+          } else {
+            nav.className = 'hover:text-white transition-colors whitespace-nowrap shrink-0';
+          }
+        }
+      });
+    }
+
+    function openMissionModal() {
+      document.getElementById('mission-modal').classList.remove('hidden');
+      document.getElementById('modal-objective').focus();
+    }
+
+    function closeMissionModal() {
+      document.getElementById('mission-modal').classList.add('hidden');
+    }
+
+    async function submitModalMission() {
+      const obj = document.getElementById('modal-objective').value.trim() || 'Audit replay journal determinism and verify schema versioning';
+      const dryRun = document.getElementById('modal-dryrun').checked;
+      const res = await fetchJSON('/htn/plans', {
+        method: 'POST',
+        body: JSON.stringify({ objective: obj, dry_run: dryRun })
+      });
+      document.getElementById('modal-objective').value = '';
+      closeMissionModal();
+      selectedPlanId = res.plan?.plan_id;
+      selectedNodeId = res.plan?.root?.id;
+      await refreshAll();
+      switchView('htn');
+    }
+
+    function toggleNewTaskForm() {
+      document.getElementById('new-task-form').classList.toggle('hidden');
+    }
+
+    function setPriorityFilter(mode) {
+      priorityFilter = mode;
+      document.getElementById('pf-all').className = mode === 'all'
+        ? 'px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-white whitespace-nowrap shrink-0'
+        : 'px-2.5 py-1 text-xs font-medium rounded text-slate-400 hover:text-white whitespace-nowrap shrink-0';
+      document.getElementById('pf-top3').className = mode === 'top3'
+        ? 'px-2.5 py-1 text-xs font-medium rounded bg-slate-800 text-white whitespace-nowrap shrink-0'
+        : 'px-2.5 py-1 text-xs font-medium rounded text-slate-400 hover:text-white whitespace-nowrap shrink-0';
+      loadPriorityEngine();
+    }
+
+    async function loadStatus() {
+      const status = await fetchJSON('/status');
+      document.getElementById('stat-agents').textContent = status.active_agents ?? 0;
+      document.getElementById('stat-batons').textContent = status.baton_count ?? 0;
+      document.getElementById('stat-plans').textContent = status.htn_plan_count ?? 0;
+      document.getElementById('stat-alerts').textContent = status.safety_alerts ?? 0;
+      if (status.models) {
+        document.getElementById('bar-planner').textContent = status.models.planner;
+        document.getElementById('bar-worker').textContent = status.models.worker;
+      }
+
+      const approvalBox = document.getElementById('approval-box');
+      const p = status.pending_approval;
+      const hitl = status.pending_hitl_node;
+
+      const blocks = [];
+      if (hitl) {
+        blocks.push(`
+          <div class="pb-4 mb-4 border-b border-slate-800 space-y-2">
+            <div class="text-amber-400 font-medium">HTN Node Paused (OITL) · Risk ${(hitl.risk || 0.82).toFixed(2)}</div>
+            <div class="text-white font-medium">${hitl.task}</div>
+            ${hitl.command ? `<div class="mono text-slate-300 bg-[#0b0f17] p-2 rounded border border-slate-800 overflow-x-auto">$ ${hitl.command}</div>` : ''}
+            <div class="flex gap-2 pt-1">
+              <button onclick="approveHITLNode('${hitl.id}', '${hitl.plan_id || ''}')" class="flex-1 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium">Approve Node</button>
+              <button onclick="switchView('htn')" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium">Inspect in DAG</button>
+            </div>
+          </div>
+        `);
+      }
+
+      if (p) {
+        blocks.push(`
+          <div class="space-y-2">
+            <div class="text-amber-400 font-medium">Shell Approval Request · ${p.id}</div>
+            <div class="mono text-white bg-[#0b0f17] p-2 rounded border border-slate-800 overflow-x-auto">$ ${p.commandPreview || p.command}</div>
+            <p class="text-slate-300">${p.operatorReason || 'Requires operator confirmation.'}</p>
+            <p class="text-slate-500">Rollback: ${p.rollbackPath || 'N/A'}</p>
+            <div class="flex gap-2 pt-1">
+              <button onclick="decideApproval('approve')" class="flex-1 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium">Approve</button>
+              <button onclick="decideApproval('deny')" class="flex-1 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-medium">Deny</button>
+            </div>
+          </div>
+        `);
+      }
+
+      approvalBox.innerHTML = blocks.length
+        ? blocks.join('')
+        : `<div class="py-3 text-slate-400">All CommandGuard &amp; OITL safety gates clear. Zero pending approvals.</div>`;
+    }
+
+    async function decideApproval(action) {
+      await fetchJSON('/runtime/' + action, { method: 'POST' });
+      await refreshAll();
+    }
+
+    function handlePrioritySearch(val) {
+      prioritySearchQuery = (val || '').trim().toLowerCase();
+      renderPriorityEngineList();
+    }
+
+    async function loadPriorityEngine() {
+      priorityEngineData = await fetchJSON('/priority/engine');
+      renderPriorityEngineList();
+    }
+
+    function renderPriorityEngineList() {
+      const container = document.getElementById('priority-list');
+      const baseTasks = priorityFilter === 'top3'
+        ? (priorityEngineData.top3 || [])
+        : (priorityEngineData.all_scored || []);
+
+      const tasks = prioritySearchQuery
+        ? baseTasks.filter(t =>
+            String(t.title || '').toLowerCase().includes(prioritySearchQuery) ||
+            String(t.task_id || '').toLowerCase().includes(prioritySearchQuery)
+          )
+        : baseTasks;
+
+      if (!baseTasks.length) {
+        container.innerHTML = `<div class="py-6 text-xs text-slate-400">No active tasks in memory. Click "Add Task" or run <span class="mono text-slate-200">/todo</span> in AJA Chat.</div>`;
+        return;
+      }
+
+      if (!tasks.length) {
+        container.innerHTML = `<div class="py-6 text-xs text-slate-400">No active tasks matching "<span class="mono text-slate-200">${prioritySearchQuery}</span>" by title or ID.</div>`;
+        return;
+      }
+
+      container.innerHTML = tasks.map(t => {
+        const tierColor =
+          t.urgency_tier === 'critical' ? 'text-rose-400' :
+          t.urgency_tier === 'high' ? 'text-amber-400' :
+          t.urgency_tier === 'medium' ? 'text-indigo-400' : 'text-slate-400';
+
+        return `
+          <div class="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-medium text-white">${t.title}</span>
+              </div>
+              <div class="text-xs text-slate-400 flex flex-wrap items-center gap-2 mono">
+                <span class="font-semibold ${tierColor}">Score ${t.priority_score}/100 (${t.urgency_tier})</span>
+                <span aria-hidden="true">·</span>
+                <span class="text-slate-300">${t.decision_recommendation}</span>
+                <span aria-hidden="true">·</span>
+                <span>ID: ${t.task_id}</span>
+                <span aria-hidden="true">·</span>
+                <span>Due: ${t.due_date || 'unscheduled'}</span>
+                <span aria-hidden="true">·</span>
+                <span>U:${t.urgency_pts} S:${t.stakeholder_pts} C:${t.consequence_pts} I:${t.intent_pts}</span>
+              </div>
+              ${t.urgency_challenge ? `<div class="text-xs text-amber-400/90 pt-0.5">${t.urgency_challenge}</div>` : ''}
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="completeTask('${t.task_id}')" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-medium transition whitespace-nowrap shrink-0">Complete</button>
+              <button onclick="archiveTask('${t.task_id}')" class="px-3 py-1.5 rounded bg-[#0b0f17] hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs font-medium transition whitespace-nowrap shrink-0">Archive</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function createTask() {
+      const title = document.getElementById('task-title').value.trim();
+      const priority = document.getElementById('task-priority').value;
+      const due_date = document.getElementById('task-due').value || null;
+      if (!title) return;
+      await fetchJSON('/memory/tasks', {
+        method: 'POST',
+        body: JSON.stringify({ title, priority, due_date })
+      });
+      document.getElementById('task-title').value = '';
+      document.getElementById('new-task-form').classList.add('hidden');
+      await refreshAll();
+    }
+
+    async function completeTask(taskId) {
+      await fetchJSON(`/memory/tasks/${taskId}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ note: 'Completed from Executive Desk' })
+      });
+      await refreshAll();
+    }
+
+    async function archiveTask(taskId) {
+      await fetchJSON(`/memory/tasks/${taskId}/archive`, { method: 'POST' });
+      await refreshAll();
+    }
+
+    async function recommendWorkers() {
+      const objective = document.getElementById('mission-objective').value.trim() || 'Implement durable activity execution and unit tests';
+      const data = await fetchJSON('/workers/recommend', {
+        method: 'POST',
+        body: JSON.stringify({ objective, require_tests: true, require_git: true })
+      });
+      const box = document.getElementById('mission-feedback');
+      box.classList.remove('hidden');
+      const top = (data.recommended || []).slice(0, 3);
+      box.innerHTML = `
+        <div class="font-medium text-slate-200">Ranked Workers for "${objective}":</div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          ${top.map((w, idx) => `
+            <div class="p-3 rounded bg-[#0b0f17] border ${idx === 0 ? 'border-indigo-500/60' : 'border-slate-800'}">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-white">${w.worker_name}</span>
+                <span class="mono text-indigo-400 font-semibold">${w.recommendation_score} pts</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-1">${(w.reasons || []).slice(0, 2).join(' · ')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    async function launchSwarmMission() {
+      const input = document.getElementById('mission-objective');
+      const objective = input.value.trim() || 'Audit replay journal determinism and verify schema versioning';
+      const dry_run = document.getElementById('quick-dry-run').checked;
+      const res = await fetchJSON('/swarm/run', {
+        method: 'POST',
+        body: JSON.stringify({ objective, worker_id: 'aja-coder-v1', dry_run })
+      });
+      input.value = '';
+      selectedPlanId = res.plan_id;
+      const box = document.getElementById('mission-feedback');
+      box.classList.remove('hidden');
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-emerald-400 font-medium">${res.message} · Baton: <span class="mono">${res.brief_file}</span></span>
+          <button onclick="switchView('htn')" class="text-indigo-400 hover:text-indigo-300 underline">Open HTN DAG (${res.plan_id}) →</button>
+        </div>
+        <div class="text-slate-400">Definition of Done: ${(res.definition_of_done || []).join(' · ')}</div>
+      `;
+      await refreshAll();
+    }
+
+    async function loadBatons() {
+      const data = await fetchJSON('/runtime/batons');
+      const list = document.getElementById('batons-list');
+      const batons = data.batons || [];
+      if (!batons.length) {
+        list.innerHTML = `<div class="py-4 text-xs text-slate-400">No active Arrow batons. Dispatch a Swarm mission above.</div>`;
+        return;
+      }
+      list.innerHTML = batons.map(b => `
+        <div class="py-4 first:pt-0 last:pb-0 space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-white">${b.task || b.objective}</span>
+            <span class="text-xs mono text-indigo-400">${b.status || 'active'} · ${b.progress ?? 0}%</span>
+          </div>
+          <div class="text-xs text-slate-400 mono">
+            <span>File: ${b.file}</span>
+            <span aria-hidden="true">·</span>
+            <span>Worker: ${b.delegated_worker || 'swarm-worker'}</span>
+            <span aria-hidden="true">·</span>
+            <span>Stage: ${b.stage || 'executing'}</span>
+          </div>
+          ${b.definition_of_done ? `
+            <div class="text-xs text-slate-400 pt-0.5">
+              DoD: ${b.definition_of_done.join(' · ')}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+
+    // -----------------------------------------------------------------------
+    // HTN Plan Tree DAG Viewer Logic
+    // -----------------------------------------------------------------------
+
+    function findNodeClient(node, id) {
+      if (!node) return null;
+      if (node.id === id) return node;
+      for (const c of (node.children || [])) {
+        const f = findNodeClient(c, id);
+        if (f) return f;
+      }
+      return null;
+    }
+
+    async function loadHTNPlans() {
+      const data = await fetchJSON('/htn/plans');
+      htnPlans = data.plans || [];
+      const select = document.getElementById('htn-plan-select');
+      if (!htnPlans.length) {
+        select.innerHTML = `<option value="">No plans</option>`;
+        return;
+      }
+      if (!selectedPlanId || !htnPlans.some(p => p.plan_id === selectedPlanId)) {
+        selectedPlanId = htnPlans[0].plan_id;
+      }
+      select.innerHTML = htnPlans.map(p => `
+        <option value="${p.plan_id}" ${p.plan_id === selectedPlanId ? 'selected' : ''}>
+          ${p.plan_id} — ${p.objective.slice(0, 48)} [${p.status}]
+        </option>
+      `).join('');
+
+      const activePlan = htnPlans.find(p => p.plan_id === selectedPlanId) || htnPlans[0];
+      if (!selectedNodeId || !findNodeClient(activePlan.root, selectedNodeId)) {
+        // Default to any WAITING_APPROVAL node or root
+        const waiting = findWaitingNode(activePlan.root);
+        selectedNodeId = waiting ? waiting.id : activePlan.root.id;
+      }
+
+      renderHTNTree(activePlan);
+      renderNodeInspector(activePlan);
+      renderOverviewHTNSummary(activePlan);
+    }
+
+    function findWaitingNode(node) {
+      if (!node) return null;
+      if (node.status === 'WAITING_APPROVAL') return node;
+      for (const c of (node.children || [])) {
+        const w = findWaitingNode(c);
+        if (w) return w;
+      }
+      return null;
+    }
+
+    function selectHTNPlan(planId) {
+      selectedPlanId = planId;
+      const plan = htnPlans.find(p => p.plan_id === planId);
+      if (plan) {
+        selectedNodeId = plan.root.id;
+        renderHTNTree(plan);
+        renderNodeInspector(plan);
+      }
+    }
+
+    function selectHTNNode(nodeId) {
+      selectedNodeId = nodeId;
+      const plan = htnPlans.find(p => p.plan_id === selectedPlanId);
+      if (plan) {
+        renderHTNTree(plan);
+        renderNodeInspector(plan);
+      }
+    }
+
+    function statusLabelHTML(status) {
+      if (status === 'COMPLETED') return `<span class="text-emerald-400 mono">[x] COMPLETED</span>`;
+      if (status === 'WAITING_APPROVAL') return `<span class="text-amber-400 mono">[!] WAITING_OITL</span>`;
+      if (status === 'FAILED') return `<span class="text-rose-400 mono">[✘] FAILED</span>`;
+      if (status === 'RUNNING') return `<span class="text-indigo-400 mono">[/] RUNNING</span>`;
+      return `<span class="text-slate-400 mono">[ ] PENDING</span>`;
+    }
+
+    function renderNodeRecursive(node, depth = 0) {
+      const isSelected = node.id === selectedNodeId;
+      const indentPx = depth * 22;
+      const prefixSymbol = node.children && node.children.length ? '▼' : '├─';
+      return `
+        <div style="margin-left: ${indentPx}px" class="my-1.5">
+          <div
+            onclick="selectHTNNode('${node.id}')"
+            class="p-3 rounded-md border cursor-pointer transition flex flex-wrap items-center justify-between gap-2 ${
+              isSelected
+                ? 'bg-indigo-950/30 border-indigo-500'
+                : 'bg-[#0b0f17] border-slate-800 hover:border-slate-700'
+            }"
+          >
+            <div class="flex items-center gap-2.5 text-xs">
+              <span class="mono text-slate-500">${prefixSymbol}</span>
+              <span class="font-medium text-white">${node.title}</span>
+            </div>
+            <div class="flex items-center gap-3 text-xs mono">
+              ${node.tool ? `<span class="text-slate-400">${node.tool}</span><span aria-hidden="true">·</span>` : ''}
+              <span class="${node.risk >= 0.7 ? 'text-amber-400' : 'text-slate-400'}">risk ${node.risk.toFixed(2)}</span>
+              <span aria-hidden="true">·</span>
+              ${statusLabelHTML(node.status)}
+            </div>
+          </div>
+          ${(node.children || []).map(child => renderNodeRecursive(child, depth + 1)).join('')}
+        </div>
+      `;
+    }
+
+    function renderHTNTree(plan) {
+      const container = document.getElementById('htn-tree-container');
+      const metricsBar = document.getElementById('htn-metrics-bar');
+      if (!plan) {
+        container.innerHTML = `<div class="text-xs text-slate-400">No HTN plan selected.</div>`;
+        return;
+      }
+      metricsBar.innerHTML = `
+        <span>Status: <strong class="text-white">${plan.status}</strong></span>
+        <span aria-hidden="true">·</span>
+        <span>Duration: ${plan.metrics.duration_ms}ms</span>
+        <span aria-hidden="true">·</span>
+        <span>CPU: ${plan.metrics.cpu_pct}%</span>
+        <span aria-hidden="true">·</span>
+        <span>Mem: ${plan.metrics.memory_mb}MB</span>
+        <span aria-hidden="true">·</span>
+        <span>Mode: ${plan.dry_run ? 'DRY-RUN' : 'LIVE'}</span>
+      `;
+      container.innerHTML = renderNodeRecursive(plan.root, 0);
+    }
+
+    function renderNodeInspector(plan) {
+      const box = document.getElementById('htn-node-inspector');
+      const typeLabel = document.getElementById('inspector-node-type');
+      if (!plan) return;
+      const node = findNodeClient(plan.root, selectedNodeId) || plan.root;
+      typeLabel.textContent = `${node.node_type.toUpperCase()} · ${node.trace_id}`;
+
+      const inputsEntries = Object.entries(node.inputs || {});
+
+      box.innerHTML = `
+        <div class="space-y-2 pb-4 border-b border-slate-800">
+          <div class="text-sm font-semibold text-white">${node.title}</div>
+          <div class="text-slate-400 mono flex flex-wrap items-center gap-2">
+            <span>ID: ${node.id}</span>
+            <span aria-hidden="true">·</span>
+            <span>Risk: ${node.risk.toFixed(2)}</span>
+            <span aria-hidden="true">·</span>
+            ${statusLabelHTML(node.status)}
+          </div>
+        </div>
+
+        ${node.command ? `
+          <div class="space-y-1">
+            <div class="text-slate-400 font-medium">Bound Activity Command</div>
+            <div class="mono bg-[#0b0f17] p-2.5 rounded border border-slate-800 text-slate-200 overflow-x-auto">$ ${node.command}</div>
+          </div>
+        ` : ''}
+
+        <div class="space-y-2">
+          <div class="text-slate-400 font-medium">Node Input Parameters (OITL Editable)</div>
+          <div class="bg-[#0b0f17] p-3 rounded border border-slate-800 space-y-2">
+            ${inputsEntries.length ? inputsEntries.map(([k, v]) => `
+              <div class="flex items-center justify-between gap-2">
+                <span class="mono text-slate-400">${k}:</span>
+                <input
+                  id="node-input-${k}"
+                  type="text"
+                  value="${String(v)}"
+                  class="flex-1 bg-[#111827] border border-slate-800 rounded px-2 py-1 text-white mono text-xs"
+                />
+                <button
+                  onclick="modifyNodeField('${plan.plan_id}', '${node.id}', '${k}', document.getElementById('node-input-${k}').value)"
+                  class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] mono shrink-0"
+                >
+                  Patch
+                </button>
+              </div>
+            `).join('') : `<div class="text-slate-500">No input parameters</div>`}
+          </div>
+        </div>
+
+        ${node.output ? `
+          <div class="space-y-1">
+            <div class="text-slate-400 font-medium">Durable Activity Journal Output</div>
+            <div class="mono bg-[#0b0f17] p-2.5 rounded border border-slate-800 text-slate-300">${node.output}</div>
+          </div>
+        ` : ''}
+
+        ${node.status === 'WAITING_APPROVAL' ? `
+          <div class="pt-3 border-t border-slate-800 space-y-2">
+            <div class="text-amber-400 font-medium">Operator-in-the-Loop (OITL) Gate Active</div>
+            <p class="text-slate-400">This activity exceeds the risk threshold (0.70). Review or patch inputs above before approving execution.</p>
+            <div class="flex gap-2 pt-1">
+              <button onclick="approveHITLNode('${node.id}', '${plan.plan_id}')" class="flex-1 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium">
+                Approve &amp; Execute Node
+              </button>
+              <button onclick="rejectHITLNode('${node.id}', '${plan.plan_id}')" class="flex-1 py-2 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-medium">
+                Reject &amp; Escalate
+              </button>
+            </div>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    function renderOverviewHTNSummary(plan) {
+      const box = document.getElementById('overview-htn-summary');
+      if (!box || !plan) return;
+      const leaves = [];
+      (function collect(n) {
+        if (!n.children || !n.children.length) leaves.push(n);
+        else n.children.forEach(collect);
+      })(plan.root);
+
+      box.innerHTML = `
+        <div class="font-medium text-white">${plan.objective}</div>
+        <div class="text-slate-400 mono">Plan: ${plan.plan_id} · Status: <span class="text-indigo-400">${plan.status}</span></div>
+        <div class="space-y-1.5 pt-1">
+          ${leaves.map(l => `
+            <div class="flex items-center justify-between gap-2 py-1 border-b border-slate-800/60 last:border-0">
+              <span class="text-slate-300 truncate">${l.title}</span>
+              ${statusLabelHTML(l.status)}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    async function stepHTNPlan() {
+      if (!selectedPlanId) return;
+      const res = await fetchJSON(`/htn/plans/${selectedPlanId}/step`, { method: 'POST' });
+      const banner = document.getElementById('htn-step-banner');
+      banner.classList.remove('hidden');
+      banner.textContent = `[HTN Step] ${res.message}`;
+      if (res.node) selectedNodeId = res.node.id;
+      await refreshAll();
+    }
+
+    async function resetHTNPlan() {
+      if (!selectedPlanId) return;
+      await fetchJSON(`/htn/plans/${selectedPlanId}/reset`, { method: 'POST' });
+      const banner = document.getElementById('htn-step-banner');
+      banner.classList.remove('hidden');
+      banner.textContent = `[HTN Replay Reset] Reset all leaf activities to PENDING.`;
+      await refreshAll();
+    }
+
+    async function createHTNPlanFromInput() {
+      const input = document.getElementById('htn-new-objective');
+      const objective = input.value.trim() || 'Profile CUDA memory allocation and patch reference cycle';
+      const dry_run = document.getElementById('htn-new-dryrun').checked;
+      const res = await fetchJSON('/htn/plans', {
+        method: 'POST',
+        body: JSON.stringify({ objective, dry_run })
+      });
+      input.value = '';
+      selectedPlanId = res.plan?.plan_id;
+      selectedNodeId = res.plan?.root?.id;
+      await refreshAll();
+    }
+
+    async function modifyNodeField(planId, nodeId, field, value) {
+      await fetchJSON('/hitl/modify_node', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: 'default', plan_id: planId, node_id: nodeId, field, value })
+      });
+      const banner = document.getElementById('htn-step-banner');
+      banner.classList.remove('hidden');
+      banner.textContent = `[OITL Patch] Updated ${field} = "${value}" on node ${nodeId}.`;
+      await refreshAll();
+    }
+
+    async function approveHITLNode(nodeId, planId) {
+      await fetchJSON('/hitl/approve', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: 'default', node_id: nodeId, plan_id: planId })
+      });
+      await refreshAll();
+    }
+
+    async function rejectHITLNode(nodeId, planId) {
+      await fetchJSON('/hitl/reject', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: 'default', node_id: nodeId, plan_id: planId, reason: 'Rejected by operator from HTN Inspector.' })
+      });
+      await refreshAll();
+    }
+
+    // -----------------------------------------------------------------------
+    // Conversational AJA Chat & Slash Command Studio
+    // -----------------------------------------------------------------------
+
+    function handleChatInputKey(val) {
+      const palette = document.getElementById('slash-palette');
+      if (val.startsWith('/')) {
+        const matches = SLASH_COMMANDS.filter(s => s.cmd.startsWith(val.toLowerCase()));
+        if (matches.length) {
+          palette.classList.remove('hidden');
+          palette.innerHTML = matches.map(m => `
+            <div onclick="prefillChatInput('${m.cmd}')" class="py-1 px-2 rounded hover:bg-slate-800 cursor-pointer flex items-center justify-between">
+              <span class="text-indigo-400 font-semibold">${m.cmd}</span>
+              <span class="text-slate-400">${m.desc}</span>
+            </div>
+          `).join('');
+          return;
+        }
+      }
+      palette.classList.add('hidden');
+    }
+
+    function prefillChatInput(text) {
+      const input = document.getElementById('chat-input');
+      input.value = text;
+      input.focus();
+      document.getElementById('slash-palette').classList.add('hidden');
+    }
+
+    async function sendQuickSlash(cmd) {
+      await sendChatMessage(cmd);
+    }
+
+    async function submitChatMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById('chat-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      document.getElementById('slash-palette').classList.add('hidden');
+      await sendChatMessage(msg);
+    }
+
+    async function sendChatMessage(message) {
+      await fetchJSON('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message })
+      });
+      await refreshAll();
+      const container = document.getElementById('chat-messages');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function renderChatExtraPayload(entry) {
+      if (!entry.payload) return '';
+      if (entry.command_type === 'doctor' && entry.payload.checks) {
+        return `
+          <div class="mt-3 pt-3 border-t border-slate-800 space-y-1.5 mono text-xs">
+            ${entry.payload.checks.map(c => `
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-slate-200">${c.passed ? '[PASS]' : '[FAIL]'} ${c.name}</span>
+                <span class="text-slate-400">${c.message}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+      if (entry.command_type === 'kanban' && entry.payload.tasks) {
+        const tasks = entry.payload.tasks;
+        const cols = [
+          { key: 'pending', label: 'PENDING', items: tasks.filter(t => t.status === 'pending') },
+          { key: 'active', label: 'RUNNING / DOING', items: tasks.filter(t => t.status === 'active') },
+          { key: 'completed', label: 'COMPLETED', items: tasks.filter(t => t.status === 'completed') }
+        ];
+        return `
+          <div class="mt-3 pt-3 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            ${cols.map(col => `
+              <div class="p-2.5 rounded bg-[#111827] border border-slate-800 space-y-2">
+                <div class="mono font-semibold text-slate-300 border-b border-slate-800 pb-1">${col.label} (${col.items.length})</div>
+                ${col.items.length ? col.items.map(t => `
+                  <div class="p-2 rounded bg-[#0b0f17] border border-slate-800/80 space-y-1">
+                    <div class="text-white font-medium">${t.title}</div>
+                    <div class="mono text-[11px] text-slate-400 flex items-center justify-between">
+                      <span>${t.task_id}</span>
+                      <div class="flex gap-1.5">
+                        ${col.key !== 'active' ? `<button onclick="sendQuickSlash('/doing ${t.task_id}')" class="text-indigo-400 hover:underline">Doing</button>` : ''}
+                        ${col.key !== 'completed' ? `<button onclick="sendQuickSlash('/done ${t.task_id}')" class="text-emerald-400 hover:underline">Done</button>` : ''}
+                      </div>
+                    </div>
+                  </div>
+                `).join('') : `<div class="text-slate-500">Empty</div>`}
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+      if (entry.command_type === 'swarm' && entry.payload.plan_id) {
+        return `
+          <div class="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span class="mono text-slate-400">HTN Plan: ${entry.payload.plan_id}</span>
+            <button onclick="selectedPlanId='${entry.payload.plan_id}'; switchView('htn'); loadHTNPlans();" class="text-indigo-400 hover:text-indigo-300 underline font-medium">
+              Open HTN DAG Viewer →
+            </button>
+          </div>
+        `;
+      }
+      return '';
+    }
+
+    async function loadChatHistory() {
+      const data = await fetchJSON('/api/chat/history');
+      const container = document.getElementById('chat-messages');
+      const history = data.history || [];
+      container.innerHTML = history.map(entry => {
+        const isUser = entry.role === 'user';
+        return `
+          <div class="p-4 rounded-md border ${isUser ? 'bg-[#0b0f17] border-slate-800 ml-8' : 'bg-[#0f1624] border-slate-800 mr-4'} text-xs space-y-1">
+            <div class="flex items-center justify-between mono text-[11px] text-slate-400">
+              <span class="font-semibold ${isUser ? 'text-indigo-400' : 'text-white'}">${isUser ? 'Operator' : 'AJA Engine'}</span>
+              <span>${new Date(entry.created_at).toLocaleTimeString()}</span>
+            </div>
+            <div class="text-slate-200 whitespace-pre-line leading-relaxed pt-1">${entry.content}</div>
+            ${renderChatExtraPayload(entry)}
+          </div>
+        `;
+      }).join('');
+
+      // Also update sidebar Kanban summary
+      const tasksRes = await fetchJSON('/memory/tasks');
+      const allTasks = tasksRes.tasks || [];
+      const sidebar = document.getElementById('chat-kanban-sidebar');
+      if (sidebar) {
+        const groups = [
+          { title: 'Pending (/todo)', items: allTasks.filter(t => t.status === 'pending') },
+          { title: 'Running (/doing)', items: allTasks.filter(t => t.status === 'active') },
+          { title: 'Completed (/done)', items: allTasks.filter(t => t.status === 'completed') }
+        ];
+        sidebar.innerHTML = groups.map(g => `
+          <div class="space-y-1.5">
+            <div class="mono text-slate-400 font-medium">${g.title} · ${g.items.length}</div>
+            ${g.items.length ? g.items.map(t => `
+              <div class="p-2.5 rounded bg-[#0b0f17] border border-slate-800 flex items-center justify-between gap-2">
+                <div class="truncate">
+                  <span class="mono text-slate-400 mr-1.5">${t.task_id}</span>
+                  <span class="text-slate-200">${t.title}</span>
+                </div>
+                ${t.status !== 'completed' ? `<button onclick="sendQuickSlash('/done ${t.task_id}')" class="text-emerald-400 hover:underline mono shrink-0">Done</button>` : ''}
+              </div>
+            `).join('') : `<div class="text-slate-500 pl-1">None</div>`}
+          </div>
+        `).join('');
+      }
+    }
+
+    async function saveModelAssignment() {
+      const planner = document.getElementById('select-planner-model').value;
+      const worker = document.getElementById('select-worker-model').value;
+      await fetchJSON('/models', {
+        method: 'POST',
+        body: JSON.stringify({ planner, worker })
+      });
+      await sendChatMessage(`/models ${planner} ${worker}`);
+    }
+
+    // -----------------------------------------------------------------------
+    // Workers & Event Journal
+    // -----------------------------------------------------------------------
+
+    async function loadWorkers() {
+      const data = await fetchJSON('/workers');
+      const list = document.getElementById('workers-list');
+      const workers = data.workers || [];
+      list.innerHTML = workers.map(w => `
+        <div class="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="text-sm font-medium text-white">${w.worker_name} <span class="text-xs mono text-emerald-400 ml-1">(${w.availability_status})</span></div>
+            <div class="text-xs text-slate-400 mono">
+              <span>ID: ${w.worker_id}</span>
+              <span aria-hidden="true">·</span>
+              <span>Tasks: ${(w.preferred_task_types || []).join(', ')}</span>
+              <span aria-hidden="true">·</span>
+              <span>Reliability: ${(w.reliability_score * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div class="text-xs mono text-slate-300 shrink-0">${w.execution_speed} · ${w.cost_profile}</div>
+        </div>
+      `).join('');
+    }
+
+    async function seedWorkers() {
+      await fetchJSON('/workers/seed', { method: 'POST' });
+      await refreshAll();
+    }
+
+    async function loadEvents() {
+      const data = await fetchJSON('/runtime/events');
+      const events = data.events || [];
+      const html = events.map(e => `
+        <div class="py-3 first:pt-0 last:pb-0 text-xs space-y-1">
+          <div class="flex items-center justify-between mono text-[11px]">
+            <span class="text-indigo-400 font-semibold">${e.type}</span>
+            <span class="text-slate-500">${e.tool || 'runtime'}</span>
+          </div>
+          <div class="text-slate-200">${e.message}</div>
+          ${e.command ? `<div class="mono text-[11px] text-slate-400 truncate">$ ${e.command}</div>` : ''}
+        </div>
+      `).join('');
+
+      const list1 = document.getElementById('events-list');
+      const list2 = document.getElementById('overview-events-list');
+      if (list1) list1.innerHTML = html;
+      if (list2) list2.innerHTML = html;
+    }
+
+    async function refreshAll() {
+      await Promise.all([
+        loadStatus(),
+        loadPriorityEngine(),
+        loadBatons(),
+        loadHTNPlans(),
+        loadChatHistory(),
+        loadWorkers(),
+        loadEvents()
+      ]);
+    }
+
+    refreshAll();
+  </script>
+</body>
+</html>
