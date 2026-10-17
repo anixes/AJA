@@ -11,10 +11,10 @@
     "offline_mode": false,
     "max_agents": 5,
     "check_interval": 30,
+    "active_model": "gate:qwen",
     "models": {
-      "planner": "copilot:gpt-4o",
-      "worker": "copilot:gpt-4o-mini",
-      "critic": "copilot:gpt-4o-mini"
+      "planner": "gate:glm",
+      "worker": "gate:qwen"
     },
     "operating_mode": "hybrid",
     "allow_out_of_bounds_paths": false

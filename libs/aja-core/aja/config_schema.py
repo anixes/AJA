@@ -51,7 +51,10 @@ class MCPServerConfig(BaseModel):
 class SwarmModels(BaseModel):
     planner: str = "google:gemini-2.0-flash"
     worker: str = "google:gemini-2.0-flash"
-    critic: Optional[str] = None
+    critic: Optional[str] = Field(
+        default=None,
+        description="Deprecated in 2026 unified harness. Ignored at runtime in favor of deterministic test verifiers.",
+    )
     vision: Optional[str] = None
 
 class SwarmSettings(BaseModel):
@@ -59,7 +62,10 @@ class SwarmSettings(BaseModel):
     max_agents: int = Field(default=5, ge=1, le=100)
     check_interval: int = Field(default=30, ge=1)
     models: SwarmModels = Field(default_factory=SwarmModels)
-    active_model: Optional[str] = None
+    active_model: Optional[str] = Field(
+        default=None,
+        description="Primary canonical model for the unified autonomous harness (e.g. 'gate:qwen').",
+    )
     vision_model: Optional[str] = None
     operating_mode: str = "hybrid"
     direct_execution: bool = True

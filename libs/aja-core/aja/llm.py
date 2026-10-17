@@ -84,19 +84,79 @@ def _choices_from_chat_result(res):
     return {"choices": [{"message": {"role": "assistant", "content": res or ""}}]}
 
 
-def get_gateway():
+DEFAULT_MODEL_CHAIN = ("gate:qwen", "google:gemini-2.5-flash")
+_critic_warned = False
+
+
+def resolve_active_model_string(explicit_model: Optional[str] = None) -> str:
+    """
+    Resolve the canonical active model string following the 2026 unified precedence:
+    CLI (--model) > ENV (AJA_MODEL) > aja.json (active_model) > legacy models.worker > legacy models.planner > DEFAULT_MODEL_CHAIN
+    """
+    global _critic_warned
+    # 1. CLI explicit override
+    if explicit_model and explicit_model.strip():
+        return explicit_model.strip()
+
+    # 2. Environment variable override
+    env_model = os.getenv("AJA_MODEL", "").strip()
+    if env_model:
+        return env_model
+
+    # 3. Read from aja.json
+    try:
+        config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                swarm_cfg = cfg.get("swarm_settings", {})
+
+                # Check critic deprecation warning
+                if not _critic_warned and swarm_cfg.get("models", {}).get("critic"):
+                    logger.warning(
+                        "[AJA Modernization] 'critic' role is deprecated and ignored in modern harness; please remove key."
+                    )
+                    _critic_warned = True
+
+                # Priority 3: active_model
+                active = swarm_cfg.get("active_model", "")
+                if active and isinstance(active, str) and active.strip():
+                    return active.strip()
+
+                # Priority 4: legacy worker
+                models_cfg = swarm_cfg.get("models", {})
+                worker = models_cfg.get("worker", "")
+                if worker and isinstance(worker, str) and worker.strip():
+                    logger.warning("[AJA Modernization] active_model unset in aja.json, falling back to legacy models.worker")
+                    return worker.strip()
+
+                # Priority 5: legacy planner
+                planner = models_cfg.get("planner", "")
+                if planner and isinstance(planner, str) and planner.strip():
+                    logger.warning("[AJA Modernization] active_model unset in aja.json, falling back to legacy models.planner")
+                    return planner.strip()
+    except Exception as e:
+        logger.debug("[LLM] Config lookup error: %s", e)
+
+    # Priority 6: DEFAULT_MODEL_CHAIN (first available provider with credentials)
+    for candidate in DEFAULT_MODEL_CHAIN:
+        prov = candidate.split(":", 1)[0].lower() if ":" in candidate else "google"
+        if prov in ("gate", "constellation") and (
+            os.getenv("GATE_API_KEY")
+            or os.getenv("GATEWAY_KEY")
+            or os.getenv("CONSTELLATION_API_KEY")
+        ):
+            return candidate
+        if prov == "google" and (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
+            return candidate
+
+    return DEFAULT_MODEL_CHAIN[0]
+
+
+def get_gateway(model: Optional[str] = None):
     global _gateway
-    if _gateway is None:
-        model = "google:gemini-2.5-flash"
-        try:
-            config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = json.load(f)
-                    model = config.get("swarm_settings", {}).get("models", {}).get("planner", "google:gemini-2.5-flash")
-        except Exception:
-            pass
-        _gateway, _ = get_gateway_for_model(model)
+    resolved_model = resolve_active_model_string(model)
+    _gateway, _ = get_gateway_for_model(resolved_model)
     return _gateway
 
 def resolve_provider_model(
@@ -118,15 +178,25 @@ def resolve_provider_model(
                           dynamically auto-routes to active local/cloud vision engine.
       swarm             — direct role assignment
     """
+    KNOWN_PROVIDERS = {
+        "google", "gemini", "openai", "openrouter", "copilot", "anthropic",
+        "gate", "constellation", "groq", "together", "nvidia", "llama_cpp", "ollama", "lm_studio"
+    }
+
     provider = "openrouter"  # Default
     if not model_str:
-        model_str = "google:gemini-2.5-flash"
+        model_str = resolve_active_model_string()
     model_name = model_str
 
     if ":" in model_str:
         parts = model_str.split(":", 1)
         provider = parts[0].strip().lower()
         model_name = parts[1].strip()
+        if provider not in KNOWN_PROVIDERS and not model_name.endswith(".gguf"):
+            raise ValueError(
+                f"Unknown or invalid model provider '{provider}' in model '{model_str}'. "
+                f"Registered providers are: {', '.join(sorted(KNOWN_PROVIDERS))}"
+            )
     else:
         # Smart detection fallback
         low = model_str.lower()
