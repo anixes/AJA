@@ -406,7 +406,7 @@ async def run_direct_loop(
             status=status,
             error_message=error_message or reason,
         )
-        if hooks and hooks.on_resource_attribution:
+        if hooks and getattr(hooks, "on_resource_attribution", None):
             try:
                 hooks.on_resource_attribution(attribution)
             except Exception as hook_err:

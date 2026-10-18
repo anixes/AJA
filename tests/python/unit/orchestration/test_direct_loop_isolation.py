@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-CORE_PATH = str(Path(__file__).resolve().parents[3] / "libs" / "aja-core")
+CORE_PATH = str(Path(__file__).resolve().parents[4] / "libs" / "aja-core")
 
 ISOLATION_CHILD = r'''
 import asyncio, json, sys, os

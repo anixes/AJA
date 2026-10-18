@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 
 # Add project root to python path to ensure imports work
-project_root = Path(__file__).resolve().parents[3]
+project_root = Path(__file__).resolve().parents[4]
 if str(project_root / "libs" / "aja-core") not in sys.path:
     sys.path.insert(0, str(project_root / "libs" / "aja-core"))
 

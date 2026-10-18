@@ -5,6 +5,11 @@ from unittest.mock import MagicMock, patch
 from aja.main import main
 import aja.main
 
+@pytest.fixture(autouse=True)
+def mock_startup_checks():
+    with patch("aja.utils.startup_checks.format_startup_checks", return_value=0):
+        yield
+
 def test_cli_brief(capsys, monkeypatch):
     """Test that --brief prints the brief file contents and exits with 0."""
     monkeypatch.setattr(sys, "argv", ["main.py", "--brief"])

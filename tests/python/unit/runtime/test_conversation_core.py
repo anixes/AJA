@@ -22,7 +22,7 @@ from aja.core.conversation import (
 from aja.core.events import Delta, Error, Final, ToolFinished, ToolStarted
 from aja.messaging.envelope import InboundMessage
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 CORE_LIB = REPO_ROOT / "libs" / "aja-core"
 
 

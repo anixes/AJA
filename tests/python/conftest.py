@@ -10,6 +10,7 @@ import pytest
 # Global performance flags for test suite speedup
 os.environ["AJA_MOCK_EMBEDDINGS"] = "1"
 os.environ["AJA_FAST_SANDBOX"] = "1"
+os.environ["GOOGLE_API_KEY"] = "test-mock-key"
 
 # ---------------------------------------------------------------------------
 # Test run data isolation (both serial and pytest-xdist).
