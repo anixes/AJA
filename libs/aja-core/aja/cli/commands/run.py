@@ -177,8 +177,14 @@ def cmd_run(
             print_error(f"Mission incomplete: {reason}")
             raise SystemExit(1)
 
+    from aja.runtime.workspace_lock import WorkspaceLock, WorkspaceLockError
+
     try:
-        asyncio.run(_run_harness())
+        with WorkspaceLock(objective=objective):
+            asyncio.run(_run_harness())
+    except WorkspaceLockError as e:
+        print_error(str(e))
+        raise SystemExit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠ Mission interrupted by user.[/]")
         raise SystemExit(130)
@@ -187,3 +193,4 @@ def cmd_run(
     except Exception as e:
         print_error(f"Harness Execution Error: {e}")
         raise SystemExit(1) from e
+
