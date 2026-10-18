@@ -221,3 +221,46 @@ def test_complete_run_lifecycle(tmp_path: Path):
 
         valid, _ = journal.verify_run_integrity(run_id)
         assert valid is True
+
+
+def test_external_head_anchor_tamper_detection(tmp_path: Path):
+    """Verify that external head anchor file catches silent ledger truncation."""
+    db_file = tmp_path / "anchored_test.db"
+    anchor_file = tmp_path / "anchored_test.db.head"
+
+    with RunJournal(db_file) as journal:
+        run_id = "run-anchor-test"
+        journal.start_run(run_id=run_id, task="Anchor verification")
+        journal.append_event(run_id=run_id, event_type="step1", payload={"step": 1})
+        journal.append_event(run_id=run_id, event_type="step2", payload={"step": 2})
+
+        # Anchor file exists and matches the latest event
+        assert anchor_file.exists()
+        valid, err = journal.verify_run_integrity(run_id)
+        assert valid is True
+        assert err is None
+
+        # Simulate tampering with the external anchor
+        anchor_file.write_text('{"run_id":"run-anchor-test","seq":2,"event_hash":"badhash"}', encoding="utf-8")
+        valid, err = journal.verify_run_integrity(run_id)
+        assert valid is False
+        assert "External anchor mismatch" in str(err)
+
+
+def test_payload_string_truncation(tmp_path: Path):
+    """Verify that oversized text in payload is truncated to prevent database bloat."""
+    db_file = tmp_path / "payload_test.db"
+    huge_str = "A" * 100000
+
+    with RunJournal(db_file) as journal:
+        run_id = "run-payload-test"
+        journal.start_run(run_id=run_id, task="Payload test")
+        ev = journal.append_event(run_id=run_id, event_type="huge_output", payload={"output": huge_str})
+
+        stored_ev = journal.get_events(run_id)[1]
+        assert len(stored_ev.payload["output"]) < 100000
+        assert "truncated by RunJournal" in stored_ev.payload["output"]
+
+        # Integrity check passes with truncated payload
+        valid, err = journal.verify_run_integrity(run_id)
+        assert valid is True

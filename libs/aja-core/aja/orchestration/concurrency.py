@@ -92,6 +92,29 @@ def paths_conflict(p1: str, p2: str) -> bool:
     return p1.startswith(p2_dir) or p2.startswith(p1_dir)
 
 
+def _looks_like_path(arg: str) -> bool:
+    """Helper to detect if a command-line argument represents a filesystem path."""
+    if not arg or arg.startswith("-"):
+        return False
+    # Explicit path separators or Windows drive specifier
+    if "/" in arg or "\\" in arg or arg.startswith("~"):
+        return True
+    if len(arg) >= 2 and arg[1] == ":" and arg[0].isalpha():
+        return True
+    if arg in (".", "..") or arg.startswith(("./", "../", ".\\", "..\\")):
+        return True
+    if "." in arg:
+        parts = arg.rsplit(".", 1)
+        if len(parts) == 2 and parts[1].isalnum() and not parts[0].isdigit():
+            return True
+    try:
+        if os.path.exists(arg):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def extract_tool_paths(tool_name: str, args: Dict[str, Any]) -> List[str]:
     """Extract and canonicalize target paths touched by a tool call."""
     t_args = args or {}
@@ -120,7 +143,7 @@ def extract_tool_paths(tool_name: str, args: Dict[str, Any]) -> List[str]:
             ir = parse_command_to_ir(cmd)
             for a in ir.argv[1:]:
                 # If argument looks like an existing or target path
-                if "/" in a or "\\" in a or "." in a:
+                if _looks_like_path(a):
                     canon = canonicalize_path(a)
                     if canon and canon not in paths:
                         paths.append(canon)

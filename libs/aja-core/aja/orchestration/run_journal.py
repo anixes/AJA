@@ -27,6 +27,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from aja.security.atomic_write import atomic_write
+
 logger = logging.getLogger(__name__)
 
 GENESIS_PREV_HASH = "0" * 64
@@ -66,6 +68,22 @@ class RunRecord:
     task: str
     status: str
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+MAX_PAYLOAD_STRING_BYTES: int = 65536
+
+
+def _bound_payload_strings(data: Any, max_bytes: int = MAX_PAYLOAD_STRING_BYTES) -> Any:
+    """Recursively truncate unbounded strings in payload dictionaries to prevent journal bloat."""
+    if isinstance(data, str):
+        if len(data) > max_bytes:
+            return data[:max_bytes] + f"\n[... truncated by RunJournal: {len(data) - max_bytes} bytes omitted ...]"
+        return data
+    if isinstance(data, dict):
+        return {k: _bound_payload_strings(v, max_bytes) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_bound_payload_strings(item, max_bytes) for item in data]
+    return data
 
 
 class RunJournal:
@@ -219,6 +237,7 @@ class RunJournal:
             metadata=meta,
         )
 
+
     def append_event(
         self,
         run_id: str,
@@ -230,7 +249,7 @@ class RunJournal:
         Append an immutable, hash-chained event to the specified run.
         """
         now = time.time()
-        p_dict = payload or {}
+        p_dict = _bound_payload_strings(payload or {})
         p_json = canonical_json(p_dict)
         p_hash = sha256_text(p_json)
 
@@ -281,6 +300,20 @@ class RunJournal:
             except Exception:
                 cursor.execute("ROLLBACK;")
                 raise
+
+        # Persist out-of-band anchor for file-backed journals
+        if self.db_path != ":memory:":
+            try:
+                anchor_path = Path(f"{self.db_path}.head")
+                anchor_content = canonical_json({
+                    "run_id": run_id,
+                    "seq": seq,
+                    "event_hash": event_hash,
+                    "timestamp": now,
+                })
+                atomic_write(anchor_path, anchor_content, fsync=False)
+            except Exception as a_err:
+                logger.debug("Failed to write external anchor: %s", a_err)
 
         return JournalEvent(
             seq=seq,
@@ -425,6 +458,23 @@ class RunJournal:
                 )
 
             expected_prev_hash = ev.event_hash
+
+        # 4. Verify against out-of-band anchor file if present
+        if self.db_path != ":memory:":
+            try:
+                anchor_path = Path(f"{self.db_path}.head")
+                if anchor_path.exists():
+                    anchor_info = json.loads(anchor_path.read_text(encoding="utf-8"))
+                    if anchor_info.get("run_id") == run_id:
+                        a_seq = anchor_info.get("seq")
+                        a_hash = anchor_info.get("event_hash")
+                        if a_seq == events[-1].seq and a_hash != events[-1].event_hash:
+                            return (
+                                False,
+                                f"External anchor mismatch at seq {a_seq}: anchor has {a_hash}, journal has {events[-1].event_hash}",
+                            )
+            except Exception as e:
+                logger.debug("Failed to verify external anchor: %s", e)
 
         return True, None
 

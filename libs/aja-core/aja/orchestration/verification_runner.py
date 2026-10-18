@@ -650,8 +650,21 @@ async def run_targeted_tests(
                 cwd=working_dir,
             )
 
-        # Pytest exit code 5: No tests collected (not a code failure)
+        # Pytest exit code 5: No tests collected (not a code failure unless collection errors occurred)
         if exit_code == 5:
+            if "error during collection" in combined.lower() or "errors during collection" in combined.lower():
+                return VerificationResult(
+                    passed=False,
+                    check_type="targeted_test",
+                    summary=f"Collection error during test discovery: {cmd_str}",
+                    details=smart_truncate_output(combined),
+                    exit_code=exit_code,
+                    tier=2,
+                    duration_ms=duration_ms,
+                    command=cmd_str,
+                    cwd=working_dir,
+                    error_type="collection_error",
+                )
             return VerificationResult(
                 passed=True,
                 check_type="targeted_test",
@@ -759,8 +772,21 @@ def run_targeted_tests_sync(
                 cwd=working_dir,
             )
 
-        # Pytest exit code 5: No tests collected (not a code failure)
+        # Pytest exit code 5: No tests collected (not a code failure unless collection errors occurred)
         if exit_code == 5:
+            if "error during collection" in combined.lower() or "errors during collection" in combined.lower():
+                return VerificationResult(
+                    passed=False,
+                    check_type="targeted_test",
+                    summary=f"Collection error during test discovery: {cmd_str}",
+                    details=smart_truncate_output(combined),
+                    exit_code=exit_code,
+                    tier=2,
+                    duration_ms=duration_ms,
+                    command=cmd_str,
+                    cwd=working_dir,
+                    error_type="collection_error",
+                )
             return VerificationResult(
                 passed=True,
                 check_type="targeted_test",
