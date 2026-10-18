@@ -114,11 +114,12 @@ def verify_path_confinement(
         resolved_path = target_p.resolve()
 
     try:
-        # Python 3.9+ Path.is_relative_to
-        if hasattr(resolved_path, "is_relative_to"):
-            contained = resolved_path.is_relative_to(root_path)
+        norm_resolved = Path(os.path.normcase(str(resolved_path)))
+        norm_root = Path(os.path.normcase(str(root_path)))
+        if hasattr(norm_resolved, "is_relative_to"):
+            contained = norm_resolved.is_relative_to(norm_root)
         else:
-            resolved_path.relative_to(root_path)
+            norm_resolved.relative_to(norm_root)
             contained = True
     except (ValueError, Exception):
         contained = False

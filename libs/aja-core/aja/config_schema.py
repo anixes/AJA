@@ -63,18 +63,22 @@ class WorkspaceQuotas(BaseModel):
     """Hard boundaries for disk writes, subprocess calls, and execution time per mission/workspace."""
     max_cumulative_write_bytes: int = Field(
         default=50 * 1024 * 1024,
+        ge=1,
         description="Total cumulative bytes allowed to be written to disk across all tool calls (default 50MB).",
     )
     max_single_file_write_bytes: int = Field(
         default=10 * 1024 * 1024,
+        ge=1,
         description="Maximum size in bytes allowed for a single file write operation (default 10MB).",
     )
     max_subprocess_calls: int = Field(
         default=100,
+        ge=0,
         description="Maximum number of command/subprocess executions allowed per mission (default 100).",
     )
     max_total_execution_seconds: float = Field(
         default=1800.0,
+        gt=0.0,
         description="Maximum wall-clock execution time in seconds for the mission direct loop (default 30 mins).",
     )
     allow_out_of_bounds_paths: bool = Field(

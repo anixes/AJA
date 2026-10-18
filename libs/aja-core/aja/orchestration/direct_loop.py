@@ -616,10 +616,11 @@ async def run_direct_loop(
                                 logger.debug("on_quota_exceeded hook failed: %s", hook_err)
                         return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
 
-                # 2. File write / modification tools
+                # 2. File write / modification / deletion tools
                 elif t_name_lower in (
                     "write_file", "edit_file", "save_file", "create_file",
-                    "append_file", "multi_replace", "create_directory"
+                    "append_file", "multi_replace", "create_directory",
+                    "delete_file", "remove_file", "delete_directory"
                 ):
                     target_path = (
                         t_args.get("path")
