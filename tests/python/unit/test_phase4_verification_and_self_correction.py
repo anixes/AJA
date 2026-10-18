@@ -314,27 +314,11 @@ def test_error_signature_and_oscillation_prompt():
 # 7. Direct Loop Self-Correction & Oscillation Integration Tests
 # ============================================================================
 
-class MockGateway:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.call_count = 0
-        self.provider = "mock"
-
-    async def chat(self, model=None, prompt=None, system=None, tools=None):
-        self.call_count += 1
-        if self.responses:
-            return self.responses.pop(0)
-        return "Finished."
-
-
-class MockRegistry:
-    def get_schemas(self, interactive=True, profile=None):
-        return []
-
-
-class MockExecutor:
-    async def dispatch_tool_calls(self, tool_calls, trace_id, dry_run=False):
-        return []
+from tests.fixtures.mocks import (
+    BaseMockGateway as MockGateway,
+    BaseMockRegistry as MockRegistry,
+    BaseMockExecutor as MockExecutor,
+)
 
 
 def test_direct_loop_self_correction_with_oscillation_feedback():

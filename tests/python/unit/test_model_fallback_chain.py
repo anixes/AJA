@@ -130,27 +130,11 @@ class MockResponse:
         self.tool_calls = tool_calls or []
 
 
-class MockFallbackGateway:
-    def __init__(self, failure_models: Optional[Dict[str, Exception]] = None, success_response: Any = "Task done."):
-        self.failure_models = failure_models or {}
-        self.success_response = success_response
-        self.models_called: List[str] = []
-
-    async def chat(self, model=None, prompt=None, system=None, tools=None):
-        self.models_called.append(model)
-        if model in self.failure_models:
-            raise self.failure_models[model]
-        return self.success_response
-
-
-class MockRegistry:
-    def get_schemas(self, interactive=True, profile=None):
-        return []
-
-
-class MockExecutor:
-    async def dispatch_tool_calls(self, tool_calls, trace_id, dry_run=False):
-        return []
+from tests.fixtures.mocks import (
+    BaseMockGateway as MockFallbackGateway,
+    BaseMockRegistry as MockRegistry,
+    BaseMockExecutor as MockExecutor,
+)
 
 
 class TestDirectLoopModelFallback(unittest.IsolatedAsyncioTestCase):

@@ -156,51 +156,41 @@ def test_write_file_auto_wraps_ipynb(tmp_path: Path):
 def test_direct_loop_intercepts_missing_deliverable(tmp_path: Path):
     async def _run():
         import asyncio
+        from tests.fixtures.mocks import BaseMockGateway, BaseMockRegistry, BaseMockExecutor
+
         target_file = tmp_path / "expected_deliverable.ipynb"
 
-        class MockGateway:
-            def __init__(self):
-                self.turn = 0
+        def _handle_cmd(cmd, cwd):
+            target_file.write_text("{}", encoding="utf-8")
+            return {"status": "success", "stdout": "done", "stderr": "", "exit_code": 0}
 
-            async def chat(self, model=None, prompt=None, system=None, tools=None):
-                self.turn += 1
-                if self.turn == 1:
-                    # First turn: falsely claim deliverable was created, without creating it
-                    return {
-                        "content": f"The process has completed and the notebook is saved as: **{target_file}**",
-                        "tool_calls": [],
-                    }
-                elif self.turn == 2:
-                    # Second turn: receives verification failure feedback, now actually creates it
-                    return {
-                        "content": f"Now creating file:\n```bash\npython -c \"open(r'{target_file}', 'w').write('{{}}')\"\n```",
-                        "tool_calls": [],
-                    }
-                else:
-                    return {
-                        "content": f"All done. **{target_file}** is ready.",
-                        "tool_calls": [],
-                    }
+        gateway = BaseMockGateway(
+            responses=[
+                # First turn: falsely claim deliverable was created, without creating it
+                {
+                    "content": f"The process has completed and the notebook is saved as: **{target_file}**",
+                    "tool_calls": [],
+                },
+                # Second turn: receives verification failure feedback, now actually creates it
+                {
+                    "content": f"Now creating file:\n```bash\npython -c \"open(r'{target_file}', 'w').write('{{}}')\"\n```",
+                    "tool_calls": [],
+                },
+                # Final turn
+                {
+                    "content": f"All done. **{target_file}** is ready.",
+                    "tool_calls": [],
+                },
+            ]
+        )
+        registry = BaseMockRegistry()
+        executor = BaseMockExecutor(command_handler=_handle_cmd)
 
-        class MockRegistry:
-            def get_schemas(self, interactive=True):
-                return []
-
-        class MockExecutor:
-            async def execute_async(self, cmd, cwd=None, timeout=60):
-                target_file.write_text("{}", encoding="utf-8")
-                return {"status": "success", "stdout": "done", "stderr": "", "exit_code": 0}
-
-            def execute(self, cmd, cwd=None, timeout=60):
-                target_file.write_text("{}", encoding="utf-8")
-                return {"status": "success", "stdout": "done", "stderr": "", "exit_code": 0}
-
-        gateway = MockGateway()
         outcome = await run_direct_loop(
             f"Create {target_file}",
             gateway=gateway,
-            tools_registry=MockRegistry(),
-            executor=MockExecutor(),
+            tools_registry=registry,
+            executor=executor,
             max_turns=5,
         )
 

@@ -113,3 +113,42 @@ def _reset_lancedb_singletons_session():
         _memmgr._instance = None
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Canonical Test Mock Fixtures (tests.fixtures.mocks)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mock_gateway():
+    """Provides a fresh BaseMockGateway instance for unit testing."""
+    from tests.fixtures.mocks import BaseMockGateway
+    return BaseMockGateway()
+
+
+@pytest.fixture
+def mock_registry():
+    """Provides a fresh BaseMockRegistry instance for unit testing."""
+    from tests.fixtures.mocks import BaseMockRegistry
+    return BaseMockRegistry()
+
+
+@pytest.fixture
+def mock_executor():
+    """Provides a fresh BaseMockExecutor instance for unit testing."""
+    from tests.fixtures.mocks import BaseMockExecutor
+    return BaseMockExecutor()
+
+
+@pytest.fixture
+def fake_bot():
+    """Provides an in-memory BaseFakeBot instance for chat interface testing."""
+    from tests.fixtures.mocks import BaseFakeBot
+    return BaseFakeBot()
+
+
+@pytest.fixture
+def fake_memory():
+    """Provides an in-memory BaseFakeMemory instance for vector/KV memory testing."""
+    from tests.fixtures.mocks import BaseFakeMemory
+    return BaseFakeMemory()

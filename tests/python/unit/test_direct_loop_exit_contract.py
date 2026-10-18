@@ -18,32 +18,11 @@ from aja.orchestration.direct_loop import run_direct_loop
 from aja.cli.registry import CommandRegistry
 
 
-class MockGateway:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.call_count = 0
-        self.last_system_prompt = None
-        self.last_prompt = None
-        self.system_prompts_seen = []
-
-    async def chat(self, model=None, prompt=None, system=None, tools=None):
-        self.call_count += 1
-        self.last_system_prompt = system
-        self.last_prompt = prompt
-        self.system_prompts_seen.append(system)
-        if self.responses:
-            return self.responses.pop(0)
-        return "Finished."
-
-
-class MockRegistry:
-    def get_schemas(self, interactive=True):
-        return []
-
-
-class MockExecutor:
-    async def dispatch_tool_calls(self, tool_calls, trace_id, dry_run=False):
-        return []
+from tests.fixtures.mocks import (
+    BaseMockGateway as MockGateway,
+    BaseMockRegistry as MockRegistry,
+    BaseMockExecutor as MockExecutor,
+)
 
 
 def test_plan_exit_contract_rejects_incomplete_plan(tmp_path: Path):

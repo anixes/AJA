@@ -68,12 +68,12 @@ def test_model_precedence(monkeypatch):
 
 def test_generate_initial_plan_tasks_success():
     """Test dynamic plan generation when LLM returns valid JSON array."""
-    class MockGateway:
-        async def chat(self, *args, **kwargs):
-            return '["Step 1: Setup", "Step 2: Build", "Step 3: Verify"]'
+    from tests.fixtures.mocks import BaseMockGateway
+
+    gateway = BaseMockGateway(default_response='["Step 1: Setup", "Step 2: Build", "Step 3: Verify"]')
 
     async def _run():
-        tasks = await generate_initial_plan_tasks("Build feature", MockGateway(), "gate:qwen")
+        tasks = await generate_initial_plan_tasks("Build feature", gateway, "gate:qwen")
         assert len(tasks) == 3
         assert tasks == ["Step 1: Setup", "Step 2: Build", "Step 3: Verify"]
 
@@ -82,12 +82,14 @@ def test_generate_initial_plan_tasks_success():
 
 def test_generate_initial_plan_tasks_markdown_fences():
     """Test dynamic plan generation handles ```json code fences gracefully."""
-    class MockGateway:
-        async def chat(self, *args, **kwargs):
-            return '```json\n[\n  "Phase 1: Explore",\n  "Phase 2: Code",\n  "Phase 3: Test",\n  "Phase 4: Ship"\n]\n```'
+    from tests.fixtures.mocks import BaseMockGateway
+
+    gateway = BaseMockGateway(
+        default_response='```json\n[\n  "Phase 1: Explore",\n  "Phase 2: Code",\n  "Phase 3: Test",\n  "Phase 4: Ship"\n]\n```'
+    )
 
     async def _run():
-        tasks = await generate_initial_plan_tasks("Build feature", MockGateway(), "gate:qwen")
+        tasks = await generate_initial_plan_tasks("Build feature", gateway, "gate:qwen")
         assert len(tasks) == 4
         assert tasks[0] == "Phase 1: Explore"
         assert tasks[3] == "Phase 4: Ship"
@@ -97,12 +99,12 @@ def test_generate_initial_plan_tasks_markdown_fences():
 
 def test_generate_initial_plan_tasks_fallback_on_invalid_schema():
     """Test fallback when LLM returns non-list or invalid length (< 3 or > 7)."""
-    class MockGatewayTooFew:
-        async def chat(self, *args, **kwargs):
-            return '["Only one task"]'
+    from tests.fixtures.mocks import BaseMockGateway
+
+    gateway = BaseMockGateway(default_response='["Only one task"]')
 
     async def _run():
-        tasks = await generate_initial_plan_tasks("Build feature", MockGatewayTooFew(), "gate:qwen")
+        tasks = await generate_initial_plan_tasks("Build feature", gateway, "gate:qwen")
         assert tasks == FALLBACK_INITIAL_TASKS
 
     asyncio.run(_run())
@@ -110,13 +112,12 @@ def test_generate_initial_plan_tasks_fallback_on_invalid_schema():
 
 def test_generate_initial_plan_tasks_fallback_on_timeout():
     """Test fallback when LLM chat times out (> 10s)."""
-    class MockHangingGateway:
-        async def chat(self, *args, **kwargs):
-            await asyncio.sleep(15.0)
-            return '["Won\'t arrive"]'
+    from tests.fixtures.mocks import BaseMockGateway
+
+    gateway = BaseMockGateway(default_response='["Won\'t arrive"]')
 
     async def _run():
-        tasks = await generate_initial_plan_tasks("Build feature", MockHangingGateway(), "gate:qwen")
+        tasks = await generate_initial_plan_tasks("Build feature", gateway, "gate:qwen")
         assert tasks == FALLBACK_INITIAL_TASKS
 
     async def mock_wait_for(fut, timeout=None):
