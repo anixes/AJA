@@ -194,3 +194,80 @@ def test_cli_registry_flags_forwarding():
             no_plan=True,
             model=None,
         )
+
+
+def test_incremental_task_verification_gate(tmp_path: Path):
+    """
+    Test P0.3: Incremental per-task verification demotes broken completed tasks,
+    injects feedback, and allows progression once checks pass.
+    """
+    plan_file = tmp_path / "PLAN.md"
+    init_plan("Test Incremental", ["Step One", "Step Two"], path=plan_file)
+
+    async def _run():
+        turn = 0
+        ladder_calls = 0
+
+        class IncrementalGateway(MockGateway):
+            async def chat(self, model=None, prompt=None, system=None, tools=None):
+                nonlocal turn
+                turn += 1
+                if turn == 1:
+                    # Mark task 1 complete, but verification will fail
+                    update_task_status(plan_file, 1, TaskStatus.DONE)
+                    return "Task 1 finished."
+                elif turn == 2:
+                    # Check that task 1 was reverted to IN_PROGRESS and diagnostic feedback was injected
+                    assert any("[Incremental Task Verification Failed" in m.get("content", "") for m in prompt)
+                    # Model repairs it and marks task 1 DONE again
+                    update_task_status(plan_file, 1, TaskStatus.DONE)
+                    return "Repaired task 1."
+                elif turn == 3:
+                    # Mark task 2 DONE
+                    update_task_status(plan_file, 2, TaskStatus.DONE)
+                    return "Task 2 finished."
+                return "All done."
+
+        async def mock_run_ladder(*args, **kwargs):
+            nonlocal ladder_calls
+            ladder_calls += 1
+            if ladder_calls == 1:
+                # First incremental check fails
+                return VerificationResult(
+                    passed=False,
+                    check_type="ladder",
+                    tier=1,
+                    summary="SyntaxError in foo.py",
+                    details="foo.py:10: Invalid syntax",
+                    exit_code=1,
+                )
+            # Subsequent checks pass
+            return VerificationResult(
+                passed=True,
+                check_type="ladder",
+                tier=1,
+                summary="Checks passed",
+                exit_code=0,
+            )
+
+        gateway = IncrementalGateway([])
+
+        with patch("aja.orchestration.verification_runner.run_verification_ladder", side_effect=mock_run_ladder):
+            outcome = await run_direct_loop(
+                "Test Incremental Loop",
+                gateway=gateway,
+                tools_registry=MockRegistry(),
+                executor=MockExecutor(),
+                ladder_verify=True,
+                plan_path=plan_file,
+                use_plan=True,
+                max_turns=5,
+            )
+
+        assert outcome is not None
+        assert outcome["status"] == "completed"
+        # Task 1 failed once, passed on retry, Task 2 passed, plus final exit contract
+        assert ladder_calls >= 2
+
+    asyncio.run(_run())
+

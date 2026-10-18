@@ -311,7 +311,21 @@ async def run_direct_loop(
     max_deliverable_retries = 3
     empty_response_nudges = 0
     max_empty_nudges = 2
+    verified_completed_tasks: Set[int] = set()
+    incremental_failure_counts: Dict[int, int] = {}
+
+    if active_plan_path and active_plan_path.exists():
+        try:
+            from aja.orchestration.plan_state import TaskStatus, parse_plan
+            init_p_state = parse_plan(active_plan_path)
+            verified_completed_tasks = {
+                t.index for t in init_p_state.tasks if t.status in (TaskStatus.DONE, TaskStatus.CANCELLED)
+            }
+        except Exception:
+            pass
+
     while iteration < max_turns:
+
         iteration += 1
 
         try:
@@ -474,7 +488,65 @@ async def run_direct_loop(
                 console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
             return {"status": "empty_response", "turns": iteration}
 
+        # Incremental Per-Task Verification Gate (P0.3)
+
+        if active_plan_path and active_plan_path.exists() and (ladder_verify or auto_verify):
+            try:
+                from aja.orchestration.plan_state import TaskStatus, parse_plan, update_task_status
+                from aja.orchestration.verification_runner import run_verification_ladder
+
+                p_state = parse_plan(active_plan_path)
+                current_done_tasks = {
+                    t.index for t in p_state.tasks if t.status in (TaskStatus.DONE, TaskStatus.CANCELLED)
+                }
+                newly_done = current_done_tasks - verified_completed_tasks
+
+                if newly_done:
+                    # Run fast Tier 1 (and targeted Tier 2) incremental check
+                    inc_res = await run_verification_ladder(
+                        check_git=False,
+                        test_target=test_target,
+                        timeout=30,
+                        cwd=None,
+                    )
+                    if not inc_res.passed:
+                        for idx in sorted(newly_done):
+                            incremental_failure_counts[idx] = incremental_failure_counts.get(idx, 0) + 1
+                            if incremental_failure_counts[idx] < 3:
+                                # Revert task back to IN_PROGRESS so agent heals it
+                                try:
+                                    update_task_status(active_plan_path, idx, TaskStatus.IN_PROGRESS)
+                                except Exception:
+                                    pass
+                                if console:
+                                    console.print(
+                                        f"[bold red]✘ [Incremental Task Verification Failed][/bold red] Task #{idx} broke checks."
+                                    )
+                                feedback = inc_res.to_feedback_prompt()
+                                diagnostic_msg = (
+                                    f"[Incremental Task Verification Failed for Task #{idx}]\n"
+                                    f"{feedback}\n"
+                                    f"Task #{idx} has been reverted to IN_PROGRESS. Please fix the issues before proceeding."
+                                )
+                                history.append({"role": "user", "content": diagnostic_msg})
+                            else:
+                                # Escape hatch for flaky tests / budget exhaustion (GLM condition 4)
+                                verified_completed_tasks.add(idx)
+                                if console:
+                                    console.print(
+                                        f"[bold yellow]⚠ [Incremental Warning][/bold yellow] Task #{idx} retry budget exhausted. Deferring to final Exit Contract."
+                                    )
+                    else:
+                        verified_completed_tasks.update(newly_done)
+                        if console:
+                            console.print(
+                                f"[bold green]✔ Incremental verification passed for task(s): {sorted(newly_done)}[/bold green]"
+                            )
+            except Exception as e:
+                logger.debug("[DirectLoop] Incremental verification error: %s", e)
+
         commands = _extract_bash_commands(content)
+
 
         if not commands and not tools_executed:
             # Deliverable Verification Gate: ensure files claimed as created/saved actually exist on disk
