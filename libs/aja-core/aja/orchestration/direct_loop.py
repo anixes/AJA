@@ -201,6 +201,10 @@ def _find_missing_deliverables(content: str) -> List[str]:
         search_roots.append(Path(config_mod.PROJECT_ROOT).resolve())
 
     for p_str in claimed_paths:
+        # Exclude temporary, scratch, and log files from mandatory deliverable checks
+        norm_p = p_str.replace("\\", "/").lower()
+        if any(scratch_dir in norm_p for scratch_dir in ("/scratch/", "scratch/", "/tmp/", ".tmp", "/logs/", ".log")):
+            continue
         try:
             p = Path(p_str)
             if p.is_absolute():
@@ -218,6 +222,7 @@ def _find_missing_deliverables(content: str) -> List[str]:
 def _compute_error_signature(error_text: str) -> str:
     """Compute a normalized fingerprint of an error message to detect oscillation."""
     clean_text = re.sub(r":\d+", ":LINE", error_text or "")
+    clean_text = re.sub(r"\bline\s+\d+\b", "line LINE", clean_text, flags=re.IGNORECASE)
     clean_text = re.sub(r"\s+", " ", clean_text).strip()
     return hashlib.sha256(clean_text[:1000].encode("utf-8")).hexdigest()[:16]
 
@@ -976,8 +981,11 @@ async def run_direct_loop(
                     )
                     if not inc_res.passed:
                         err_sig = _compute_error_signature(inc_res.error_message or "")
+                        is_cyclic = error_signature_history[-8:].count(err_sig) >= 1
                         if error_signature_history and err_sig == error_signature_history[-1]:
                             consecutive_identical_failures += 1
+                        elif is_cyclic:
+                            consecutive_identical_failures = max(consecutive_identical_failures + 1, 2)
                         else:
                             consecutive_identical_failures = 1
                         error_signature_history.append(err_sig)
@@ -1107,11 +1115,30 @@ async def run_direct_loop(
 
                 if not passed:
                     err_sig = _compute_error_signature(failure_prompt)
+                    is_cyclic = error_signature_history[-8:].count(err_sig) >= 1
                     if error_signature_history and err_sig == error_signature_history[-1]:
                         consecutive_identical_failures += 1
+                    elif is_cyclic:
+                        consecutive_identical_failures = max(consecutive_identical_failures + 1, 2)
                     else:
                         consecutive_identical_failures = 1
                     error_signature_history.append(err_sig)
+
+                    if run_journal and run_id:
+                        try:
+                            run_journal.append_event(
+                                run_id=run_id,
+                                event_type="verification_result",
+                                step_index=iteration,
+                                payload={
+                                    "passed": False,
+                                    "attempts": verification_attempts,
+                                    "consecutive_identical_failures": consecutive_identical_failures,
+                                    "error_sig": err_sig,
+                                },
+                            )
+                        except Exception as j_err:
+                            logger.debug("Failed to append verification_result to journal: %s", j_err)
 
                     if console:
                         console.print(
@@ -1138,6 +1165,20 @@ async def run_direct_loop(
                     consecutive_identical_failures = 0
                     if console:
                         console.print("[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
+
+                    if run_journal and run_id:
+                        try:
+                            run_journal.append_event(
+                                run_id=run_id,
+                                event_type="verification_result",
+                                step_index=iteration,
+                                payload={
+                                    "passed": True,
+                                    "attempts": verification_attempts,
+                                },
+                            )
+                        except Exception as j_err:
+                            logger.debug("Failed to append verification_result to journal: %s", j_err)
 
             elif needs_verification and verification_attempts >= effective_max_retries:
                 if console:
