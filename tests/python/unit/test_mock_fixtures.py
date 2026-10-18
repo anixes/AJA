@@ -91,7 +91,8 @@ def test_base_mock_executor():
         # Tool dispatch
         tool_calls = [{"id": "call_1", "function": {"name": "run", "arguments": "{}"}}]
         res = await executor.dispatch_tool_calls(tool_calls, trace_id="tr-123")
-        assert res == []
+        assert len(res) == 1
+        assert res[0].success is True
         assert len(executor.dispatched_tool_calls) == 1
 
         # Shell execution

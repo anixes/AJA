@@ -8,6 +8,7 @@ reproducible test runs across Windows, Linux, and macOS.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Sequence, Union
 
 
@@ -146,6 +147,7 @@ class BaseMockExecutor:
         self.default_stdout = default_stdout
         self.command_handler = command_handler
         self.dispatched_tool_calls: List[Dict[str, Any]] = []
+        self.dispatched = self.dispatched_tool_calls
         self.executed_commands: List[Dict[str, Any]] = []
 
     async def dispatch_tool_calls(
@@ -153,10 +155,19 @@ class BaseMockExecutor:
         tool_calls: Sequence[Dict[str, Any]],
         trace_id: Optional[str] = None,
         dry_run: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Any]:
+        results = []
         for tc in tool_calls:
             self.dispatched_tool_calls.append({"tool_call": tc, "trace_id": trace_id, "dry_run": dry_run})
-        return []
+            results.append(
+                SimpleNamespace(
+                    tool=tc.get("tool", "unknown"),
+                    success=True,
+                    data="ok",
+                    error=None,
+                )
+            )
+        return results
 
     async def execute_async(
         self,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -1219,4 +1220,245 @@ def run_verification_ladder_sync(
         duration_ms=(time.perf_counter() - t0) * 1000.0,
         cwd=str(base_dir),
         skipped_tiers=skipped_tiers,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Propose–Probe–Compose: Tier 0 Probing Sandbox (Assimilated from Harness²)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProbeResult(VerificationResult):
+    """Result of an isolated pre-execution probe."""
+
+    probe_type: str = "snippet"
+    stdout: str = ""
+    stderr: str = ""
+    is_safe: bool = True
+
+
+class ProbeSandbox:
+    """
+    Isolated scratchpad execution engine for probing proposed code and commands
+    prior to permanent workspace mutation.
+    """
+
+    def __init__(self, scratch_dir: Optional[Path | str] = None):
+        self.scratch_dir = Path(scratch_dir) if scratch_dir else None
+
+    def probe_python_snippet(
+        self,
+        code: str,
+        timeout: float = 5.0,
+        check_syntax_only: bool = False,
+    ) -> VerificationResult:
+        """
+        Probe Python code by verifying AST syntax and optionally compiling / running in
+        a temporary sandbox.
+        """
+        t0 = time.perf_counter()
+        if not code or not code.strip():
+            return VerificationResult(
+                passed=True,
+                check_type="probe_python",
+                summary="Empty snippet skipped",
+                exit_code=0,
+                duration_ms=0.0,
+            )
+
+        # 1. Fast AST parse
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            return VerificationResult(
+                passed=False,
+                check_type="probe_python",
+                summary=f"Python syntax error on line {e.lineno}: {e.msg}",
+                details=f"Line {e.lineno}: {e.text}\n{e.msg}",
+                exit_code=1,
+                error_type="syntax_error",
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+
+        if check_syntax_only:
+            return VerificationResult(
+                passed=True,
+                check_type="probe_python",
+                summary="Python snippet syntax valid",
+                exit_code=0,
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+
+        # 2. Isolated py_compile check using temp file
+        import tempfile
+
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tf:
+                tf.write(code)
+                tf_name = tf.name
+
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "py_compile", tf_name],
+                    capture_output=True,
+                    timeout=timeout,
+                    text=True,
+                )
+                if proc.returncode != 0:
+                    return VerificationResult(
+                        passed=False,
+                        check_type="probe_python",
+                        summary="Python compile probe failed",
+                        details=proc.stderr or proc.stdout,
+                        exit_code=proc.returncode,
+                        error_type="compile_error",
+                        duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    )
+            finally:
+                if os.path.exists(tf_name):
+                    try:
+                        os.unlink(tf_name)
+                    except Exception:
+                        pass
+        except Exception as e:
+            return VerificationResult(
+                passed=False,
+                check_type="probe_python",
+                summary=f"Probe exception: {e}",
+                details=str(e),
+                exit_code=1,
+                error_type="probe_exception",
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+
+        return VerificationResult(
+            passed=True,
+            check_type="probe_python",
+            summary="Python snippet probe passed",
+            exit_code=0,
+            duration_ms=(time.perf_counter() - t0) * 1000.0,
+        )
+
+    def probe_shell_command(
+        self,
+        command: str,
+        cwd: Optional[Path | str] = None,
+        timeout: float = 10.0,
+        dry_run: bool = True,
+    ) -> VerificationResult:
+        """
+        Probe a shell command for dangerous patterns, or execute in dry-run/isolated mode.
+        """
+        t0 = time.perf_counter()
+        if not command or not command.strip():
+            return VerificationResult(
+                passed=True,
+                check_type="probe_shell",
+                summary="Empty command skipped",
+                exit_code=0,
+                duration_ms=0.0,
+            )
+
+        cmd_stripped = command.strip()
+
+        # Dangerous pattern screening
+        dangerous_patterns = [
+            (r"\brm\s+-rf\s+[/~]", "Refusal: Recursive delete of root or home directory"),
+            (r"\bmkfs\b", "Refusal: Filesystem format attempt"),
+            (r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "Refusal: Fork bomb detected"),
+            (r"\bformat\s+[A-Za-z]:", "Refusal: Drive format command"),
+            (r"\b(del|rd|rmdir)\b.*?[a-zA-Z]:\\?", "Refusal: Recursive delete of system drive"),
+        ]
+        for pat, reason in dangerous_patterns:
+            if re.search(pat, cmd_stripped, re.IGNORECASE):
+                return VerificationResult(
+                    passed=False,
+                    check_type="probe_shell",
+                    summary=f"Security probe failed: {reason}",
+                    details=f"Command '{command}' blocked by safety classifier.",
+                    exit_code=126,
+                    error_type="safety_violation",
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                )
+
+        if dry_run:
+            return VerificationResult(
+                passed=True,
+                check_type="probe_shell",
+                summary="Shell probe passed (safety checks ok)",
+                exit_code=0,
+                command=command,
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+
+        # Non-dry-run isolated execution
+        import tempfile
+
+        probe_cwd = cwd or tempfile.gettempdir()
+        try:
+            proc = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(probe_cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            passed = proc.returncode == 0
+            return VerificationResult(
+                passed=passed,
+                check_type="probe_shell",
+                summary=(
+                    "Probe command completed successfully"
+                    if passed
+                    else f"Probe command exited with code {proc.returncode}"
+                ),
+                details=proc.stderr if not passed else proc.stdout,
+                exit_code=proc.returncode,
+                command=command,
+                cwd=str(probe_cwd),
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+        except subprocess.TimeoutExpired:
+            return VerificationResult(
+                passed=False,
+                check_type="probe_shell",
+                summary=f"Probe command timed out after {timeout}s",
+                exit_code=124,
+                command=command,
+                error_type="timeout",
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+        except Exception as e:
+            return VerificationResult(
+                passed=False,
+                check_type="probe_shell",
+                summary=f"Probe command failed to spawn: {e}",
+                details=str(e),
+                exit_code=1,
+                command=command,
+                error_type="spawn_error",
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+
+
+def probe_python_snippet(
+    code: str, timeout: float = 5.0, check_syntax_only: bool = False
+) -> VerificationResult:
+    """Convenience functional interface for probing Python snippets."""
+    return ProbeSandbox().probe_python_snippet(
+        code, timeout=timeout, check_syntax_only=check_syntax_only
+    )
+
+
+def probe_shell_command(
+    command: str,
+    cwd: Optional[Path | str] = None,
+    timeout: float = 10.0,
+    dry_run: bool = True,
+) -> VerificationResult:
+    """Convenience functional interface for probing shell commands."""
+    return ProbeSandbox().probe_shell_command(
+        command, cwd=cwd, timeout=timeout, dry_run=dry_run
     )

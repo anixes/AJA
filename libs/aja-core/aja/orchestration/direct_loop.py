@@ -285,6 +285,19 @@ async def _run_verification_checks(
             max_files_scan=getattr(v_cfg, "tier1_max_files_scan", 150) if v_cfg else 150,
         )
         if not l_res.passed:
+            try:
+                from aja.memory.lesson_ledger import get_global_lesson_ledger
+
+                get_global_lesson_ledger().record_failure(
+                    task_objective=str(files_to_check or "verification"),
+                    error_message=l_res.details or l_res.summary or "",
+                    error_type=l_res.error_type or l_res.check_type,
+                    domain_tags=["ladder", l_res.check_type],
+                    lesson_learned=l_res.summary,
+                    mitigation_rule=f"Resolve {l_res.check_type} failure before declaring task completion.",
+                )
+            except Exception as e:
+                logger.debug("Lesson ledger record failed: %s", e)
             return False, l_res.to_feedback_prompt(oscillation_count=oscillation_count)
 
     return True, ""
@@ -543,6 +556,19 @@ async def run_direct_loop(
                 except Exception as e:
                     logger.debug("Plan progress render skipped: %s", e)
 
+            # Lesson Ledger Injection (Assimilated from Harness²):
+            try:
+                from aja.memory.lesson_ledger import get_global_lesson_ledger
+
+                ledger = get_global_lesson_ledger()
+                relevant_lessons = ledger.query_lessons(objective=objective, max_results=3)
+                if relevant_lessons and iteration == 1:
+                    lessons_block = ledger.format_lessons_for_prompt(relevant_lessons)
+                    if lessons_block:
+                        call_prompt.append({"role": "user", "content": f"[Memory Reminder]\n{lessons_block}"})
+            except Exception as e:
+                logger.debug("Lesson ledger query skipped: %s", e)
+
             try:
                 response = await gateway.chat(
                     model=current_model,
@@ -752,11 +778,61 @@ async def run_direct_loop(
                     )
                 else:
                     console.print(f"[bold cyan]⚙ Calling {len(formatted_calls)} Tool(s)...[/]")
-            results = await executor.dispatch_tool_calls(
-                tool_calls=formatted_calls,
-                trace_id=trace_id_getter(),
-                dry_run=dry_run,
-            )
+            # Propose-Probe-Compose: Pre-execution probing gate (Assimilated from Harness²)
+            probe_overrides: Dict[int, Any] = {}
+            if ladder_verify or auto_verify:
+                from aja.orchestration.verification_runner import probe_shell_command, probe_python_snippet
+                from types import SimpleNamespace
+
+                for idx, call in enumerate(formatted_calls):
+                    t_name_lower = (call.get("tool") or "").lower()
+                    t_args = call.get("args") or {}
+
+                    if t_name_lower in ("run_shell_command", "exec_command", "run_command", "bash"):
+                        cmd = t_args.get("command") or t_args.get("cmd") or ""
+                        if cmd:
+                            probe_res = probe_shell_command(cmd, dry_run=True)
+                            if not probe_res.passed:
+                                probe_overrides[idx] = SimpleNamespace(
+                                    tool=call.get("tool"),
+                                    success=False,
+                                    error=f"[Probe Safety Rejection]: {probe_res.summary}",
+                                    data=None,
+                                    stderr=probe_res.details or probe_res.summary,
+                                )
+
+                    elif t_name_lower in ("write_file", "save_file", "create_file", "write_to_file"):
+                        t_path = str(t_args.get("path") or t_args.get("file_path") or t_args.get("target_path") or "")
+                        if t_path.endswith(".py"):
+                            code = t_args.get("content") or t_args.get("text") or t_args.get("code") or ""
+                            if code:
+                                probe_res = probe_python_snippet(code, check_syntax_only=True)
+                                if not probe_res.passed:
+                                    probe_overrides[idx] = SimpleNamespace(
+                                        tool=call.get("tool"),
+                                        success=False,
+                                        error=f"[Probe Pre-Write Syntax Failure]: {probe_res.summary}",
+                                        data=None,
+                                        stderr=probe_res.details or probe_res.summary,
+                                    )
+
+            calls_to_dispatch = [call for i, call in enumerate(formatted_calls) if i not in probe_overrides]
+            dispatched_results = []
+            if calls_to_dispatch:
+                dispatched_results = await executor.dispatch_tool_calls(
+                    tool_calls=calls_to_dispatch,
+                    trace_id=trace_id_getter(),
+                    dry_run=dry_run,
+                )
+
+            # Recombine results in original call order
+            results = []
+            disp_iter = iter(dispatched_results)
+            for idx in range(len(formatted_calls)):
+                if idx in probe_overrides:
+                    results.append(probe_overrides[idx])
+                else:
+                    results.append(next(disp_iter))
             for idx, r in enumerate(results):
                 if hooks.on_tool_result:
                     hooks.on_tool_result(r)
