@@ -36,13 +36,41 @@ import os
 import sys
 from pathlib import Path
 import re
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple, Set
 import uuid
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DirectLoopHooks", "run_direct_loop"]
+__all__ = ["DirectLoopHooks", "ResourceAttribution", "run_direct_loop"]
+
+
+@dataclass
+class ResourceAttribution:
+    """Record of resource consumption, operational metrics, and final status of a mission."""
+
+    model: Optional[str] = None
+    turns: int = 0
+    total_execution_seconds: float = 0.0
+    tool_calls_count: int = 0
+    bytes_written: int = 0
+    subprocess_calls: int = 0
+    token_usage: Dict[str, int] = field(default_factory=dict)
+    status: str = "completed"
+    error_message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "model": self.model,
+            "turns": self.turns,
+            "total_execution_seconds": round(self.total_execution_seconds, 3),
+            "tool_calls_count": self.tool_calls_count,
+            "bytes_written": self.bytes_written,
+            "subprocess_calls": self.subprocess_calls,
+            "token_usage": dict(self.token_usage),
+            "status": self.status,
+            "error_message": self.error_message,
+        }
 
 
 @dataclass
@@ -59,6 +87,10 @@ class DirectLoopHooks:
     """Called as ``on_model_fallback(from_model, to_model, error, attempt)`` when a fallback switch occurs."""
     on_chain_exhausted: Optional[Callable[[List[str], List[Any]], Any]] = None
     """Called as ``on_chain_exhausted(chain, errors)`` when all candidate models in the chain have failed."""
+    on_resource_attribution: Optional[Callable[[ResourceAttribution], Any]] = None
+    """Called as ``on_resource_attribution(attribution)`` upon loop termination."""
+    on_quota_exceeded: Optional[Callable[[Exception, Dict[str, Any]], Any]] = None
+    """Called as ``on_quota_exceeded(error, snapshot_data)`` when a resource quota or sandbox is breached."""
 
 
 def _default_history_compressor(history, model=None, provider=None):
@@ -260,17 +292,21 @@ async def run_direct_loop(
     settings: Optional[Any] = None,
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
+    quotas: Optional[Any] = None,
+    workspace_root: Optional[Union[Path, str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run the single-agent tool-calling loop to completion.
 
     Returns a status dict (never raises for ordinary termination):
 
-    * ``{"status": "completed", "turns": N}``
-    * ``{"status": "completed", "turns": N, "result": <structured>}`` when
+    * ``{"status": "completed", "turns": N, "attribution": ...}``
+    * ``{"status": "completed", "turns": N, "result": <structured>, "attribution": ...}`` when
       ``output_contract`` was supplied and synthesis succeeded.
-    * ``{"status": "empty_response", "turns": N}`` when the model returned nothing.
-    * ``{"status": "incomplete", "reason": "max_turns", "turns": N}`` when
+    * ``{"status": "empty_response", "turns": N, "attribution": ...}`` when the model returned nothing.
+    * ``{"status": "incomplete", "reason": "max_turns", "turns": N, "attribution": ...}`` when
       ``max_turns`` was exhausted while the model kept requesting actions.
+    * ``{"status": "quota_exceeded", "reason": ..., "attribution": ...}`` when a resource quota
+      or workspace sandbox confinement constraint is breached.
 
     When ``session_history`` is provided it is mutated in place (caller-owned,
     enabling multi-turn sessions and provider-side prefix caching); otherwise
@@ -280,6 +316,59 @@ async def run_direct_loop(
     compressor = history_compressor or _default_history_compressor
     truncator = result_truncator or _default_result_truncator
     trace_id_getter = trace_id_fn or _default_trace_id_fn
+
+    # Setup QuotaTracker and ResourceAttribution (P3)
+    from aja.runtime.execution.workspace_quotas import (
+        QuotaTracker,
+        QuotaExceededError,
+        DiskQuotaExceededError,
+        SubprocessQuotaExceededError,
+        TimeQuotaExceededError,
+        SandboxViolationError,
+        verify_path_confinement,
+    )
+
+    effective_quotas = quotas
+    if effective_quotas is None and settings is not None and getattr(settings, "quotas", None) is not None:
+        effective_quotas = settings.quotas
+    effective_root = workspace_root or os.environ.get("AJA_PROJECT_ROOT") or Path.cwd()
+    quota_tracker = QuotaTracker(quotas=effective_quotas, workspace_root=effective_root)
+    cumulative_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    def _make_exit_dict(
+        status: str,
+        *,
+        reason: Optional[str] = None,
+        error_message: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        attr_data = quota_tracker.get_attribution_data()
+        attr_model = current_model if "current_model" in locals() and current_model else (active_chain[0] if "active_chain" in locals() and active_chain else model)
+        attribution = ResourceAttribution(
+            model=attr_model,
+            turns=iteration,
+            total_execution_seconds=attr_data["total_execution_seconds"],
+            tool_calls_count=attr_data["tool_calls_count"],
+            bytes_written=attr_data["bytes_written"],
+            subprocess_calls=attr_data["subprocess_calls"],
+            token_usage=dict(cumulative_tokens),
+            status=status,
+            error_message=error_message or reason,
+        )
+        if hooks and hooks.on_resource_attribution:
+            try:
+                hooks.on_resource_attribution(attribution)
+            except Exception as hook_err:
+                logger.debug("on_resource_attribution hook failed: %s", hook_err)
+
+        out: Dict[str, Any] = {"status": status, "turns": iteration, "attribution": attribution.to_dict()}
+        if reason is not None:
+            out["reason"] = reason
+        if error_message is not None:
+            out["error_message"] = error_message
+        if extra:
+            out.update(extra)
+        return out
 
     # Determine active Living Disk State plan
     active_plan_path: Optional[Path] = None
@@ -347,6 +436,16 @@ async def run_direct_loop(
         raise ValueError("No active model or fallback chain could be resolved for direct loop execution.")
 
     while iteration < max_turns:
+        try:
+            quota_tracker.check_time_limit()
+        except TimeQuotaExceededError as e:
+            logger.warning("[DirectLoop] Time quota exceeded: %s", e)
+            if hooks and hooks.on_quota_exceeded:
+                try:
+                    hooks.on_quota_exceeded(e, quota_tracker.get_attribution_data())
+                except Exception as hook_err:
+                    logger.debug("on_quota_exceeded hook failed: %s", hook_err)
+            return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
 
         iteration += 1
         active_chain_idx = 0
@@ -440,7 +539,18 @@ async def run_direct_loop(
         if not response:
             if console:
                 console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
-            return {"status": "empty_response", "turns": iteration}
+            return _make_exit_dict("empty_response")
+
+        # Track token usage if provided in response
+        u = None
+        if isinstance(response, dict):
+            u = response.get("usage")
+        elif hasattr(response, "usage"):
+            u = getattr(response, "usage", None)
+        if isinstance(u, dict):
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                if k in u and isinstance(u[k], (int, float)):
+                    cumulative_tokens[k] = cumulative_tokens.get(k, 0) + int(u[k])
 
         if isinstance(response, dict):
             content = response.get("content", "")
@@ -483,6 +593,92 @@ async def run_direct_loop(
                 deferred_count = total_requested - MAX_PARALLEL_TOOL_DISPATCH
                 formatted_calls = formatted_calls[:MAX_PARALLEL_TOOL_DISPATCH]
                 std_tool_calls = std_tool_calls[:MAX_PARALLEL_TOOL_DISPATCH]
+
+            # Pre-flight resource quota and workspace sandboxing verification (P3)
+            for call in formatted_calls:
+                t_name_lower = (call.get("tool") or "").lower()
+                t_args = call.get("args") or {}
+
+                # 1. Subprocess tools
+                if t_name_lower in (
+                    "run_shell_command", "exec_command", "run_command",
+                    "run_terminal_command", "execute_command", "bash",
+                    "git_status", "git_diff", "git_commit"
+                ):
+                    try:
+                        quota_tracker.record_subprocess_call()
+                    except SubprocessQuotaExceededError as e:
+                        logger.warning("[DirectLoop] Subprocess quota exceeded: %s", e)
+                        if hooks and hooks.on_quota_exceeded:
+                            try:
+                                hooks.on_quota_exceeded(e, quota_tracker.get_attribution_data())
+                            except Exception as hook_err:
+                                logger.debug("on_quota_exceeded hook failed: %s", hook_err)
+                        return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
+
+                # 2. File write / modification tools
+                elif t_name_lower in (
+                    "write_file", "edit_file", "save_file", "create_file",
+                    "append_file", "multi_replace", "create_directory"
+                ):
+                    target_path = (
+                        t_args.get("path")
+                        or t_args.get("file_path")
+                        or t_args.get("target_path")
+                        or t_args.get("filepath")
+                        or t_args.get("filename")
+                        or t_args.get("directory")
+                        or t_args.get("dir_path")
+                    )
+                    content_val = (
+                        t_args.get("content")
+                        or t_args.get("text")
+                        or t_args.get("replacement")
+                        or t_args.get("code")
+                        or ""
+                    )
+                    if not content_val and "replacements" in t_args and isinstance(t_args["replacements"], list):
+                        content_val = "".join(str(r.get("replacement", "")) for r in t_args["replacements"])
+
+                    size_bytes = len(str(content_val).encode("utf-8"))
+                    try:
+                        quota_tracker.check_and_reserve_write(size_bytes=size_bytes, target_path=target_path)
+                    except (DiskQuotaExceededError, SandboxViolationError) as e:
+                        logger.warning("[DirectLoop] Disk/Sandbox quota violation on tool '%s': %s", t_name_lower, e)
+                        if hooks and hooks.on_quota_exceeded:
+                            try:
+                                hooks.on_quota_exceeded(e, quota_tracker.get_attribution_data())
+                            except Exception as hook_err:
+                                logger.debug("on_quota_exceeded hook failed: %s", hook_err)
+                        return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
+
+                # 3. Read / inspection tools (sandboxing)
+                elif t_name_lower in ("read_file", "view_file", "list_directory", "list_dir", "grep_search", "find_files", "get_file_info"):
+                    target_path = (
+                        t_args.get("path")
+                        or t_args.get("file_path")
+                        or t_args.get("directory")
+                        or t_args.get("dir_path")
+                        or t_args.get("search_path")
+                        or t_args.get("target_path")
+                    )
+                    if target_path and quota_tracker.workspace_root:
+                        try:
+                            verify_path_confinement(
+                                target_path,
+                                quota_tracker.workspace_root,
+                                allow_out_of_bounds=quota_tracker.quotas.allow_out_of_bounds_paths,
+                            )
+                        except SandboxViolationError as e:
+                            logger.warning("[DirectLoop] Sandbox violation on read tool '%s': %s", t_name_lower, e)
+                            if hooks and hooks.on_quota_exceeded:
+                                try:
+                                    hooks.on_quota_exceeded(e, quota_tracker.get_attribution_data())
+                                except Exception as hook_err:
+                                    logger.debug("on_quota_exceeded hook failed: %s", hook_err)
+                            return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
+
+                quota_tracker.record_tool_call()
 
             asst_msg: Dict[str, Any] = {
                 "role": "assistant",
@@ -557,7 +753,7 @@ async def run_direct_loop(
                 continue
             if console:
                 console.print("[yellow][Direct Mode] Empty response from assistant. Exiting.[/yellow]")
-            return {"status": "empty_response", "turns": iteration}
+            return _make_exit_dict("empty_response")
 
         # Incremental Per-Task Verification Gate (P0.3)
 
@@ -601,7 +797,7 @@ async def run_direct_loop(
                                 )
                                 history.append({"role": "user", "content": diagnostic_msg})
                             else:
-                                # Escape hatch for flaky tests / budget exhaustion (GLM condition 4)
+                                # Escape hatch for flaky tests / budget exhaustion guard
                                 verified_completed_tasks.add(idx)
                                 if console:
                                     console.print(
@@ -671,7 +867,7 @@ async def run_direct_loop(
                                 console.print(
                                     f"[bold yellow]⚠ [Exit Contract] Plan completion retries ({max_verification_retries}) exhausted.[/bold yellow]"
                                 )
-                            return {"status": "incomplete", "reason": "plan_incomplete", "turns": iteration}
+                            return _make_exit_dict("incomplete", reason="plan_incomplete")
                 except Exception as e:
                     logger.debug("[DirectLoop] Plan verification check skipped: %s", e)
 
@@ -714,7 +910,7 @@ async def run_direct_loop(
                     console.print(
                         f"[bold yellow]⚠ [Verification Gate] Maximum verification retries ({max_verification_retries}) exhausted.[/bold yellow]"
                     )
-                return {"status": "incomplete", "reason": "verification_failed", "turns": iteration}
+                return _make_exit_dict("incomplete", reason="verification_failed")
 
             # No further actions suggested: direct execution has finished.
             if console:
@@ -739,12 +935,23 @@ async def run_direct_loop(
                 )
                 if hooks.on_synthesis:
                     hooks.on_synthesis(structured)
-                return {"status": "completed", "turns": iteration, "result": structured, "verified": needs_verification}
-            return {"status": "completed", "turns": iteration, "verified": needs_verification}
+                return _make_exit_dict("completed", extra={"result": structured, "verified": needs_verification})
+            return _make_exit_dict("completed", extra={"verified": needs_verification})
 
         for cmd in commands:
             if presenter:
                 presenter.command(cmd)
+
+            try:
+                quota_tracker.record_subprocess_call()
+            except SubprocessQuotaExceededError as e:
+                logger.warning("[DirectLoop] Subprocess quota exceeded for bash command: %s", e)
+                if hooks and hooks.on_quota_exceeded:
+                    try:
+                        hooks.on_quota_exceeded(e, quota_tracker.get_attribution_data())
+                    except Exception as hook_err:
+                        logger.debug("on_quota_exceeded hook failed: %s", hook_err)
+                return _make_exit_dict("quota_exceeded", reason=str(e), error_message=str(e))
 
             if dry_run:
                 from aja.security.command_guard import classify_command
@@ -794,4 +1001,4 @@ async def run_direct_loop(
             history.append({"role": "user", "content": result_str})
 
     logger.info("Direct loop hit max_turns (%d) for objective.", max_turns)
-    return {"status": "incomplete", "reason": "max_turns", "turns": max_turns}
+    return _make_exit_dict("incomplete", reason="max_turns")

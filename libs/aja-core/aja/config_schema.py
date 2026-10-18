@@ -59,14 +59,42 @@ class SwarmModels(BaseModel):
     )
     vision: Optional[str] = None
 
+class WorkspaceQuotas(BaseModel):
+    """Hard boundaries for disk writes, subprocess calls, and execution time per mission/workspace."""
+    max_cumulative_write_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        description="Total cumulative bytes allowed to be written to disk across all tool calls (default 50MB).",
+    )
+    max_single_file_write_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        description="Maximum size in bytes allowed for a single file write operation (default 10MB).",
+    )
+    max_subprocess_calls: int = Field(
+        default=100,
+        description="Maximum number of command/subprocess executions allowed per mission (default 100).",
+    )
+    max_total_execution_seconds: float = Field(
+        default=1800.0,
+        description="Maximum wall-clock execution time in seconds for the mission direct loop (default 30 mins).",
+    )
+    allow_out_of_bounds_paths: bool = Field(
+        default=False,
+        description="When False (default), tool file operations are strictly confined within the workspace root.",
+    )
+
+
 class SwarmSettings(BaseModel):
     offline_mode: bool = True
     max_agents: int = Field(default=5, ge=1, le=100)
     check_interval: int = Field(default=30, ge=1)
     models: SwarmModels = Field(default_factory=SwarmModels)
+    quotas: WorkspaceQuotas = Field(
+        default_factory=WorkspaceQuotas,
+        description="Workspace resource boundaries and sandboxing constraints.",
+    )
     active_model: Optional[str] = Field(
         default=None,
-        description="Primary canonical model for the unified autonomous harness (e.g. 'gate:qwen').",
+        description="Primary canonical model for the unified autonomous harness (e.g. 'provider:model').",
     )
     vision_model: Optional[str] = None
     operating_mode: str = "hybrid"
