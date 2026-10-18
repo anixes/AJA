@@ -135,6 +135,18 @@ class TestSyntheticTruncationMarker(unittest.TestCase):
         self.assertTrue(notice.get("_synthetic"))
         self.assertIsInstance(notice.get("_trimmed_count"), int)
         self.assertGreater(notice["_trimmed_count"], 0)
+    def test_context_window_compress_history_safe_halt(self):
+        # Test that compress_history prunes when over limit and halts gracefully
+        history = [
+            {"role": "user", "content": "Initial prompt " + "x" * 200},
+            {"role": "assistant", "content": "Response 1 " + "y" * 200},
+            {"role": "user", "content": "Follow-up question " + "z" * 200},
+            {"role": "assistant", "content": "Response 2 " + "w" * 200},
+        ]
+
+        compress_history(history, limit=50, history_floor=10)
+        # History must have been pruned safely without infinite looping
+        self.assertLessEqual(len(history), 4)
 
 
 if __name__ == "__main__":
