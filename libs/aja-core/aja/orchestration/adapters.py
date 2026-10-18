@@ -133,6 +133,8 @@ class TestAdapter(BaseAdapter):
         if not tool_path.exists():
             tool_path = Path(workspace_dir) / "tests" / "python" / "test_idempotent_tool.py"
         if not tool_path.exists():
+            tool_path = Path(workspace_dir) / "tests" / "python" / "integration" / "tools" / "test_idempotent_tool.py"
+        if not tool_path.exists():
             return {
                 "status": "failed",
                 "error": "test_idempotent_tool.py was not found in scripts/ or tests/python/.",

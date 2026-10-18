@@ -6,7 +6,7 @@ from aja.api.routes import ROUTE_GROUPS
 from aja.security.command_guard import classify_command
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 PACKAGE_ROOT = PROJECT_ROOT / "libs" / "aja-core" / "aja"
 
 

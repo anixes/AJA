@@ -67,21 +67,20 @@ def test_llm_gateway_durable_replay(tmp_path):
         ctx = ActivityContext(is_replay=False, emitter=emitter)
         set_activity_context(ctx)
         
-        with patch("aja.orchestration.gateway.AsyncOpenAI") as mock_openai:
+        with patch("aja.orchestration.gateway.get_async_openai_client") as mock_get_client:
             # Setup mock completion choice
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
             mock_response.choices[0].message.content = "mocked llm output"
             
-            # Async mock client — LLMGateway uses a reusable client directly
-            # (no async context manager) since the loop-aware client refactor.
+            # Async mock client — LLMGateway uses client_factory abstraction
             mock_client = MagicMock()
             from unittest.mock import AsyncMock
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             
-            mock_openai.return_value = mock_client
+            mock_get_client.return_value = mock_client
             
-            response = await gateway.chat(model="gpt-4", prompt="What is AJA?")
+            response = await gateway.chat(model="test-model", prompt="What is AJA?")
             assert response == "mocked llm output"
             
         # Verify the activity was recorded
@@ -96,13 +95,13 @@ def test_llm_gateway_durable_replay(tmp_path):
         assert len(act_events) >= 1
         assert act_events[0]["activity_name"] == "llm.chat"
         
-        # 2. Replay Run: verify chat doesn't initialize AsyncOpenAI and yields recorded output
+        # 2. Replay Run: verify chat doesn't initialize client and yields recorded output
         replay_ctx = ActivityContext(is_replay=True, replay_events=events)
         set_activity_context(replay_ctx)
         
-        with patch("aja.orchestration.gateway.AsyncOpenAI") as mock_openai_replay:
-            replay_response = await gateway.chat(model="gpt-4", prompt="What is AJA?")
-            mock_openai_replay.assert_not_called()
+        with patch("aja.orchestration.gateway.get_async_openai_client") as mock_get_client_replay:
+            replay_response = await gateway.chat(model="test-model", prompt="What is AJA?")
+            mock_get_client_replay.assert_not_called()
             assert replay_response == "mocked llm output"
     import asyncio
     asyncio.run(scenario())

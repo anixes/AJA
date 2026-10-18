@@ -7,7 +7,7 @@ from aja.security.command_guard import classify_command
 from aja.utils.aja_guard import AJAGuard
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOTS = [
     PROJECT_ROOT / "libs" / "aja-core",
 ]

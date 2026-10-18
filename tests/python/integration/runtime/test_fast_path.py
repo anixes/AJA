@@ -137,10 +137,10 @@ def test_llm_gateway_conversation_memory():
             choices=[MagicMock(message=MagicMock(content="mock-response"))]
         )
         
-        # LLMGateway uses a reusable client directly (no async context manager)
-        with patch("aja.orchestration.gateway.AsyncOpenAI", return_value=mock_client):
+        # LLMGateway uses client_factory abstraction
+        with patch("aja.orchestration.gateway.get_async_openai_client", return_value=mock_client):
             gw = LLMGateway(provider="openrouter", api_key="test-key")
-            response = await gw.chat(model="gpt-4", prompt=messages, system="You are helpful")
+            response = await gw.chat(model="test-model", prompt=messages, system="You are helpful")
             
             assert response == "mock-response"
             called_messages = mock_client.chat.completions.create.call_args[1]["messages"]

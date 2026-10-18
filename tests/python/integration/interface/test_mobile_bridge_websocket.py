@@ -1,9 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
-from aja.api.bridge import app, API_TOKEN
+from aja.api.bridge import app, API_TOKEN, _setup_event_bus_subscriptions
 from aja.runtime.event_bus import bus, EVENTS
 
 def test_websocket_event_broadcasting():
+    _setup_event_bus_subscriptions()
     client = TestClient(app)
 
     # 1. Connect to websocket (the /ws/mobile endpoint requires auth since
