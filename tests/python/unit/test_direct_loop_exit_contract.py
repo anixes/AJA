@@ -192,4 +192,5 @@ def test_cli_registry_flags_forwarding():
             dry_run=True,
             swarm=True,
             no_plan=True,
+            model=None,
         )

@@ -12,10 +12,6 @@
     "max_agents": 5,
     "check_interval": 30,
     "active_model": "gate:qwen",
-    "models": {
-      "planner": "gate:glm",
-      "worker": "gate:qwen"
-    },
     "operating_mode": "hybrid",
     "allow_out_of_bounds_paths": false
   },

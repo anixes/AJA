@@ -14,12 +14,63 @@ from aja.interface.modern import console, mission_spinner, print_error, print_in
 PYTHON = sys.executable
 
 
+FALLBACK_INITIAL_TASKS = ["Analyze requirements", "Execute changes", "Verify solution"]
+
+
+async def generate_initial_plan_tasks(objective: str, gateway, model_id: str) -> list[str]:
+    """
+    Generate tailored initial tasks dynamically using the LLM with hard timeout and schema guards.
+    Falls back reliably to FALLBACK_INITIAL_TASKS on any failure.
+    """
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+
+    prompt = (
+        f"You are an autonomous engineering planning agent.\n"
+        f"Objective: \"{objective}\"\n\n"
+        "Generate a concise, concrete execution plan.\n"
+        "Return ONLY a valid JSON array of 3 to 7 actionable step strings (e.g. [\"Step 1\", \"Step 2\", \"Step 3\"]).\n"
+        "Do not include any explanation, conversational text, or markdown formatting."
+    )
+
+    try:
+        coro = gateway.chat(
+            model=model_id,
+            prompt=[{"role": "user", "content": prompt}],
+            system="You are an autonomous planning engine. Output only a raw JSON array of 3 to 7 string tasks.",
+        )
+        resp = await asyncio.wait_for(coro, timeout=10.0)
+        raw_text = resp if isinstance(resp, str) else (resp.get("content", "") if isinstance(resp, dict) else "")
+        clean = raw_text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1]
+        if clean.endswith("```"):
+            clean = clean.rsplit("\n", 1)[0]
+        start_idx = clean.find("[")
+        end_idx = clean.rfind("]")
+        if start_idx != -1 and end_idx != -1:
+            clean = clean[start_idx : end_idx + 1]
+
+        data = json.loads(clean)
+        if isinstance(data, list) and 3 <= len(data) <= 7 and all(isinstance(t, str) and t.strip() for t in data):
+            return [t.strip() for t in data]
+        logger.debug("[run.py] Dynamic plan schema invalid, using fallback")
+    except asyncio.TimeoutError:
+        logger.debug("[run.py] Dynamic plan generation timed out (>10s), using fallback")
+    except Exception as e:
+        logger.debug("[run.py] Dynamic plan generation failed: %s, using fallback", e)
+
+    return list(FALLBACK_INITIAL_TASKS)
+
+
 def cmd_run(
     objective: str,
     background: bool = False,
     dry_run: bool = False,
     swarm: bool = False,
     no_plan: bool = False,
+    model: Optional[str] = None,
 ):
     """
     Primary mission entry point.
@@ -39,6 +90,8 @@ def cmd_run(
             cmd_args.append("--swarm")
         if no_plan:
             cmd_args.append("--no-plan")
+        if model:
+            cmd_args.extend(["--model", model])
         try:
             subprocess.Popen(
                 cmd_args,
@@ -79,8 +132,8 @@ def cmd_run(
         from aja.tools.registry import ToolsRegistry
         from aja.tools.executor import ToolExecutor
 
-        model = resolve_active_model_string()
-        gateway = get_gateway(model)
+        active_model = resolve_active_model_string(model)
+        gateway = get_gateway(active_model)
         tools_reg = ToolsRegistry()
         executor = ToolExecutor(registry=tools_reg)
 
@@ -93,9 +146,10 @@ def cmd_run(
                     plan_result = await plan_gate(objective)
                     if "Execution Plan to follow:" in plan_result:
                         plan_file = Path("PLAN.md")
+                        tasks = await generate_initial_plan_tasks(objective, gateway, active_model)
                         init_plan(
                             objective=objective,
-                            tasks=["Analyze requirements", "Execute changes", "Verify solution"],
+                            tasks=tasks,
                             path=plan_file,
                             overwrite=True,
                         )
@@ -107,7 +161,7 @@ def cmd_run(
             gateway=gateway,
             tools_registry=tools_reg,
             executor=executor,
-            model=model,
+            model=active_model,
             dry_run=dry_run,
             ladder_verify=True,
             auto_verify=True,

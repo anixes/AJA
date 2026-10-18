@@ -85,6 +85,10 @@ def _choices_from_chat_result(res):
 
 
 DEFAULT_MODEL_CHAIN = ("gate:qwen", "google:gemini-2.5-flash")
+KNOWN_PROVIDERS = {
+    "google", "gemini", "openai", "openrouter", "copilot", "anthropic",
+    "gate", "constellation", "groq", "together", "nvidia", "llama_cpp", "ollama", "lm_studio"
+}
 _critic_warned = False
 
 
@@ -178,11 +182,6 @@ def resolve_provider_model(
                           dynamically auto-routes to active local/cloud vision engine.
       swarm             — direct role assignment
     """
-    KNOWN_PROVIDERS = {
-        "google", "gemini", "openai", "openrouter", "copilot", "anthropic",
-        "gate", "constellation", "groq", "together", "nvidia", "llama_cpp", "ollama", "lm_studio"
-    }
-
     provider = "openrouter"  # Default
     if not model_str:
         model_str = resolve_active_model_string()

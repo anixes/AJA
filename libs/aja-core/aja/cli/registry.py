@@ -172,10 +172,53 @@ class CommandRegistry:
             dry_run = "--dry-run" in args
             swarm = "--swarm" in args
             no_plan = "--no-plan" in args
-            filtered_flags = {"--bg", "--dry-run", "--swarm", "--no-plan"}
-            objective_parts = [a for a in args[1:] if a not in filtered_flags]
-            objective = " ".join(objective_parts)
-            cmd_run(objective, background=bg, dry_run=dry_run, swarm=swarm, no_plan=no_plan)
+
+            model: Optional[str] = None
+            filtered_args: List[str] = []
+            i = 1
+            while i < len(args):
+                arg = args[i]
+                if arg in ("--bg", "--dry-run", "--swarm", "--no-plan"):
+                    i += 1
+                    continue
+                elif arg.startswith("--model="):
+                    model = arg.split("=", 1)[1].strip()
+                    i += 1
+                    continue
+                elif arg.startswith("-m="):
+                    model = arg.split("=", 1)[1].strip()
+                    i += 1
+                    continue
+                elif arg in ("--model", "-m"):
+                    if i + 1 < len(args):
+                        model = args[i + 1].strip()
+                        i += 2
+                        continue
+                    else:
+                        print_error(f"Flag '{arg}' requires a model identifier (e.g. 'gate:qwen', 'google:gemini-2.5-flash').")
+                        sys.exit(2)
+                else:
+                    filtered_args.append(arg)
+                    i += 1
+
+            if model:
+                from aja.llm import KNOWN_PROVIDERS, resolve_provider_model
+                try:
+                    resolve_provider_model(model, "hybrid", "", "")
+                except ValueError as e:
+                    print_error(f"Invalid model override '{model}': {e}")
+                    print_error(f"Registered providers are: {', '.join(sorted(KNOWN_PROVIDERS))}")
+                    sys.exit(2)
+
+            objective = " ".join(filtered_args)
+            cmd_run(
+                objective,
+                background=bg,
+                dry_run=dry_run,
+                swarm=swarm,
+                no_plan=no_plan,
+                model=model,
+            )
 
         elif cmd == "chat":
             _launch_repl()
