@@ -123,6 +123,19 @@ class TestSyntheticTruncationMarker(unittest.TestCase):
                 self.assertEqual(history[idx - 1].get("role"), "assistant")
                 self.assertIsNotNone(history[idx - 1].get("tool_calls"))
 
+    def test_notice_metadata_flags(self):
+        history: List[Dict[str, Any]] = [
+            {"role": "user", "content": "TASK_ROOT_OBJECTIVE"},
+        ]
+        for i in range(20):
+            history.append({"role": "user", "content": f"Turn {i}: " + ("x" * 3000)})
+
+        compress_history(history, model="copilot")
+        notice = history[1]
+        self.assertTrue(notice.get("_synthetic"))
+        self.assertIsInstance(notice.get("_trimmed_count"), int)
+        self.assertGreater(notice["_trimmed_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

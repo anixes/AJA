@@ -1045,7 +1045,7 @@ class NativeToolRegistry:
         elif resolved_profile == ToolProfile.MOBILE:
             allowed_tools = set(CODE_TOOL_NAMES) | set(MOBILE_TOOL_NAMES)
         else:
-            logger.warning("[NativeToolRegistry] Unknown tool profile '%s', falling back to CODE profile.", profile)
+            logger.warning("[NativeToolRegistry] Unknown tool profile '%s', falling back to CODE profile.", resolved_profile)
             allowed_tools = set(CODE_TOOL_NAMES)
 
         filtered = []

@@ -251,7 +251,7 @@ async def run_direct_loop(
     check_git: bool = True,
     plan_path: Optional[Union[Path, str]] = None,
     use_plan: bool = False,
-    tool_profile: Optional[str] = "code",
+    tool_profile: Optional[str] = None,
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -297,8 +297,9 @@ async def run_direct_loop(
             {"role": "user", "content": f"Please execute this task directly: {objective}"}
         ]
 
+    effective_profile = tool_profile if tool_profile is not None else os.environ.get("AJA_TOOL_PROFILE", "code")
     try:
-        tool_schemas = tools_registry.get_schemas(interactive=interactive, profile=tool_profile)
+        tool_schemas = tools_registry.get_schemas(interactive=interactive, profile=effective_profile)
     except TypeError:
         tool_schemas = tools_registry.get_schemas(interactive=interactive)
     import inspect

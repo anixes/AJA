@@ -283,16 +283,25 @@ def compress_history(
 
     # 1. Detect and temporarily remove existing synthetic truncation notice to avoid duplicate stacking
     prior_dropped = 0
-    if len(history) > 1 and str(history[1].get("content") or "").startswith(TRUNCATION_NOTICE_PREFIX):
-        content = str(history[1].get("content") or "")
-        m = re.search(r"(\d+)\s+prior interaction turn", content)
-        if m:
+    if len(history) > 1 and (
+        history[1].get("_synthetic")
+        or str(history[1].get("content") or "").startswith(TRUNCATION_NOTICE_PREFIX)
+    ):
+        if history[1].get("_trimmed_count") is not None:
             try:
-                prior_dropped = int(m.group(1))
-            except ValueError:
+                prior_dropped = int(history[1]["_trimmed_count"])
+            except (ValueError, TypeError):
                 prior_dropped = 1
         else:
-            prior_dropped = 1
+            content = str(history[1].get("content") or "")
+            m = re.search(r"(\d+)\s+prior interaction turn", content)
+            if m:
+                try:
+                    prior_dropped = int(m.group(1))
+                except ValueError:
+                    prior_dropped = 1
+            else:
+                prior_dropped = 1
         history.pop(1)
 
     is_copilot = "copilot" in (provider or "").lower() or "copilot" in (model or "").lower()
@@ -348,4 +357,12 @@ def compress_history(
             f"{total_dropped} prior interaction turn(s) were trimmed to stay within the token budget.\n"
             f"Refer to the Living Disk State (PLAN.md) snapshot for current progress and completed tasks."
         )
-        history.insert(1, {"role": "user", "content": notice_content})
+        history.insert(
+            1,
+            {
+                "role": "user",
+                "content": notice_content,
+                "_synthetic": True,
+                "_trimmed_count": total_dropped,
+            },
+        )
