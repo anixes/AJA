@@ -55,6 +55,10 @@ class DirectLoopHooks:
     """Called as ``on_tool_result(result_obj)`` for each dispatched native-tool result."""
     on_synthesis: Optional[Callable[[Any], Any]] = None
     """Called as ``on_synthesis(structured)`` when an ``output_contract`` synthesis succeeds."""
+    on_model_fallback: Optional[Callable[[str, str, Any, int], Any]] = None
+    """Called as ``on_model_fallback(from_model, to_model, error, attempt)`` when a fallback switch occurs."""
+    on_chain_exhausted: Optional[Callable[[List[str], List[Any]], Any]] = None
+    """Called as ``on_chain_exhausted(chain, errors)`` when all candidate models in the chain have failed."""
 
 
 def _default_history_compressor(history, model=None, provider=None):
@@ -252,6 +256,7 @@ async def run_direct_loop(
     plan_path: Optional[Union[Path, str]] = None,
     use_plan: bool = False,
     tool_profile: Optional[str] = None,
+    fallback_chain: Optional[Union[List[str], str]] = None,
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -329,54 +334,95 @@ async def run_direct_loop(
         except Exception:
             pass
 
+    from aja.config_schema import resolve_model_chain
+    from aja.orchestration.errors import classify_gateway_error, ChainExhaustedError
+
+    active_chain = resolve_model_chain(caller_chain=fallback_chain, model=model)
+    active_chain_idx = 0
+
     while iteration < max_turns:
 
         iteration += 1
 
-        try:
-            if _comp_has_extra:
-                compressor(
-                    history,
-                    model=model,
-                    provider=provider,
-                    system_prompt=system_prompt,
+        response = None
+        turn_errors: List[Exception] = []
+
+        while active_chain_idx < len(active_chain):
+            current_model = active_chain[active_chain_idx]
+            try:
+                if _comp_has_extra:
+                    compressor(
+                        history,
+                        model=current_model,
+                        provider=provider,
+                        system_prompt=system_prompt,
+                        tools=tool_schemas,
+                    )
+                else:
+                    compressor(history, model=current_model, provider=provider)
+            except Exception as e:  # best-effort: compression must never kill the loop
+                logger.debug("History compression skipped: %s", e)
+
+            # Ephemeral Plan Anchor (P1.2): keep system_prompt 100% static to preserve prefix
+            # caching, and append the current plan snapshot as an ephemeral user message to call_prompt.
+            call_prompt = list(history)
+            if active_plan_path and active_plan_path.exists():
+                from aja.orchestration.plan_state import render_compact_progress
+                try:
+                    progress_block = render_compact_progress(active_plan_path)
+                    anchor_msg = (
+                        f"[Living Disk State — Current Snapshot]\n"
+                        f"{progress_block}\n\n"
+                        f"(Ground truth snapshot for turn {iteration}. Refer strictly to this snapshot for task status; do not repeat completed tasks.)"
+                    )
+                    call_prompt.append({"role": "user", "content": anchor_msg})
+                except Exception as e:
+                    logger.debug("Plan progress render skipped: %s", e)
+
+            try:
+                response = await gateway.chat(
+                    model=current_model,
+                    prompt=call_prompt,
+                    system=system_prompt,
                     tools=tool_schemas,
                 )
-            else:
-                compressor(history, model=model, provider=provider)
-        except Exception as e:  # best-effort: compression must never kill the loop
-            logger.debug("History compression skipped: %s", e)
-
-        # Ephemeral Plan Anchor (P1.2): keep system_prompt 100% static to preserve prefix
-        # caching, and append the current plan snapshot as an ephemeral user message to call_prompt.
-        call_prompt = list(history)
-        if active_plan_path and active_plan_path.exists():
-            from aja.orchestration.plan_state import render_compact_progress
-            try:
-                progress_block = render_compact_progress(active_plan_path)
-                anchor_msg = (
-                    f"[Living Disk State — Current Snapshot]\n"
-                    f"{progress_block}\n\n"
-                    f"(Ground truth snapshot for turn {iteration}. Refer strictly to this snapshot for task status; do not repeat completed tasks.)"
-                )
-                call_prompt.append({"role": "user", "content": anchor_msg})
+                break  # Successful response on current_model
             except Exception as e:
-                logger.debug("Plan progress render skipped: %s", e)
+                classified = classify_gateway_error(e, model=current_model)
+                turn_errors.append(classified)
+                if console:
+                    console.print(f"[red][Direct Mode] LLM Chat Error on {current_model}: {e}[/red]")
 
-        try:
-            response = await gateway.chat(
-                model=model,
-                prompt=call_prompt,
-                system=system_prompt,
-                tools=tool_schemas,
-            )
-        except Exception as e:
-            if console:
-                console.print(f"[red][Direct Mode] LLM Chat Error: {e}[/red]")
-            if dry_run:
-                response = "I have simulated the direct task completion successfully, Sir."
-            else:
-                raise e
+                # Check if fallback candidate and more models exist in chain
+                if classified.is_fallback_candidate and (active_chain_idx + 1 < len(active_chain)):
+                    from_model = current_model
+                    active_chain_idx += 1
+                    to_model = active_chain[active_chain_idx]
+                    logger.warning(
+                        "[DirectLoop] Falling back from model '%s' to '%s' due to: %s",
+                        from_model,
+                        to_model,
+                        classified,
+                    )
+                    if hooks and hooks.on_model_fallback:
+                        try:
+                            hooks.on_model_fallback(from_model, to_model, classified, active_chain_idx)
+                        except Exception as hook_err:
+                            logger.debug("on_model_fallback hook failed: %s", hook_err)
+                    continue
+
+                if dry_run:
+                    response = "I have simulated the direct task completion successfully, Sir."
+                    break
+                else:
+                    if len(active_chain) > 1 and active_chain_idx + 1 >= len(active_chain):
+                        if hooks and hooks.on_chain_exhausted:
+                            try:
+                                hooks.on_chain_exhausted(active_chain, turn_errors)
+                            except Exception as hook_err:
+                                logger.debug("on_chain_exhausted hook failed: %s", hook_err)
+                        raise ChainExhaustedError(active_chain, turn_errors) from classified
+                    raise e
 
         if not response:
             if console:

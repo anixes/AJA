@@ -1,4 +1,6 @@
-from typing import Dict, List, Literal, Optional
+import json
+import os
+from typing import Dict, List, Literal, Optional, Any
 from pydantic import BaseModel, Field, field_validator
 
 class TerritoryConfig(BaseModel):
@@ -103,6 +105,13 @@ class SwarmSettings(BaseModel):
             "in the default lookup table."
         ),
     )
+    fallback_chain: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Ordered list of model identifiers for dynamic fallback (e.g. ['providerA:modelA', 'providerB:modelB']). "
+            "Strictly model-agnostic; no hardcoded models."
+        ),
+    )
 
     @field_validator("operating_mode")
     @classmethod
@@ -121,6 +130,89 @@ class SwarmSettings(BaseModel):
                 f"operating_mode must be one of {set(mapping.keys())}, got '{v}'"
             )
         return mapping[v_clean]
+
+
+def parse_model_chain(raw: Any) -> List[str]:
+    """Parse a model chain from arbitrary operator input (list, JSON array string, comma/gt-separated).
+
+    Returns a clean, deduplicated list preserving order.
+    Strictly model-agnostic.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                decoded = json.loads(text)
+                items = decoded if isinstance(decoded, list) else [text]
+            except Exception:
+                sep = ">" if ">" in text else ","
+                items = text.split(sep)
+        else:
+            sep = ">" if ">" in text else ","
+            items = text.split(sep)
+    else:
+        return []
+
+    chain: List[str] = []
+    seen = set()
+    for s in items:
+        if isinstance(s, str):
+            clean = s.strip()
+            if clean and clean not in seen:
+                seen.add(clean)
+                chain.append(clean)
+    return chain
+
+
+def resolve_model_chain(
+    caller_chain: Optional[Any] = None,
+    model: Optional[str] = None,
+    settings: Optional[SwarmSettings] = None,
+    env: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """Resolve active model fallback chain using priority:
+    1. Caller-provided chain parameter (if non-empty)
+    2. Environment variables AJA_MODEL_CHAIN or AJA_FALLBACK_MODELS
+    3. SwarmSettings.fallback_chain (from aja.json)
+    4. Single active model (caller 'model', or env AJA_MODEL, or settings.active_model)
+    """
+    env_map = env if env is not None else os.environ
+
+    # 1. Caller explicit chain
+    if caller_chain:
+        parsed = parse_model_chain(caller_chain)
+        if parsed:
+            return parsed
+
+    # 2. Environment variables
+    for var in ("AJA_MODEL_CHAIN", "AJA_FALLBACK_MODELS"):
+        val = env_map.get(var)
+        if val and val.strip():
+            parsed = parse_model_chain(val)
+            if parsed:
+                return parsed
+
+    # 3. Settings fallback_chain
+    if settings and getattr(settings, "fallback_chain", None):
+        parsed = parse_model_chain(settings.fallback_chain)
+        if parsed:
+            return parsed
+
+    # 4. Single active model fallback
+    active = model or env_map.get("AJA_MODEL") or env_map.get("AJA_ACTIVE_MODEL")
+    if not active and settings and getattr(settings, "active_model", None):
+        active = settings.active_model
+
+    if active and str(active).strip():
+        return [str(active).strip()]
+
+    return ["default"]
 
 class GatewayAuthConfig(BaseModel):
     """Per-platform gateway authorization allowlists.
