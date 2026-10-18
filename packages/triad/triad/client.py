@@ -125,52 +125,55 @@ async def run_multi_model_query(
     output_dir: Path,
     labels: Optional[List[str]] = None,
     max_tokens: int = 6000,
+    max_concurrency: int = 10,
 ) -> List[ModelEvaluationResult]:
-    """Execute evaluation across all configured models concurrently."""
+    """Execute evaluation across all configured models concurrently with bounded concurrency."""
     if not HAS_OPENAI:
         raise RuntimeError("openai package is required. Install via 'pip install openai'.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     client = AsyncOpenAI(api_key=api_key, base_url=gateway_url)
+    semaphore = asyncio.Semaphore(max_concurrency)
 
     async def _worker(model_id: str, label_name: str) -> ModelEvaluationResult:
-        t0 = time.perf_counter()
-        clean_model_tag = re.sub(r"[^a-zA-Z0-9_\-]", "_", model_id).lower()
-        out_file = output_dir / f"{clean_model_tag}_{mode}.md"
+        async with semaphore:
+            t0 = time.perf_counter()
+            clean_model_tag = re.sub(r"[^a-zA-Z0-9_\-]", "_", model_id).lower()
+            out_file = output_dir / f"{clean_model_tag}_{mode}.md"
 
-        success, content, reasoning, final_text, err = await query_model_with_retry(
-            client=client,
-            model=model_id,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=max_tokens,
-        )
-        duration = time.perf_counter() - t0
-        score, verdict = extract_score_and_verdict(final_text)
+            success, content, reasoning, final_text, err = await query_model_with_retry(
+                client=client,
+                model=model_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+            )
+            duration = time.perf_counter() - t0
+            score, verdict = extract_score_and_verdict(final_text)
 
-        if success and final_text:
-            out_file.write_text(final_text, encoding="utf-8")
-            return ModelEvaluationResult(
-                model=model_id,
-                label=label_name,
-                success=True,
-                content=content,
-                reasoning=reasoning,
-                final_text=final_text,
-                score=score,
-                verdict=verdict,
-                duration_s=duration,
-                output_file=out_file,
-            )
-        else:
-            return ModelEvaluationResult(
-                model=model_id,
-                label=label_name,
-                success=False,
-                duration_s=duration,
-                error=err or "Empty response",
-                output_file=out_file,
-            )
+            if success and final_text:
+                out_file.write_text(final_text, encoding="utf-8")
+                return ModelEvaluationResult(
+                    model=model_id,
+                    label=label_name,
+                    success=True,
+                    content=content,
+                    reasoning=reasoning,
+                    final_text=final_text,
+                    score=score,
+                    verdict=verdict,
+                    duration_s=duration,
+                    output_file=out_file,
+                )
+            else:
+                return ModelEvaluationResult(
+                    model=model_id,
+                    label=label_name,
+                    success=False,
+                    duration_s=duration,
+                    error=err or "Empty response",
+                    output_file=out_file,
+                )
 
     tasks = []
     for idx, m in enumerate(models):

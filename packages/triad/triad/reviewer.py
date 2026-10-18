@@ -21,7 +21,12 @@ Keep your review structured, highly technical, and direct with concrete code sug
 """
 
 
-def get_git_diff(repo_dir: Path, target: str = "unstaged", max_lines: int = 2500) -> str:
+def get_git_diff(
+    repo_dir: Path,
+    target: str = "unstaged",
+    max_lines: int = 2500,
+    timeout_s: float = 30.0,
+) -> str:
     """Extract git diff with compact 2-line context from any target repository."""
     cmd = ["git", "diff", "-U2"]
     if target == "staged":
@@ -36,8 +41,11 @@ def get_git_diff(repo_dir: Path, target: str = "unstaged", max_lines: int = 2500
             capture_output=True,
             text=True,
             encoding="utf-8",
+            timeout=timeout_s,
         )
         diff_text = res.stdout
+    except subprocess.TimeoutExpired:
+        return f"Error gathering git diff from {repo_dir}: Git process timed out after {timeout_s}s"
     except Exception as e:
         return f"Error gathering git diff from {repo_dir}: {e}"
 
@@ -51,13 +59,27 @@ def get_git_diff(repo_dir: Path, target: str = "unstaged", max_lines: int = 2500
 
 
 def load_test_files(repo_dir: Path, test_paths: List[str], max_total_chars: int = 35000) -> str:
-    """Load specified test files up to a safe character budget."""
+    """Load specified test files up to a safe character budget, enforcing path confinement."""
     output_blocks = []
     total_chars = 0
+    base_dir = repo_dir.resolve()
 
     for path_str in test_paths:
         raw_p = Path(path_str)
-        p = raw_p if raw_p.is_absolute() else repo_dir / raw_p
+        p = raw_p.resolve() if raw_p.is_absolute() else (base_dir / raw_p).resolve()
+
+        # Enforce path confinement within repository boundary
+        try:
+            is_confined = p.is_relative_to(base_dir)
+        except AttributeError:
+            is_confined = str(p).startswith(str(base_dir))
+
+        if not is_confined:
+            output_blocks.append(
+                f"### File: {raw_p} (Security Warning: Path traversal detected outside repository root)"
+            )
+            continue
+
         if not p.is_file():
             continue
         try:

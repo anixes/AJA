@@ -99,6 +99,22 @@ def test_resolve_config_local_env_file(tmp_path: Path):
         assert cfg.models == ["local-m1", "local-m2"]
 
 
+def test_resolve_config_env_overrides_local_file(tmp_path: Path):
+    env_file = tmp_path / ".triad.env"
+    env_file.write_text("TRIAD_API_KEY=stale-file-key\nTRIAD_MODELS=stale-m1\n", encoding="utf-8")
+
+    env_mock = {
+        "TRIAD_API_KEY": "env-ci-key",
+        "TRIAD_MODELS": "env-ci-m1,env-ci-m2",
+        "USERPROFILE": str(tmp_path),
+        "HOME": str(tmp_path),
+    }
+    with patch.dict("os.environ", env_mock, clear=True):
+        cfg = resolve_config(cli_repo=str(tmp_path))
+        assert cfg.api_key == "env-ci-key"
+        assert cfg.models == ["env-ci-m1", "env-ci-m2"]
+
+
 def test_resolve_config_global_fallback(tmp_path: Path):
     fake_home = tmp_path / "fakehome"
     fake_global = fake_home / ".triad" / "config.env"
@@ -344,3 +360,79 @@ def test_cli_review_strict_mode_gate_fails_on_rejection(tmp_path: Path):
                 "--min-score", "8.0",
             ])
             assert code == 1
+
+
+def test_cli_review_strict_mode_gate_fails_on_model_error(tmp_path: Path):
+    mock_err = ModelEvaluationResult(
+        model="model-err",
+        label="Reviewer",
+        success=False,
+        error="Gateway timeout",
+        duration_s=1.0,
+    )
+    with patch("triad.cli.run_multi_model_query", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = [mock_err]
+        with patch("triad.cli.get_git_diff", return_value="+ new line"):
+            code = main([
+                "review",
+                "--repo", str(tmp_path),
+                "--models", "model-err",
+                "--api-key", "sk-mock",
+                "--strict",
+            ])
+            assert code == 1
+
+
+def test_cli_review_strict_mode_gate_fails_on_unknown_verdict_or_none_score(tmp_path: Path):
+    mock_unknown = ModelEvaluationResult(
+        model="model-unparsed",
+        label="Reviewer",
+        success=True,
+        score=None,
+        verdict="UNKNOWN",
+        duration_s=1.0,
+        output_file=tmp_path / "out.md",
+    )
+    mock_unknown.output_file.write_text("Unstructured gibberish without score", encoding="utf-8")
+
+    with patch("triad.cli.run_multi_model_query", new_callable=AsyncMock) as mock_query:
+        mock_query.return_value = [mock_unknown]
+        with patch("triad.cli.get_git_diff", return_value="+ new line"):
+            code = main([
+                "review",
+                "--repo", str(tmp_path),
+                "--models", "model-unparsed",
+                "--api-key", "sk-mock",
+                "--strict",
+            ])
+            assert code == 1
+
+
+def test_git_diff_timeout_handled(tmp_path: Path):
+    import subprocess
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="git", timeout=30.0)):
+        diff = get_git_diff(tmp_path, timeout_s=30.0)
+        assert "timed out after 30.0s" in diff
+
+
+def test_load_test_files_traversal_blocked(tmp_path: Path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    outside_file = tmp_path / "secret.txt"
+    outside_file.write_text("sensitive data", encoding="utf-8")
+
+    output = load_test_files(repo_dir, ["../secret.txt"])
+    assert "Security Warning: Path traversal detected" in output
+    assert "sensitive data" not in output
+
+
+def test_consultant_path_traversal_blocked(tmp_path: Path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    outside_spec = tmp_path / "outside_spec.md"
+    outside_spec.write_text("sensitive spec", encoding="utf-8")
+
+    output = load_spec_document(repo_dir, "../outside_spec.md")
+    assert "Security Error" in output
+    assert "Path traversal detected" in output
+    assert "sensitive spec" not in output

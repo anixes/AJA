@@ -233,25 +233,31 @@ def main(argv: Optional[list] = None) -> int:
     print("\n" + "=" * 60)
     print(f"TRIAD {args.command.upper()} RESULTS SUMMARY")
     print("=" * 60)
-    has_rejections = False
-    has_low_scores = False
+    gate_failures = []
 
     for r in results:
         status_tag = "[PASS]" if r.success else "[FAIL]"
         score_tag = f"Score: {r.score:.1f}/10" if r.score is not None else "Score: N/A"
         print(f"{status_tag} {r.model} -> {r.verdict} ({score_tag}) in {r.duration_s:.1f}s")
-        if r.verdict == "REJECTED":
-            has_rejections = True
-        if r.score is not None and args.command == "review" and r.score < config.min_score:
-            has_low_scores = True
 
-    if args.command == "review" and config.strict:
-        if has_rejections or has_low_scores:
-            print(
-                f"\n[STRICT FAILURE] Review failed gate criteria (rejections or score < {config.min_score}).",
-                file=sys.stderr,
-            )
-            return 1
+        if not r.success:
+            gate_failures.append(f"{r.model}: Model evaluation failed ({r.error or 'unknown error'})")
+        elif r.verdict == "REJECTED":
+            gate_failures.append(f"{r.model}: Changes were explicitly REJECTED")
+        elif r.verdict == "UNKNOWN":
+            gate_failures.append(f"{r.model}: Failed to parse a valid verdict (UNKNOWN)")
+
+        if args.command == "review":
+            if r.score is None:
+                gate_failures.append(f"{r.model}: Could not parse a numeric score")
+            elif r.score < config.min_score:
+                gate_failures.append(f"{r.model}: Score {r.score:.1f}/10 is below minimum threshold {config.min_score:.1f}")
+
+    if config.strict and gate_failures:
+        print("\n[STRICT GATE FAILURE] Execution failed gate criteria:", file=sys.stderr)
+        for fail_msg in gate_failures:
+            print(f"  - {fail_msg}", file=sys.stderr)
+        return 1
 
     print("\n[OK] Triad execution completed successfully.")
     return 0

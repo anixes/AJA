@@ -28,10 +28,10 @@ Once installed, the `triad` command is globally available in your terminal.
 
 Triad requires an API key and a list of models to consult. Configuration is resolved hierarchically:
 
-1. **CLI Flags** (`--models`, `--api-key`, `--gateway-url`, etc.)
-2. **Project Local Config** (`.triad.env` or `.env` in the current project)
-3. **User Global Config** (`~/.triad/config.env` — recommended so it works in any directory)
-4. **Environment Variables** (`TRIAD_API_KEY`, `TRIAD_MODELS`, `TRIAD_GATEWAY_URL`)
+1. **CLI Flags** (`--models`, `--api-key`, `--gateway-url`, etc.) [Highest Priority]
+2. **Environment Variables** (`TRIAD_API_KEY`, `TRIAD_MODELS`, `TRIAD_GATEWAY_URL` — standard 12-factor / CI support)
+3. **Project Local Config** (`.triad.env` or `.env` in the current project)
+4. **User Global Config** (`~/.triad/config.env` — recommended so it works anywhere on your system)
 
 ### Initialize Configuration
 

@@ -3,9 +3,9 @@ triad.config - Hierarchical Configuration Resolution for Triad CLI.
 
 Resolution Priority (Highest to Lowest):
 1. Command Line Arguments (--models, --api-key, --gateway-url, etc.)
-2. Local Project Configuration (.triad.env, .env in repo or working directory)
-3. User Global Configuration (~/.triad/config.env or ~/.config/triad/config.env)
-4. System Environment Variables (TRIAD_*, GATE_*, OPENAI_*)
+2. System Environment Variables (TRIAD_*, GATE_*, OPENAI_*)
+3. Local Project Configuration (.triad.env, .env in repo or working directory)
+4. User Global Configuration (~/.triad/config.env or ~/.config/triad/config.env)
 """
 
 from __future__ import annotations
@@ -105,20 +105,20 @@ def resolve_config(
     local_env_path = find_project_env_file(repo_path)
     local_env = load_env_dict(local_env_path)
 
-    # Helper to look up key across sources in priority order: CLI -> Local -> Global -> os.environ
+    # Helper to look up key across sources in priority order: CLI -> os.environ -> Local -> Global
     def _get_val(key_names: List[str], cli_val: Optional[Any] = None) -> Optional[str]:
         if cli_val is not None and str(cli_val).strip():
             return str(cli_val).strip()
+        for k in key_names:
+            val = os.getenv(k)
+            if val and val.strip():
+                return val.strip()
         for k in key_names:
             if k in local_env and local_env[k]:
                 return local_env[k].strip()
         for k in key_names:
             if k in global_env and global_env[k]:
                 return global_env[k].strip()
-        for k in key_names:
-            val = os.getenv(k)
-            if val and val.strip():
-                return val.strip()
         return None
 
     api_key = _get_val(["TRIAD_API_KEY", "GATE_API_KEY", "OPENAI_API_KEY", "GATEWAY_KEY"], cli_api_key) or ""

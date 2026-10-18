@@ -19,11 +19,21 @@ Deliver your analysis cleanly structured with concrete technical directives.
 
 
 def load_spec_document(repo_dir: Path, spec_path: Optional[str]) -> str:
-    """Load architectural specification or design doc from file."""
+    """Load architectural specification or design doc from file, enforcing path confinement."""
     if not spec_path:
         return ""
+    base_dir = repo_dir.resolve()
     raw_p = Path(spec_path)
-    p = raw_p if raw_p.is_absolute() else repo_dir / raw_p
+    p = raw_p.resolve() if raw_p.is_absolute() else (base_dir / raw_p).resolve()
+
+    try:
+        is_confined = p.is_relative_to(base_dir)
+    except AttributeError:
+        is_confined = str(p).startswith(str(base_dir))
+
+    if not is_confined:
+        return f"# [Security Error] Path traversal detected: '{spec_path}' resolves outside repository root."
+
     if not p.is_file():
         return f"# [Error] Spec file not found at: {p.as_posix()}"
     try:
