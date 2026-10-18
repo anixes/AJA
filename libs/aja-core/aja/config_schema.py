@@ -87,6 +87,51 @@ class WorkspaceQuotas(BaseModel):
     )
 
 
+class VerificationConfig(BaseModel):
+    """Configuration for Autonomous Verification Ladder and Self-Correction (Phase 4)."""
+    max_verification_retries: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum self-correction attempts allowed per task or mission before escalation.",
+    )
+    tier1_syntax_enabled: bool = Field(
+        default=True,
+        description="Enable Tier 1 syntax, AST, and hygiene checks (Python, JSON, TOML, YAML).",
+    )
+    tier2_tests_enabled: bool = Field(
+        default=True,
+        description="Enable Tier 2 targeted test execution.",
+    )
+    tier3_git_diff_enabled: bool = Field(
+        default=True,
+        description="Enable Tier 3 git diff and workspace sanity checks.",
+    )
+    test_runner_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0.0,
+        description="Hard timeout in seconds for targeted test execution.",
+    )
+    auto_discover_tests: bool = Field(
+        default=True,
+        description="Attempt to dynamically find candidate test files based on modified source files.",
+    )
+    flaky_retry_limit: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum retries for suspected flaky or environmental test failures before warning bypass.",
+    )
+    tier1_max_files_scan: int = Field(
+        default=150,
+        ge=1,
+        description="Maximum number of files to scan when scoped files are unspecified.",
+    )
+    destructive_wipeout_threshold: int = Field(
+        default=500,
+        ge=10,
+        description="Maximum line deletions before flagging potentially destructive workspace wipeouts.",
+    )
+
+
 class SwarmSettings(BaseModel):
     offline_mode: bool = True
     max_agents: int = Field(default=5, ge=1, le=100)
@@ -95,6 +140,10 @@ class SwarmSettings(BaseModel):
     quotas: WorkspaceQuotas = Field(
         default_factory=WorkspaceQuotas,
         description="Workspace resource boundaries and sandboxing constraints.",
+    )
+    verification: VerificationConfig = Field(
+        default_factory=VerificationConfig,
+        description="Configuration for autonomous verification ladder and self-correction.",
     )
     active_model: Optional[str] = Field(
         default=None,

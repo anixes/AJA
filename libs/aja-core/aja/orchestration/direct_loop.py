@@ -30,6 +30,7 @@ silent when omitted; observability is exposed via :class:`DirectLoopHooks`.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -214,6 +215,13 @@ def _find_missing_deliverables(content: str) -> List[str]:
     return missing_paths
 
 
+def _compute_error_signature(error_text: str) -> str:
+    """Compute a normalized fingerprint of an error message to detect oscillation."""
+    clean_text = re.sub(r":\d+", ":LINE", error_text or "")
+    clean_text = re.sub(r"\s+", " ", clean_text).strip()
+    return hashlib.sha256(clean_text[:1000].encode("utf-8")).hexdigest()[:16]
+
+
 async def _run_verification_checks(
     *,
     verification_fn: Optional[Callable[[], Any]] = None,
@@ -223,6 +231,13 @@ async def _run_verification_checks(
     test_target: Optional[str] = None,
     check_git: bool = True,
     cwd: Optional[Path | str] = None,
+    files_to_check: Optional[Sequence[Path | str]] = None,
+    auto_discover_tests: bool = True,
+    task_type: str = "MODIFY",
+    claimed_deliverables: Optional[Sequence[str]] = None,
+    timeout: int = 60,
+    oscillation_count: int = 0,
+    v_cfg: Optional[Any] = None,
 ) -> Tuple[bool, str]:
     """Execute configured verification gates and return (passed, failure_prompt)."""
     # 1. Custom verification function
@@ -232,7 +247,13 @@ async def _run_verification_checks(
             if isinstance(res, dict) and not res.get("passed", True):
                 return False, res.get("message") or res.get("error") or str(res)
             if hasattr(res, "passed") and not res.passed:
-                return False, getattr(res, "to_feedback_prompt", lambda: str(res))()
+                fn = getattr(res, "to_feedback_prompt", None)
+                if fn:
+                    try:
+                        return False, fn(oscillation_count=oscillation_count)
+                    except TypeError:
+                        return False, fn()
+                return False, str(res)
         except Exception as e:
             return False, f"Verification function error: {e}"
 
@@ -242,19 +263,29 @@ async def _run_verification_checks(
 
         c_res = await run_command_verifier(verification_cmd, cwd=cwd)
         if not c_res.passed:
-            return False, c_res.to_feedback_prompt()
+            return False, c_res.to_feedback_prompt(oscillation_count=oscillation_count)
 
     # 3. Verification Ladder (runs Tier 1 Syntax -> Tier 2 Targeted Tests -> Tier 3 Git Diff Sanity)
     if ladder_verify or auto_verify:
         from aja.orchestration.verification_runner import run_verification_ladder
 
         l_res = await run_verification_ladder(
+            files_to_check=files_to_check,
             test_target=test_target,
             check_git=check_git,
             cwd=cwd,
+            timeout=timeout,
+            auto_discover_tests=auto_discover_tests,
+            task_type=task_type,
+            claimed_deliverables=claimed_deliverables,
+            tier1_enabled=getattr(v_cfg, "tier1_syntax_enabled", True) if v_cfg else True,
+            tier2_enabled=getattr(v_cfg, "tier2_tests_enabled", True) if v_cfg else True,
+            tier3_enabled=getattr(v_cfg, "tier3_git_diff_enabled", True) if v_cfg else True,
+            max_deletions=getattr(v_cfg, "destructive_wipeout_threshold", 500) if v_cfg else 500,
+            max_files_scan=getattr(v_cfg, "tier1_max_files_scan", 150) if v_cfg else 150,
         )
         if not l_res.passed:
-            return False, l_res.to_feedback_prompt()
+            return False, l_res.to_feedback_prompt(oscillation_count=oscillation_count)
 
     return True, ""
 
@@ -290,7 +321,7 @@ async def run_direct_loop(
     tool_profile: Optional[str] = None,
     fallback_chain: Optional[Union[List[str], str]] = None,
     settings: Optional[Any] = None,
-    max_verification_retries: int = 3,
+    max_verification_retries: Optional[int] = None,
     verification_fn: Optional[Callable[[], Any]] = None,
     quotas: Optional[Any] = None,
     workspace_root: Optional[Union[Path, str]] = None,
@@ -413,6 +444,27 @@ async def run_direct_loop(
     max_empty_nudges = 2
     verified_completed_tasks: Set[int] = set()
     incremental_failure_counts: Dict[int, int] = {}
+    touched_files: Set[str] = set()
+    error_signature_history: List[str] = []
+    consecutive_identical_failures: int = 0
+
+    v_cfg = getattr(settings, "verification", None) if settings else None
+    if v_cfg is None:
+        try:
+            from aja.config_schema import VerificationConfig
+            v_cfg = VerificationConfig()
+        except Exception:
+            v_cfg = None
+
+    if max_verification_retries is not None:
+        effective_max_retries = max_verification_retries
+    elif v_cfg:
+        effective_max_retries = v_cfg.max_verification_retries
+    else:
+        effective_max_retries = 3
+
+    flaky_retry_limit = getattr(v_cfg, "flaky_retry_limit", 3) if v_cfg else 3
+    auto_discover_tests_cfg = getattr(v_cfg, "auto_discover_tests", True) if v_cfg else True
 
     if active_plan_path and active_plan_path.exists():
         try:
@@ -620,7 +672,8 @@ async def run_direct_loop(
                 elif t_name_lower in (
                     "write_file", "edit_file", "save_file", "create_file",
                     "append_file", "multi_replace", "create_directory",
-                    "delete_file", "remove_file", "delete_directory"
+                    "delete_file", "remove_file", "delete_directory",
+                    "write_to_file", "replace_file_content", "apply_patch"
                 ):
                     target_path = (
                         t_args.get("path")
@@ -631,6 +684,8 @@ async def run_direct_loop(
                         or t_args.get("directory")
                         or t_args.get("dir_path")
                     )
+                    if target_path:
+                        touched_files.add(str(target_path))
                     content_val = (
                         t_args.get("content")
                         or t_args.get("text")
@@ -757,7 +812,6 @@ async def run_direct_loop(
             return _make_exit_dict("empty_response")
 
         # Incremental Per-Task Verification Gate (P0.3)
-
         if active_plan_path and active_plan_path.exists() and (ladder_verify or auto_verify):
             try:
                 from aja.orchestration.plan_state import TaskStatus, parse_plan, update_task_status
@@ -771,16 +825,31 @@ async def run_direct_loop(
 
                 if newly_done:
                     # Run fast Tier 1 (and targeted Tier 2) incremental check
+                    inc_timeout = min(30, getattr(v_cfg, "test_runner_timeout_seconds", 60) if v_cfg else 30)
                     inc_res = await run_verification_ladder(
-                        check_git=False,
+                        files_to_check=list(touched_files) if touched_files else None,
                         test_target=test_target,
-                        timeout=30,
-                        cwd=None,
+                        check_git=False,
+                        timeout=inc_timeout,
+                        cwd=workspace_root or (quota_tracker.workspace_root if quota_tracker else None),
+                        auto_discover_tests=auto_discover_tests_cfg,
+                        task_type="MODIFY" if touched_files else "READ_ONLY",
+                        tier1_enabled=getattr(v_cfg, "tier1_syntax_enabled", True) if v_cfg else True,
+                        tier2_enabled=getattr(v_cfg, "tier2_tests_enabled", True) if v_cfg else True,
+                        tier3_enabled=False,
+                        max_files_scan=getattr(v_cfg, "tier1_max_files_scan", 150) if v_cfg else 150,
                     )
                     if not inc_res.passed:
+                        err_sig = _compute_error_signature(inc_res.error_message or "")
+                        if error_signature_history and err_sig == error_signature_history[-1]:
+                            consecutive_identical_failures += 1
+                        else:
+                            consecutive_identical_failures = 1
+                        error_signature_history.append(err_sig)
+
                         for idx in sorted(newly_done):
                             incremental_failure_counts[idx] = incremental_failure_counts.get(idx, 0) + 1
-                            if incremental_failure_counts[idx] < 3:
+                            if incremental_failure_counts[idx] <= flaky_retry_limit:
                                 # Revert task back to IN_PROGRESS so agent heals it
                                 try:
                                     update_task_status(active_plan_path, idx, TaskStatus.IN_PROGRESS)
@@ -790,7 +859,7 @@ async def run_direct_loop(
                                     console.print(
                                         f"[bold red]✘ [Incremental Task Verification Failed][/bold red] Task #{idx} broke checks."
                                     )
-                                feedback = inc_res.to_feedback_prompt()
+                                feedback = inc_res.to_feedback_prompt(oscillation_count=consecutive_identical_failures)
                                 diagnostic_msg = (
                                     f"[Incremental Task Verification Failed for Task #{idx}]\n"
                                     f"{feedback}\n"
@@ -802,9 +871,10 @@ async def run_direct_loop(
                                 verified_completed_tasks.add(idx)
                                 if console:
                                     console.print(
-                                        f"[bold yellow]⚠ [Incremental Warning][/bold yellow] Task #{idx} retry budget exhausted. Deferring to final Exit Contract."
+                                        f"[bold yellow]⚠ [Incremental Warning][/bold yellow] Task #{idx} retry budget exhausted ({flaky_retry_limit} attempts). Deferring to final Exit Contract."
                                     )
                     else:
+                        consecutive_identical_failures = 0
                         verified_completed_tasks.update(newly_done)
                         if console:
                             console.print(
@@ -846,7 +916,7 @@ async def run_direct_loop(
                 try:
                     p_state = parse_plan(active_plan_path)
                     if not p_state.is_complete:
-                        if plan_attempts < max_verification_retries:
+                        if plan_attempts < effective_max_retries:
                             plan_attempts += 1
                             curr = p_state.current_task
                             curr_desc = f"#{curr.index} '{curr.text}'" if curr else "None"
@@ -866,7 +936,7 @@ async def run_direct_loop(
                         else:
                             if console:
                                 console.print(
-                                    f"[bold yellow]⚠ [Exit Contract] Plan completion retries ({max_verification_retries}) exhausted.[/bold yellow]"
+                                    f"[bold yellow]⚠ [Exit Contract] Plan completion retries ({effective_max_retries}) exhausted.[/bold yellow]"
                                 )
                             return _make_exit_dict("incomplete", reason="plan_incomplete")
                 except Exception as e:
@@ -874,12 +944,14 @@ async def run_direct_loop(
 
             # Autonomous Verification Gate (Deterministic Multi-Tier Verification Ladder)
             needs_verification = bool(verification_cmd or auto_verify or verification_fn or ladder_verify)
-            if needs_verification and verification_attempts < max_verification_retries:
+            if needs_verification and verification_attempts < effective_max_retries:
                 verification_attempts += 1
                 if console:
                     console.print(
-                        f"[bold cyan]🔍 [Verification Gate] Running verification (attempt {verification_attempts}/{max_verification_retries})...[/]"
+                        f"[bold cyan]🔍 [Verification Gate] Running verification (attempt {verification_attempts}/{effective_max_retries})...[/]"
                     )
+
+                claimed_files = _extract_claimed_deliverables(content or "")
 
                 passed, failure_prompt = await _run_verification_checks(
                     verification_fn=verification_fn,
@@ -888,30 +960,60 @@ async def run_direct_loop(
                     ladder_verify=ladder_verify,
                     test_target=test_target,
                     check_git=check_git,
-                    cwd=None,
+                    cwd=workspace_root or (quota_tracker.workspace_root if quota_tracker else None),
+                    files_to_check=list(touched_files) if touched_files else None,
+                    auto_discover_tests=auto_discover_tests_cfg,
+                    task_type="MODIFY" if (touched_files or _is_creation_objective(objective)) else "READ_ONLY",
+                    claimed_deliverables=claimed_files if claimed_files else None,
+                    timeout=getattr(v_cfg, "test_runner_timeout_seconds", 60) if v_cfg else 60,
+                    oscillation_count=consecutive_identical_failures,
+                    v_cfg=v_cfg,
                 )
 
                 if not passed:
+                    err_sig = _compute_error_signature(failure_prompt)
+                    if error_signature_history and err_sig == error_signature_history[-1]:
+                        consecutive_identical_failures += 1
+                    else:
+                        consecutive_identical_failures = 1
+                    error_signature_history.append(err_sig)
+
                     if console:
                         console.print(
                             "[bold red]✘ [Verification Gate Failed][/bold red] Injecting failure feedback for self-correction..."
                         )
+
+                    oscillation_note = ""
+                    if consecutive_identical_failures >= 2 and "Repeated Failure Detected" not in failure_prompt:
+                        oscillation_note = (
+                            f"\n\n[Warning: Repeated Failure Detected ({consecutive_identical_failures} consecutive identical failures)]\n"
+                            "The same verification error has repeated without resolution.\n"
+                            "Do NOT re-apply the exact same change. Step back, re-evaluate assumptions, inspect related dependencies, or adopt an alternative approach."
+                        )
+
                     feedback_msg = (
-                        f"{failure_prompt}\n\n"
-                        f"[Autonomous Self-Healing: Attempt {verification_attempts} of {max_verification_retries}. "
+                        f"{failure_prompt}"
+                        f"{oscillation_note}\n\n"
+                        f"[Autonomous Self-Healing: Attempt {verification_attempts} of {effective_max_retries}. "
                         "The task cannot be completed until verification passes. Please correct the code.]"
                     )
                     history.append({"role": "user", "content": feedback_msg})
                     continue  # Loop again to allow the model to fix the error!
-                elif console:
-                    console.print("[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
+                else:
+                    consecutive_identical_failures = 0
+                    if console:
+                        console.print("[bold green]✔ [Verification Gate Passed][/bold green] All checks verified.")
 
-            elif needs_verification and verification_attempts >= max_verification_retries:
+            elif needs_verification and verification_attempts >= effective_max_retries:
                 if console:
                     console.print(
-                        f"[bold yellow]⚠ [Verification Gate] Maximum verification retries ({max_verification_retries}) exhausted.[/bold yellow]"
+                        f"[bold yellow]⚠ [Verification Gate] Maximum verification retries ({effective_max_retries}) exhausted.[/bold yellow]"
                     )
-                return _make_exit_dict("incomplete", reason="verification_failed")
+                return _make_exit_dict(
+                    "incomplete",
+                    reason="verification_failed",
+                    extra={"verified": False, "attempts": verification_attempts},
+                )
 
             # No further actions suggested: direct execution has finished.
             if console:
