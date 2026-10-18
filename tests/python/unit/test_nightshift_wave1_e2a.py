@@ -27,18 +27,21 @@ from aja.orchestration.providers.openai_compat import OpenAICompatAdapter
 
 
 class TestResolveProviderModelNoneGuard:
-    def test_none_falls_back_to_default(self):
+    def test_none_falls_back_to_default(self, monkeypatch):
         """aja.json `"planner": null` yields None from raw json.load readers."""
+        monkeypatch.setenv("AJA_MODEL", "google:gemini-2.5-flash")
         provider, model = resolve_provider_model(None, "hybrid", "lfm", "gemini-2.5-flash")
         assert provider == "google"
         assert model == "gemini-2.5-flash"
 
-    def test_empty_string_falls_back_to_default(self):
+    def test_empty_string_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("AJA_MODEL", "google:gemini-2.5-flash")
         provider, model = resolve_provider_model("", "hybrid", "lfm", "gemini-2.5-flash")
         assert (provider, model) == ("google", "gemini-2.5-flash")
 
-    def test_null_config_read_simulates_planner_null(self):
+    def test_null_config_read_simulates_planner_null(self, monkeypatch):
         """Simulate the raw json.load read path: explicit null defeats .get default."""
+        monkeypatch.setenv("AJA_MODEL", "google:gemini-2.5-flash")
         cfg = {"swarm_settings": {"models": {"planner": None}}}
         model = cfg.get("swarm_settings", {}).get("models", {}).get(
             "planner", "google:gemini-2.5-flash"

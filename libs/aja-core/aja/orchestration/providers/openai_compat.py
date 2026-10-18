@@ -56,21 +56,12 @@ _PROVIDER_ENV_KEYS: Dict[str, tuple] = {
 _NON_RETRYABLE_STATUS = (400, 404, 422)
 
 
-def _llm_timeout_s() -> float:
-    """Per-request LLM timeout (seconds). The openai SDK default is 600s."""
-    try:
-        return float(os.getenv("AJA_LLM_TIMEOUT_S", "120"))
-    except ValueError:
-        return 120.0
-
-
-def _backoff_sleep_seconds(attempt: int) -> float:
-    """Jittered exponential backoff in [0.5x, 1.0x] of min(30, 2**attempt)."""
-    return min(30.0, 2.0 ** attempt) * (0.5 + random.random() / 2.0)
-
-
-async def _backoff_sleep(attempt: int) -> None:
-    await asyncio.sleep(_backoff_sleep_seconds(attempt))
+from aja.gateway.client_factory import (
+    llm_timeout_s as _llm_timeout_s,
+    backoff_sleep_seconds as _backoff_sleep_seconds,
+    backoff_sleep as _backoff_sleep,
+    get_async_openai_client,
+)
 
 
 class OpenAICompatAdapter:
@@ -156,31 +147,17 @@ class OpenAICompatAdapter:
 
     def _get_client(self) -> "AsyncOpenAI":
         """Loop-aware lazy AsyncOpenAI client (recreated across event loops)."""
-        if AsyncOpenAI is None:
-            raise RuntimeError("The 'openai' package is required for this provider")
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if self._client is None or self._client_loop != loop:
-            headers = {
-                "HTTP-Referer": "https://github.com/aja",
-                "X-Title": "AJA Swarm Toolkit",
-            }
-            headers.update(getattr(self, "extra_headers", {}) or {})
-            self._client = AsyncOpenAI(
-                api_key=self.api_key or "dummy-local-key",
-                base_url=self.base_url,
-                default_headers=headers,
-                # Explicit per-request timeout (SDK default is 600s) and
-                # max_retries=0 so the adapter retry loop is the only layer.
-                timeout=_llm_timeout_s(),
-                max_retries=0,
-            )
-            self._client_loop = loop
-        return self._client
+        extra_headers = {
+            "HTTP-Referer": "https://github.com/aja",
+            "X-Title": "AJA Swarm Toolkit",
+        }
+        extra_headers.update(getattr(self, "extra_headers", {}) or {})
+        return get_async_openai_client(
+            base_url=self.base_url,
+            api_key=self.api_key or "dummy-local-key",
+            extra_headers=extra_headers,
+            timeout=_llm_timeout_s(),
+        )
 
     # ----------------------------------------------------------------- chat
 

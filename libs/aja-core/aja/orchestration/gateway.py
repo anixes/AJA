@@ -1,61 +1,55 @@
+"""
+libs/aja-core/aja/orchestration/gateway.py - Deprecated Facade over Universal Gateway.
+
+[DEPRECATED] This module is maintained solely for backward compatibility.
+New code must import from `aja.gateway` (UnifiedGateway and client_factory).
+"""
+
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
 import logging
-import random
-from aja.utils.redact import redact_secrets
 import os
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None  # type: ignore
+
 from aja.config import DATA_DIR
-from openai import AsyncOpenAI
+from aja.gateway.client_factory import (
+    backoff_sleep,
+    backoff_sleep_seconds,
+    find_project_root,
+    get_async_openai_client,
+    llm_timeout_s,
+)
+from aja.runtime.execution.activity import durable_activity
+from aja.utils.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
-
-def _llm_timeout_s() -> float:
-    """Per-request LLM timeout (seconds). The openai SDK defaults to 600s and
-    aiohttp to 300s — both far beyond any sane turn budget without this knob."""
-    try:
-        return float(os.getenv("AJA_LLM_TIMEOUT_S", "120"))
-    except ValueError:
-        return 120.0
-
-
-def _backoff_sleep_seconds(attempt: int) -> float:
-    """Jittered exponential backoff in [0.5x, 1.0x] of min(30, 2**attempt).
-    Full-jitter bounds prevent fleet-wide thundering-herd retry sync."""
-    return min(30.0, 2.0 ** attempt) * (0.5 + random.random() / 2.0)
-
-
-async def _backoff_sleep(attempt: int) -> None:
-    await asyncio.sleep(_backoff_sleep_seconds(attempt))
-
-
-def find_project_root() -> Path:
-    """Find the repo root from CWD or this module location."""
-    candidates = [Path.cwd(), *Path(__file__).resolve().parents]
-    for current in candidates:
-        if (current / "aja.json").exists() or (current / ".git").exists():
-            return current
-    return Path.cwd()
-
-
-# Dynamic project root for configuration lookup
+# Legacy re-exports for backward compatibility with existing tests and call sites
+_llm_timeout_s = llm_timeout_s
+_backoff_sleep_seconds = backoff_sleep_seconds
+_backoff_sleep = backoff_sleep
 PROJECT_ROOT = find_project_root()
 
 
-def load_providers():
-    """Load provider definitions from providers.json, checking multiple possible locations."""
+def load_providers() -> Dict[str, str]:
+    """Load provider definitions from providers.json, checking standard locations."""
     search_paths = [
-        Path.cwd()
-        / "providers.json",  # Current working directory (usually project root)
-        PROJECT_ROOT / "providers.json",  # Project root
-        Path("providers.json"),  # Literal local
+        Path.cwd() / "providers.json",
+        PROJECT_ROOT / "providers.json",
+        Path("providers.json"),
     ]
-
     for path in search_paths:
         try:
             if path.exists():
@@ -108,11 +102,7 @@ def google_api_key(api_key: str = "") -> str:
 
 
 def _flatten_google_content(content: Any) -> str:
-    """Flatten OpenAI-style content into a single text string for Gemini.
-
-    List-typed content (vision format) is joined from its text parts;
-    non-text parts (e.g. image_url — unsupported on this path) are dropped.
-    """
+    """Flatten OpenAI-style content into a single text string for Gemini."""
     if content is None:
         return ""
     if isinstance(content, str):
@@ -123,19 +113,13 @@ def _flatten_google_content(content: Any) -> str:
             if isinstance(part, dict):
                 if part.get("type") == "text" and isinstance(part.get("text"), str):
                     texts.append(part["text"])
-                else:
-                    logger.debug(
-                        "[Gateway] Dropping non-text content part (type=%s): "
-                        "Gemini path has no multimodal support",
-                        part.get("type"),
-                    )
             elif isinstance(part, str):
                 texts.append(part)
         return "\n".join(t for t in texts if t)
     return str(content)
 
 
-def load_config():
+def load_config() -> Dict[str, Any]:
     """Load saved config from .aja/config.json."""
     try:
         cfg_path = DATA_DIR / "config.json"
@@ -147,30 +131,15 @@ def load_config():
 
 
 def _is_claude_model(model: str) -> bool:
-    """Return True if the model name identifies a Claude variant."""
     m = (model or "").lower()
     return "claude" in m
 
 
-def _build_system_message(provider: str, model: str, system: str) -> dict:
-    """
-    Build the system message dict for the messages array.
-
-    For Anthropic-compatible providers (``anthropic`` or ``copilot`` with a
-    Claude model) we annotate the system content block with
-    ``cache_control: {"type": "ephemeral"}`` so the API can cache the static
-    system prefix across turns in a DirectSession, reducing TTFT and cost.
-
-    All other providers receive a plain ``{"role": "system", "content": ...}``
-    dict which is universally compatible with the OpenAI Chat Completions API.
-    """
+def _build_system_message(provider: str, model: str, system: str) -> Dict[str, Any]:
     use_cache = provider == "anthropic" or (
         provider == "copilot" and _is_claude_model(model)
     )
-
     if use_cache:
-        # Anthropic cache_control annotation — works for both direct Anthropic
-        # API and Copilot-routed Claude models that honour the field.
         return {
             "role": "system",
             "content": [
@@ -181,32 +150,31 @@ def _build_system_message(provider: str, model: str, system: str) -> dict:
                 }
             ],
         }
-
-    # Standard system message for all other providers (OpenAI, Google via
-    # OpenAI compat, OpenRouter, llama_cpp, etc.)
     return {"role": "system", "content": system}
 
 
 class LLMGateway:
-    """
-    LLMGateway — the low-level AI provider client for AJA.
-    Supports NVIDIA, Groq, Together, OpenRouter, Google (Gemini), and custom (BYO) endpoints.
-    Reads config from .aja/config.json first, then falls back to constructor args.
-    """
+    """[DEPRECATED] Compatibility facade over aja.orchestration.providers and UnifiedGateway."""
 
     PROVIDERS = load_providers()
 
     def __init__(
         self,
-        provider: str = None,
-        api_key: str = None,
+        provider: Optional[str] = None,
+        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         extra_headers: Optional[Dict[str, str]] = None,
     ):
+        warnings.warn(
+            "aja.orchestration.gateway.LLMGateway is deprecated; use aja.gateway.UnifiedGateway.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         cfg = load_config()
         self.provider = (provider or cfg.get("provider", "openrouter")).lower()
-        self.base_url = base_url or self.PROVIDERS.get(self.provider, "")
+        self.base_url = (base_url or self.PROVIDERS.get(self.provider, "")).rstrip("/")
         cfg_provider = cfg.get("provider", "").lower()
+
         if api_key:
             raw_key = api_key
         elif self.provider == cfg_provider:
@@ -253,16 +221,7 @@ class LLMGateway:
         else:
             self.api_key = raw_key
 
-        # Ensure copilot defaults to its specific api base URL if not in PROVIDERS
-        default_url = (
-            "https://api.githubcopilot.com"
-            if self.provider == "copilot"
-            else self.PROVIDERS.get(self.provider)
-        )
         self._session: Optional[aiohttp.ClientSession] = None
-        self._session_loop = None
-        self._openai_client: Optional[AsyncOpenAI] = None
-        self._openai_client_loop = None
 
         if not self.base_url:
             raise ValueError(
@@ -270,639 +229,40 @@ class LLMGateway:
             )
 
     def _get_session(self) -> aiohttp.ClientSession:
-        """Return a loop-aware persistent aiohttp ClientSession with TCP connection pooling."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if self._session is None or self._session.closed or self._session_loop != loop:
-            timeout = aiohttp.ClientTimeout(total=_llm_timeout_s())
-            connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
-            self._session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-            self._session_loop = loop
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
         return self._session
 
-    @staticmethod
-    def _normalize_prompt_to_messages(prompt: Any) -> List[Dict[str, str]]:
-        """Converts string or list-of-dicts prompt into standard messages list."""
-        if isinstance(prompt, list):
-            return prompt
-        return [{"role": "user", "content": prompt}]
-
-    def _get_openai_client(self) -> AsyncOpenAI:
-        """Return a loop-aware reusable AsyncOpenAI client."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if self._openai_client is None or self._openai_client_loop != loop:
-            headers = {
-                "HTTP-Referer": "https://github.com/aja",
-                "X-Title": "AJA Swarm Toolkit",
-            }
-            headers.update(self.extra_headers)
-            self._openai_client = AsyncOpenAI(
-                api_key=self.api_key or "dummy-local-key",
-                base_url=self.base_url,
-                default_headers=headers,
-                # Explicit per-request timeout (SDK default is 600s) and
-                # max_retries=0 so AJA's own retry loop is the only layer.
-                timeout=_llm_timeout_s(),
-                max_retries=0,
-            )
-            self._openai_client_loop = loop
-        return self._openai_client
-
-    async def close(self) -> None:
-        """Cleanly close underlying persistent network sessions."""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
-        if self._openai_client:
-            await self._openai_client.close()
-            self._openai_client = None
-
-    async def complete(
-        self,
-        system: str,
-        user: str,
-        model: str = None,
-        retries: int = 3,
-        temperature: Optional[float] = None,
-    ):
-        """
-        Convenience method for deterministic completions.
-        """
-        if model is None:
-            model = "gemini-2.5-flash"
-
-        return await self.chat(
-            model=model,
-            prompt=user,
-            system=system,
-            retries=retries,
-            temperature=temperature,
+    def _get_openai_client(self) -> Any:
+        return get_async_openai_client(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            extra_headers=self.extra_headers,
+            timeout=llm_timeout_s(),
         )
 
-    from aja.runtime.execution.activity import durable_activity
-
-    @durable_activity("llm.chat")
-    async def chat(
-        self,
-        model: str,
-        prompt: Any,
-        system: str = "You are a helpful assistant.",
-        retries: int = 3,
-        temperature: Optional[float] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        extra_body: Optional[Dict[str, Any]] = None,
-    ):
-        if self.provider == "copilot" and (
-            not model or model in ("copilot", "github-copilot", "default")
-        ):
-            model = "gpt-4o-mini"
-
-        # ── Provider Adapter Path (Phase 9 architecture) ──────────────────
-        # Resolve the registered adapter and delegate. Falls through to the
-        # legacy path only when no adapter covers this provider.
-        try:
-            from aja.orchestration.providers import get_adapter_class
-
-            adapter_cls = get_adapter_class(self.provider)
-            if adapter_cls is not None:
-                adapter = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
-                try:
-                    llm_resp = await adapter.chat(
-                        model=model,
-                        messages=self._normalize_prompt_to_messages(prompt),
-                        system=system,
-                        tools=tools,
-                        temperature=temperature,
-                        extra_body=extra_body,
-                        retries=retries,
-                    )
-                finally:
-                    # Adapters own per-instance httpx/aiohttp pools; a fresh
-                    # instance is built per call, so it must be closed here or
-                    # every chat() leaks sockets/fds.
-                    close = getattr(adapter, "close", None)
-                    if close is not None:
-                        try:
-                            await close()
-                        except Exception as close_err:
-                            logger.debug("[Gateway] Adapter close failed: %s", close_err)
-                if tools is not None:
-                    return {
-                        "content": llm_resp.content,
-                        "tool_calls": [
-                            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                            for tc in llm_resp.tool_calls
-                        ],
-                    }
-                # Contract: None on failure/empty, str on success — never "".
-                if not getattr(llm_resp, "content", None):
-                    logger.warning(
-                        "[Gateway] Adapter path returned no content "
-                        "(provider=%s, model=%s)",
-                        self.provider, model,
-                    )
-                    return None
-                return llm_resp.content
-        except Exception as adapter_err:
-            logger.debug("[Gateway] Adapter path failed (%s), falling back to legacy.", adapter_err)
-
-        # ── Legacy Path ───────────────────────────────────────────────────
-        attempt = 1
-        overflow_retries = 0
-        max_overflow_retries = 3
-        while attempt <= retries:
-            try:
-                if self.provider == "google":
-                    return await self._google_generate_content(
-                        model, prompt, system, temperature, tools
-                    )
-
-                use_responses = False
-
-                # Clean up model name for Copilot
-                if self.provider == "copilot":
-                    if model and model.startswith("copilot:"):
-                        model = model[8:]
-
-                    m_lower = (model or "").lower()
-                    if "/" in m_lower:
-                        m_lower = m_lower.rsplit("/", 1)[-1]
-                    if (
-                        m_lower.startswith("gpt-")
-                        and not m_lower.startswith("gpt-5-mini")
-                        and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4")
-                    ):
-                        use_responses = True
-                    # Claude 3.5 Sonnet needs the responses API for Copilot currently.
-                    if "claude" in m_lower:
-                        use_responses = True
-
-                    # Images are only accepted by the Responses API path —
-                    # chat-completions rejects them with "image media type
-                    # not supported" regardless of model.
-                    if isinstance(prompt, list) and any(
-                        isinstance(m.get("content"), list)
-                        and any(
-                            isinstance(p, dict) and p.get("type") == "image_url"
-                            for p in m["content"]
-                        )
-                        for m in prompt
-                    ):
-                        use_responses = True
-
-                if self.provider == "copilot" and use_responses:
-                    # Build Responses API input parts
-                    input_items = []
-
-                    # Convert prompt (which can be a string or a list of messages)
-                    if isinstance(prompt, list):
-                        for m in prompt:
-                            role = m.get("role", "user")
-                            content = m.get("content", m.get("text", ""))
-                            if role == "user":
-                                if isinstance(content, list):
-                                    parts = []
-                                    for part in content:
-                                        if isinstance(part, str):
-                                            parts.append(
-                                                {"type": "input_text", "text": part}
-                                            )
-                                        elif isinstance(part, dict):
-                                            ptype = part.get("type")
-                                            if ptype == "text":
-                                                parts.append(
-                                                    {
-                                                        "type": "input_text",
-                                                        "text": part.get("text", ""),
-                                                    }
-                                                )
-                                            elif ptype == "image_url":
-                                                img_url = (
-                                                    part.get("image_url", {}).get("url")
-                                                    if isinstance(
-                                                        part.get("image_url"), dict
-                                                    )
-                                                    else part.get("image_url")
-                                                )
-                                                parts.append(
-                                                    {
-                                                        "type": "input_image",
-                                                        "image_url": img_url,
-                                                    }
-                                                )
-                                    input_items.append(
-                                        {"role": "user", "content": parts}
-                                    )
-                                else:
-                                    input_items.append(
-                                        {"role": "user", "content": str(content)}
-                                    )
-                            elif role == "assistant":
-                                tcs = m.get("tool_calls")
-                                if isinstance(content, list):
-                                    parts = [
-                                        {
-                                            "type": "output_text",
-                                            "text": p.get("text", ""),
-                                        }
-                                        for p in content
-                                        if isinstance(p, dict)
-                                        and p.get("type") == "text"
-                                    ]
-                                    input_items.append(
-                                        {"role": "assistant", "content": parts}
-                                    )
-                                else:
-                                    input_items.append(
-                                        {"role": "assistant", "content": str(content)}
-                                    )
-                                if tcs:
-                                    for tc in tcs:
-                                        fn = tc.get("function", {})
-                                        input_items.append(
-                                            {
-                                                "type": "function_call",
-                                                "call_id": tc.get("id")
-                                                or tc.get("call_id")
-                                                or f"call_{len(input_items)}",
-                                                "name": fn.get("name"),
-                                                "arguments": fn.get("arguments", "{}"),
-                                            }
-                                        )
-                            elif role == "tool":
-                                call_id = m.get("tool_call_id")
-                                input_items.append(
-                                    {
-                                        "type": "function_call_output",
-                                        "call_id": call_id,
-                                        "output": str(content),
-                                    }
-                                )
-                    else:
-                        input_items.append({"role": "user", "content": str(prompt)})
-
-                    response_tools = []
-                    if tools:
-                        for item in tools:
-                            fn = (
-                                item.get("function", {})
-                                if isinstance(item, dict)
-                                else {}
-                            )
-                            name = fn.get("name")
-                            if name:
-                                response_tools.append(
-                                    {
-                                        "type": "function",
-                                        "name": name,
-                                        "description": fn.get("description", ""),
-                                        "strict": False,
-                                        "parameters": fn.get(
-                                            "parameters",
-                                            {"type": "object", "properties": {}},
-                                        ),
-                                    }
-                                )
-
-                    payload = {
-                        "model": model,
-                        "instructions": system,
-                        "input": input_items,
-                        "store": False,
-                    }
-                    if response_tools:
-                        payload["tools"] = response_tools
-                        payload["tool_choice"] = "auto"
-                        payload["parallel_tool_calls"] = True
-
-                    if temperature is not None:
-                        payload["temperature"] = float(temperature)
-                    if extra_body:
-                        payload.update(extra_body)
-
-                    url = f"{self.base_url.rstrip('/')}/v1/responses"
-                    req_headers = {
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    }
-                    req_headers.update(self.extra_headers)
-
-                    session = self._get_session()
-                    async with session.post(
-                        url, json=payload, headers=req_headers
-                    ) as resp:
-                        if resp.status in (401, 403) and self.provider == "copilot" and attempt < retries:
-                            from aja.copilot_auth import (
-                                get_copilot_api_token,
-                                invalidate_copilot_cache,
-                                resolve_copilot_token,
-                            )
-
-                            invalidate_copilot_cache()
-                            raw_token, _ = resolve_copilot_token()
-                            if raw_token:
-                                self.api_key = get_copilot_api_token(raw_token) or raw_token
-                            continue
-
-                        if resp.status != 200:
-                            detail = await resp.text()
-                            # Attach the status so the 4xx fast-fail classifier
-                            # below can catch deterministic client errors —
-                            # otherwise a 400 burns all retries silently.
-                            err = ValueError(
-                                f"Copilot Responses API Error {resp.status}: {detail}"
-                            )
-                            err.status_code = resp.status
-                            raise err
-                        data = await resp.json()
-
-                    output_items = data.get("output", [])
-                    resp_content = ""
-                    resp_tool_calls = []
-                    for item in output_items:
-                        itype = item.get("type")
-                        if itype == "message":
-                            parts = item.get("content", [])
-                            for part in parts:
-                                if part.get("type") == "output_text":
-                                    resp_content += part.get("text", "")
-                        elif itype == "function_call":
-                            call_id = item.get("call_id") or f"fc_{item.get('id')}"
-                            resp_tool_calls.append(
-                                {
-                                    "id": call_id,
-                                    "name": item.get("name"),
-                                    "arguments": item.get("arguments", "{}"),
-                                }
-                            )
-
-                    if tools is not None:
-                        return {"content": resp_content, "tool_calls": resp_tool_calls}
-                    # Contract: None on failure/empty, str on success — never "".
-                    if not resp_content:
-                        logger.warning(
-                            "[Gateway] Responses path returned no content "
-                            "(provider=%s, model=%s)",
-                            self.provider, model,
-                        )
-                        return None
-                    return resp_content
-
-                if isinstance(prompt, list):
-                    prompt_messages = []
-                    for m in prompt:
-                        msg_dict = {
-                            "role": m.get("role", "user"),
-                            "content": m.get("content", m.get("text", "")),
-                        }
-                        if m.get("tool_calls") is not None:
-                            msg_dict["tool_calls"] = m.get("tool_calls")
-                        if m.get("tool_call_id") is not None:
-                            msg_dict["tool_call_id"] = m.get("tool_call_id")
-                        prompt_messages.append(msg_dict)
-                    messages = [
-                        _build_system_message(self.provider, model, system)
-                    ] + prompt_messages
-                else:
-                    messages = [
-                        _build_system_message(self.provider, model, system),
-                        {"role": "user", "content": prompt},
-                    ]
-
-                kwargs = {
-                    "model": model,
-                    "messages": messages,
-                }
-                if temperature is not None:
-                    kwargs["temperature"] = temperature
-                if tools is not None:
-                    kwargs["tools"] = tools
-                    if self.provider == "llama_cpp":
-                        kwargs.setdefault("tool_choice", "auto")
-                        if os.getenv("AJA_LLAMA_CONSTRAIN_TOOLS", "1") == "1":
-                            try:
-                                from aja.models.gbnf import build_tool_call_grammar
-                                grammar = build_tool_call_grammar(tools)
-                                if kwargs.get("extra_body") is None:
-                                    kwargs["extra_body"] = {}
-                                kwargs["extra_body"].setdefault("grammar", grammar)
-                            except Exception as e:
-                                logger.debug("[llama_cpp] Failed to build GBNF grammar: %s", e)
-                if extra_body is not None:
-                    kwargs["extra_body"] = extra_body
-
-                client = self._get_openai_client()
-                response = await client.chat.completions.create(**kwargs)
-
-                # Some providers (Copilot Claude passthrough, llama.cpp usage
-                # chunks, content-filter proxies) legally return choices: [].
-                # Return None so callers' existing retry-exhaustion handling
-                # engages instead of IndexError.
-                if not getattr(response, "choices", None):
-                    logger.warning(
-                        "[Gateway] Provider returned empty choices (model=%s)", model
-                    )
-                    return None
-                msg = response.choices[0].message
-                if tools is not None:
-                    tool_calls = []
-                    if msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            tool_calls.append(
-                                {
-                                    "id": tc.id,
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
-                                }
-                            )
-                    elif self.provider == "llama_cpp" and getattr(msg, "content", None):
-                        try:
-                            from aja.models.gbnf import parse_constrained_tool_response
-                            clean_content, parsed_tools = parse_constrained_tool_response(msg.content)
-                            if parsed_tools:
-                                tool_calls.extend(parsed_tools)
-                                return {"content": clean_content, "tool_calls": tool_calls}
-                        except Exception as e:
-                            logger.debug("[llama_cpp] Fallback tool parsing exception: %s", e)
-                    return {"content": msg.content or "", "tool_calls": tool_calls}
-                # Contract: None on failure/empty, str on success — never "".
-                if not getattr(msg, "content", None):
-                    logger.warning(
-                        "[Gateway] Legacy path returned no content (provider=%s, model=%s)",
-                        self.provider, model,
-                    )
-                    return None
-                return msg.content
-            except Exception as e:
-                # Do not retry deterministic client errors (bad model name,
-                # invalid schema, auth failures) — they will fail identically.
-                status_code = getattr(e, "status_code", None) or getattr(
-                    getattr(e, "response", None), "status_code", None
-                )
-                err_str = str(e).lower()
-                is_rate_limit = (
-                    status_code == 429
-                    or "rate_limit" in err_str
-                    or "rate limit" in err_str
-                    or "per minute" in err_str
-                    or "tpm" in err_str
-                    or "rpm" in err_str
-                    or "quota" in err_str
-                    or "too many requests" in err_str
-                )
-                is_token_overflow = (
-                    not is_rate_limit
-                    and (
-                        ("token" in err_str and ("exceed" in err_str or "limit" in err_str or "maximum" in err_str or "too long" in err_str))
-                        or "context_length_exceeded" in err_str
-                        or "model_max_prompt_tokens_exceeded" in err_str
-                        or "max_tokens" in err_str
-                    )
-                )
-
-                if is_token_overflow and isinstance(prompt, list) and len(prompt) > 2 and overflow_retries < max_overflow_retries:
-                    overflow_retries += 1
-                    logger.warning(
-                        "[Gateway] Prompt token limit exceeded (%s). Pruning history (overflow retry %d/%d)...",
-                        redact_secrets(str(e)), overflow_retries, max_overflow_retries,
-                    )
-                    from aja.orchestration.context_window import atomic_prune_messages
-
-                    mid_count = len(prompt) - 2
-                    drop_count = max(1, mid_count // 2)
-                    atomic_prune_messages(prompt, target_drops=drop_count, preserve_first=1)
-                    continue
-
-                if is_rate_limit:
-                    logger.warning(
-                        "[Gateway] Rate limit encountered (%s). Backing off (attempt %d/%d)...",
-                        redact_secrets(str(e)), attempt, retries,
-                    )
-                    if attempt >= retries:
-                        return None
-                    await _backoff_sleep(attempt)
-                    attempt += 1
-                    continue
-
-                if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):
-                    logger.error(
-                        "[Gateway] Non-retryable provider error (%s %s): %s",
-                        type(e).__name__, status_code, redact_secrets(str(e)),
-                    )
-                    return None
-                logger.warning("[Gateway] Error on attempt %d/%d: %s", attempt, retries, redact_secrets(str(e)))
-                if attempt >= retries:
-                    return None
-                if self.provider == "copilot":
-                    try:
-                        from aja.copilot_auth import (
-                            get_copilot_api_token,
-                            invalidate_copilot_cache,
-                            resolve_copilot_token,
-                        )
-                        invalidate_copilot_cache()
-                        raw_token, _ = resolve_copilot_token()
-                        if raw_token:
-                            self.api_key = get_copilot_api_token(raw_token) or raw_token
-                        self._openai_client = None  # Re-instantiate fresh client on next attempt
-                    except Exception:
-                        pass
-                await _backoff_sleep(attempt)
-                attempt += 1
-
-        return None
-
-    async def chat_stream(
-        self,
-        model: str,
-        prompt: Any,
-        system: str = "You are a helpful assistant.",
-        temperature: Optional[float] = None,
-    ):
-        """Stream token chunks directly from LLM gateway."""
-        if self.provider == "copilot" and (
-            not model or model in ("copilot", "github-copilot", "default")
-        ):
-            model = "gpt-4o-mini"
-        elif self.provider == "copilot" and model.startswith("copilot:"):
-            model = model[8:]
-
-        # If model is OpenAI compatible
-        if self.provider in ("openai", "openrouter", "copilot", "llama_cpp", "ollama", "together", "groq", "nvidia", "gate", "constellation"):
-            yielded_any = False
-            try:
-                if isinstance(prompt, list):
-                    prompt_messages = []
-                    for m in prompt:
-                        prompt_messages.append({
-                            "role": m.get("role", "user"),
-                            "content": m.get("content", m.get("text", "")),
-                        })
-                    messages = [_build_system_message(self.provider, model, system)] + prompt_messages
-                else:
-                    messages = [
-                        _build_system_message(self.provider, model, system),
-                        {"role": "user", "content": str(prompt)},
-                    ]
-
-                client = self._get_openai_client()
-                kwargs = {
-                    "model": model,
-                    "messages": messages,
-                    "stream": True,
-                }
-                if temperature is not None:
-                    kwargs["temperature"] = temperature
-
-                response_stream = await client.chat.completions.create(**kwargs)
-                async for chunk in response_stream:
-                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                        yielded_any = True
-                        yield chunk.choices[0].delta.content
-                return
-            except Exception as e:
-                if yielded_any:
-                    # Mid-stream failure: partial content was already
-                    # delivered. Falling back to non-streamed chat would
-                    # yield the FULL response again (duplicate reply).
-                    logger.warning(
-                        "[Gateway] chat_stream failed mid-stream after partial "
-                        "output (%s); keeping partial response.",
-                        e,
-                    )
-                    return
-                logger.debug(
-                    f"[Gateway] chat_stream streaming error: {e}, falling back to non-streamed chat."
-                )
-
-        # Fallback for Google or non-streamed paths
-        full_res = await self.chat(model=model, prompt=prompt, system=system, temperature=temperature)
-        if full_res:
-            yield full_res
+    def _normalize_prompt_to_messages(self, prompt: Any) -> List[Dict[str, Any]]:
+        if isinstance(prompt, list):
+            return list(prompt)
+        elif isinstance(prompt, str):
+            return [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, dict):
+            return [prompt]
+        return [{"role": "user", "content": str(prompt)}]
 
     async def _google_generate_content(
         self,
         model: str,
         prompt: Any,
-        system: str,
+        system: str = "You are a helpful assistant.",
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-    ):
+    ) -> Any:
+        session = self._get_session()
         model_name = normalize_google_model(model)
         api_key = google_api_key(self.api_key)
         if not api_key:
-            print(
-                "[Gateway] Error: GOOGLE_API_KEY or GEMINI_API_KEY is not configured."
-            )
+            logger.error("[Gateway] Error: GOOGLE_API_KEY or GEMINI_API_KEY is not configured.")
             return None
 
         base_url = (
@@ -912,26 +272,16 @@ class LLMGateway:
             base_url = base_url[:-7]
         url = f"{base_url}/models/{model_name}:generateContent"
 
-        # Auth via header by default so the key never appears in the URL
-        # (which leaks into proxies/logs/exception messages). Custom OpenAI-
-        # compatible Gemini proxies may only support query-param auth, so keep
-        # that fallback when an explicit base_url is configured.
         use_header_auth = not self.base_url
 
         if isinstance(prompt, list):
             contents = []
             for m in prompt:
                 role_in = m.get("role")
-                # Gemini has no tool role here: represent tool results as
-                # user turns so the model can still see them.
                 role = "user" if role_in in ("user", "tool") else "model"
-                text = _flatten_google_content(
-                    m.get("content", m.get("text", ""))
-                )
+                text = _flatten_google_content(m.get("content", m.get("text", "")))
                 if role_in == "tool":
-                    text = (
-                        f"[Tool result for {m.get('tool_call_id') or 'call'}]: {text}"
-                    )
+                    text = f"[Tool result for {m.get('tool_call_id') or 'call'}]: {text}"
                 contents.append(
                     {
                         "role": role,
@@ -942,11 +292,11 @@ class LLMGateway:
             contents = [
                 {
                     "role": "user",
-                    "parts": [{"text": prompt}],
+                    "parts": [{"text": _flatten_google_content(prompt)}],
                 }
             ]
 
-        payload = {
+        payload: Dict[str, Any] = {
             "systemInstruction": {
                 "parts": [{"text": system or "You are a helpful assistant."}]
             },
@@ -966,105 +316,136 @@ class LLMGateway:
                 )
             payload["tools"] = [{"functionDeclarations": google_tools}]
 
-        session = self._get_session()
         request_url = url if use_header_auth else f"{url}?key={api_key}"
         headers = {"Content-Type": "application/json"}
         if use_header_auth:
             headers["x-goog-api-key"] = api_key
+
         try:
-            async with session.post(
-                request_url, json=payload, headers=headers
-            ) as response:
-                if response.status != 200:
-                    detail = await response.text()
-                    logger.error(
-                        "[Gateway] Google Error %s: %s", response.status, detail[:500]
-                    )
-                    return None
-
-                data = await response.json()
-                # Safety-blocked prompts return "candidates": [] — the default
-                # [{}] only applies when the key is absent, so index defensively.
+            async with session.post(request_url, json=payload, headers=headers) as resp:
+                data = await resp.json()
                 candidates = data.get("candidates") or []
-                parts = (
-                    candidates[0].get("content", {}).get("parts", [])
-                    if candidates
-                    else []
-                )
-                if not parts:
-                    block = (data.get("promptFeedback") or {}).get("blockReason")
-                    logger.warning(
-                        "[Gateway] Google blocked/empty candidates (blockReason=%s)",
-                        block,
-                    )
+                if not candidates:
                     return None
-                if tools is not None:
-                    content = ""
-                    tool_calls = []
-                    import json
-
-                    for p in parts:
-                        if "text" in p:
-                            content += p["text"]
-                        if "functionCall" in p:
-                            fc = p["functionCall"]
-                            tool_calls.append(
-                                {
-                                    "id": fc.get("name"),
-                                    "name": fc.get("name"),
-                                    "arguments": json.dumps(fc.get("args", {})),
-                                }
-                            )
-                    return {"content": content.strip(), "tool_calls": tool_calls}
-                else:
-                    text_parts = [
-                        part.get("text", "") for part in parts if part.get("text")
-                    ]
-                    return "\n".join(text_parts).strip() or None
+                parts = candidates[0].get("content", {}).get("parts") or []
+                text_parts = [p.get("text", "") for p in parts if p.get("text")]
+                return "\n".join(text_parts).strip() or None
         except Exception as e:
-            # Do NOT interpolate raw exception text unchecked: aiohttp errors
-            # embed the full request URL, which can carry the API key when
-            # query-param auth is in use.
-            import re as _re
-
-            safe = _re.sub(r"([?&]key=)[^&'\s]+", r"\1***", str(e))
-            logger.error("[Gateway] Google request failed: %s: %s", type(e).__name__, safe)
+            logger.error("[Gateway Facade] Google request failed: %s", redact_secrets(str(e)))
             return None
 
-    @durable_activity("llm.embed")
-    async def embed(self, model: str, text: str) -> list[float]:
-        """Generate dense vector embedding for text."""
+    @durable_activity("llm.chat")
+    async def chat(
+        self,
+        model: str,
+        prompt: Any,
+        system: str = "You are a helpful assistant.",
+        retries: int = 3,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         if self.provider == "google":
-            print(
-                "[Gateway] Embedding Error: native Google embeddings are not wired yet."
-            )
-            return []
+            return await self._google_generate_content(model, prompt, system, temperature, tools)
+
+        if self.provider == "copilot" and (
+            not model or model in ("copilot", "github-copilot", "default")
+        ):
+            model = "gpt-4o-mini"
 
         try:
-            headers = {
-                "HTTP-Referer": "https://github.com/aja",
-                "X-Title": "AJA Swarm Toolkit",
-            }
-            headers.update(self.extra_headers)
+            from aja.orchestration.providers import get_adapter_class
 
-            async with AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                default_headers=headers,
-                # Same explicit-timeout / no-SDK-retry posture as chat clients.
-                timeout=_llm_timeout_s(),
-                max_retries=0,
-            ) as client:
-                response = await client.embeddings.create(input=text, model=model)
-                return response.data[0].embedding
+            adapter_cls = get_adapter_class(self.provider)
+            if adapter_cls is not None:
+                adapter = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
+                try:
+                    llm_resp = await adapter.chat(
+                        model=model,
+                        messages=self._normalize_prompt_to_messages(prompt),
+                        system=system,
+                        tools=tools,
+                        temperature=temperature,
+                        extra_body=extra_body,
+                        retries=retries,
+                    )
+                finally:
+                    close = getattr(adapter, "close", None)
+                    if close is not None:
+                        try:
+                            await close()
+                        except Exception:
+                            pass
+                if tools is not None:
+                    return {
+                        "content": llm_resp.content,
+                        "tool_calls": [
+                            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                            for tc in llm_resp.tool_calls
+                        ],
+                    }
+                return llm_resp.content
         except Exception as e:
-            print(f"[Gateway] Embedding Error: {e}")
+            logger.debug("[Gateway Facade] Adapter path failed (%s), trying direct client", e)
+
+        # Direct client path with retry loop
+        client = self._get_openai_client()
+        messages = [{"role": "system", "content": system}, *self._normalize_prompt_to_messages(prompt)]
+        kwargs: Dict[str, Any] = {"model": model, "messages": messages}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if tools:
+            kwargs["tools"] = tools
+        if extra_body:
+            kwargs.update(extra_body)
+
+        attempt = 0
+        while attempt < retries:
+            attempt += 1
+            try:
+                response = await client.chat.completions.create(**kwargs)
+                choices = getattr(response, "choices", None) or []
+                if not choices:
+                    return None
+                choice = choices[0].message
+                if tools is not None:
+                    tool_calls = []
+                    if choice.tool_calls:
+                        for tc in choice.tool_calls:
+                            tool_calls.append(
+                                {
+                                    "id": tc.id,
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
+                            )
+                    return {"content": choice.content, "tool_calls": tool_calls}
+                return choice.content
+            except Exception as exc:
+                if attempt < retries:
+                    await _backoff_sleep(attempt)
+                    continue
+                raise
+
+    @durable_activity("llm.embed")
+    async def embed(self, model: str, text: str) -> List[float]:
+        """Generate dense vector embedding for text."""
+        try:
+            client = self._get_openai_client()
+            response = await client.embeddings.create(input=text, model=model)
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error("[Gateway Facade] Embedding error: %s", redact_secrets(str(e)))
             return []
 
+    async def close(self) -> None:
+        """Clean close."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
-# Backward-compatible alias — remove after all call-sites are updated to LLMGateway
+
+# Backward-compatible alias
 UnifiedGateway = LLMGateway
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LLMGateway CLI")
