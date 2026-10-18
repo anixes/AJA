@@ -212,7 +212,12 @@ def resolve_model_chain(
     if active and str(active).strip():
         return [str(active).strip()]
 
-    return ["default"]
+    # If no chain was requested or configured, fallback to [model] (e.g. [None])
+    # for 100% backwards compatibility with callers omitting model/fallback_chain.
+    if caller_chain is None and not (settings and getattr(settings, "fallback_chain", None)):
+        return [model]
+
+    return []
 
 class GatewayAuthConfig(BaseModel):
     """Per-platform gateway authorization allowlists.

@@ -124,9 +124,15 @@ class TestErrorClassification(unittest.TestCase):
         self.assertTrue(err.is_fatal)
 
 
+class MockResponse:
+    def __init__(self, content: str = "", tool_calls: Optional[List[Dict[str, Any]]] = None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+
 class MockFallbackGateway:
-    def __init__(self, failure_models: Dict[str, Exception], success_response: str = "Task done."):
-        self.failure_models = failure_models
+    def __init__(self, failure_models: Optional[Dict[str, Exception]] = None, success_response: Any = "Task done."):
+        self.failure_models = failure_models or {}
         self.success_response = success_response
         self.models_called: List[str] = []
 
@@ -254,6 +260,107 @@ class TestDirectLoopModelFallback(unittest.IsolatedAsyncioTestCase):
         # Only model-1 was called; fatal error did NOT fallback to model-2
         self.assertEqual(gateway.models_called, ["model-1"])
         self.assertEqual(len(fallback_events), 0)
+
+    async def test_fallback_resets_per_turn_to_primary_model(self):
+        """Verify cost-aware behavior: Turn 1 falls back to model-2, but Turn 2 retries model-1 first."""
+        calls_per_turn = []
+
+        class MultiTurnGateway:
+            def __init__(self):
+                self.turn_count = 0
+                self.history_models = []
+
+            async def chat(self, model, prompt, system, tools=None):
+                self.history_models.append(model)
+                if len(self.history_models) == 1:
+                    # Turn 1, attempt 1: primary model fails
+                    class Http429(Exception):
+                        status_code = 429
+                    raise Http429("Rate limit on primary model")
+                elif len(self.history_models) == 2:
+                    # Turn 1, attempt 2: secondary model succeeds with tool call
+                    return {
+                        "content": "Action needed",
+                        "tool_calls": [
+                            {"id": "call_1", "function": {"name": "read_file", "arguments": '{"path": "foo.txt"}'}}
+                        ],
+                    }
+                elif len(self.history_models) == 3:
+                    # Turn 2, attempt 1: MUST be model-1 again!
+                    return {"content": "Task completed successfully.", "tool_calls": []}
+                return {"content": "Done", "tool_calls": []}
+
+        gateway = MultiTurnGateway()
+        chain = ["primary-cheap", "secondary-expensive"]
+
+        res = await run_direct_loop(
+            objective="Multi-turn task",
+            gateway=gateway,
+            tools_registry=MockRegistry(),
+            executor=MockExecutor(),
+            fallback_chain=chain,
+            max_turns=3,
+        )
+
+        self.assertEqual(res["status"], "completed")
+        # Turn 1 called primary (failed), then secondary (succeeded).
+        # Turn 2 called primary FIRST and succeeded!
+        self.assertEqual(gateway.history_models, ["primary-cheap", "secondary-expensive", "primary-cheap"])
+
+    async def test_settings_fallback_chain_integration(self):
+        """Verify SwarmSettings.fallback_chain is consulted by run_direct_loop when no caller chain is passed."""
+        gateway = MockFallbackGateway(
+            failure_models={"cfg-tier1": Exception("503 Service Unavailable")}
+        )
+        settings = SwarmSettings(fallback_chain=["cfg-tier1", "cfg-tier2"])
+
+        res = await run_direct_loop(
+            objective="Do task with settings",
+            gateway=gateway,
+            tools_registry=MockRegistry(),
+            executor=MockExecutor(),
+            settings=settings,
+        )
+
+        self.assertEqual(res["status"], "completed")
+        self.assertEqual(gateway.models_called, ["cfg-tier1", "cfg-tier2"])
+
+    async def test_empty_chain_raises_value_error(self):
+        """Verify an explicit error is raised if no models can be resolved."""
+        gateway = MockFallbackGateway()
+        with self.assertRaises(ValueError) as ctx:
+            await run_direct_loop(
+                objective="Do task with empty chain",
+                gateway=gateway,
+                tools_registry=MockRegistry(),
+                executor=MockExecutor(),
+                model="",
+                fallback_chain=[],
+                settings=SwarmSettings(fallback_chain=[]),
+            )
+        self.assertIn("No active model or fallback chain", str(ctx.exception))
+
+
+class TestErrorClassificationRefinements(unittest.TestCase):
+    def test_word_boundary_rate_limit(self):
+        # "4290 tokens" must NOT match rate limit pattern
+        err_non_rate = classify_gateway_error(Exception("Processed 4290 tokens in prompt"), model="test-m")
+        self.assertIsInstance(err_non_rate, FatalRequestError)
+
+        # "429 Too Many Requests" MUST match
+        err_rate = classify_gateway_error(Exception("Error: 429 Too Many Requests"), model="test-m")
+        self.assertIsInstance(err_rate, RateLimitError)
+
+    def test_timeout_and_connection_error_classified_as_unavailable(self):
+        # Native TimeoutError
+        err_timeout = classify_gateway_error(TimeoutError("Connection timed out"), model="test-m")
+        self.assertIsInstance(err_timeout, ProviderUnavailableError)
+        self.assertTrue(err_timeout.is_fallback_candidate)
+
+        # String network error
+        err_net = classify_gateway_error(Exception("ClientConnectorError: connection refused"), model="test-m")
+        self.assertIsInstance(err_net, ProviderUnavailableError)
+        self.assertTrue(err_net.is_fallback_candidate)
 
 
 if __name__ == "__main__":

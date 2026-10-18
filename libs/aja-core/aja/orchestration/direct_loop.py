@@ -257,6 +257,7 @@ async def run_direct_loop(
     use_plan: bool = False,
     tool_profile: Optional[str] = None,
     fallback_chain: Optional[Union[List[str], str]] = None,
+    settings: Optional[Any] = None,
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -337,29 +338,41 @@ async def run_direct_loop(
     from aja.config_schema import resolve_model_chain
     from aja.orchestration.errors import classify_gateway_error, ChainExhaustedError
 
-    active_chain = resolve_model_chain(caller_chain=fallback_chain, model=model)
-    active_chain_idx = 0
+    active_chain = resolve_model_chain(
+        caller_chain=fallback_chain,
+        model=model,
+        settings=settings,
+    )
+    if not active_chain:
+        raise ValueError("No active model or fallback chain could be resolved for direct loop execution.")
 
     while iteration < max_turns:
 
         iteration += 1
+        active_chain_idx = 0
 
         response = None
         turn_errors: List[Exception] = []
 
         while active_chain_idx < len(active_chain):
             current_model = active_chain[active_chain_idx]
+            effective_provider = provider
+            if current_model and ":" in current_model:
+                parts = current_model.split(":", 1)
+                if parts[0] and parts[1]:
+                    effective_provider = parts[0]
+
             try:
                 if _comp_has_extra:
                     compressor(
                         history,
                         model=current_model,
-                        provider=provider,
+                        provider=effective_provider,
                         system_prompt=system_prompt,
                         tools=tool_schemas,
                     )
                 else:
-                    compressor(history, model=current_model, provider=provider)
+                    compressor(history, model=current_model, provider=effective_provider)
             except Exception as e:  # best-effort: compression must never kill the loop
                 logger.debug("History compression skipped: %s", e)
 

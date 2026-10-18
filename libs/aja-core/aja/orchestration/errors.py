@@ -67,28 +67,33 @@ class ChainExhaustedError(RuntimeError):
 
 
 _RATE_LIMIT_PATTERNS = (
-    r"429",
+    r"\b429\b",
     r"rate[_\s]limit",
-    r"quota",
+    r"\bquota\b",
     r"resource[_\s]exhausted",
     r"too many requests",
 )
 
 _UNAVAILABLE_PATTERNS = (
-    r"500",
-    r"502",
-    r"503",
-    r"504",
+    r"\b500\b",
+    r"\b502\b",
+    r"\b503\b",
+    r"\b504\b",
     r"overloaded",
     r"service[_\s]unavailable",
     r"bad[_\s]gateway",
     r"gateway[_\s]timeout",
     r"server[_\s]error",
     r"internal[_\s]error",
+    r"\btimeout\b",
+    r"timed[_\s]out",
+    r"connection[_\s](?:refused|reset|error|closed)",
+    r"broken[_\s]pipe",
+    r"network[_\s]error",
 )
 
 _NOT_FOUND_PATTERNS = (
-    r"404",
+    r"\b404\b",
     r"not[_\s]found",
     r"does not exist",
     r"deprecat",
@@ -109,12 +114,21 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 
 def classify_gateway_error(exc: Exception, model: str = "") -> GatewayError:
     """Classify an arbitrary exception (HTTP client exception, OpenAI APIError,
-    aiohttp/httpx error, etc.) into a categorized GatewayError.
+    aiohttp/httpx error, timeout, network glitch, etc.) into a categorized GatewayError.
     """
     if isinstance(exc, GatewayError):
         if not exc.model and model:
             exc.model = model
         return exc
+
+    # Inspect native Python / asyncio network and timeout exceptions
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return ProviderUnavailableError(
+            f"Network timeout/connection error on {model}: {exc}",
+            model=model,
+            status_code=504,
+            cause=exc,
+        )
 
     # Inspect status_code attribute if present (e.g. httpx.HTTPStatusError, openai.APIStatusError)
     status_code: Optional[int] = getattr(exc, "status_code", None)
@@ -168,7 +182,7 @@ def classify_gateway_error(exc: Exception, model: str = "") -> GatewayError:
                 cause=exc,
             )
 
-    # 4. Provider Unavailable (5xx)
+    # 4. Provider Unavailable (5xx & timeouts)
     if status_code and 500 <= status_code <= 599:
         return ProviderUnavailableError(
             f"Provider service unavailable ({status_code}) on {model}: {msg}",
