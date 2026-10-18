@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import List, Dict, Optional, Any
 
 # Lazy-import AJA config at module level so tests can patch `CONFIG` directly.
@@ -62,6 +63,13 @@ _MODEL_LIMITS: Dict[str, int] = {
     "gpt-4":               8_192,
     "gpt-3.5":            16_385,
     "o1":                 200_000,
+    "o3":                 200_000,
+    # Qwen
+    "qwen":               128_000,
+    # GLM / Zhipu
+    "glm":                128_000,
+    # DeepSeek
+    "deepseek":            64_000,
     # Google / Gemini
     "gemini-2.5":       1_000_000,
     "gemini-2.0":       1_000_000,
@@ -234,6 +242,9 @@ def atomic_prune_messages(
     return dropped
 
 
+TRUNCATION_NOTICE_PREFIX: str = "[Context Truncation Notice]"
+
+
 def compress_history(
     history: List[dict],
     model: str = "",
@@ -248,7 +259,11 @@ def compress_history(
 
     Strategy:
     - Always preserve the **first message** (it contains the task objective).
+    - If a prior truncation notice is present at index 1, extract its trimmed count
+      and remove it before calculating tokens or pruning, to prevent notice duplication.
     - Atomically drop older turns from index 1 forward.
+    - If turns were pruned (or prior trimmed count existed), insert/update a single
+      synthetic truncation notice at index 1 referencing PLAN.md.
     - If `system_prompt` and `tools` are passed, calculate explicit overhead
       so tool schemas (~5,000 tokens) do not blow past provider limits.
     - For small context models like Copilot (12,288 total cap), reserve adequate
@@ -265,6 +280,20 @@ def compress_history(
     """
     if len(history) <= 2:
         return
+
+    # 1. Detect and temporarily remove existing synthetic truncation notice to avoid duplicate stacking
+    prior_dropped = 0
+    if len(history) > 1 and str(history[1].get("content") or "").startswith(TRUNCATION_NOTICE_PREFIX):
+        content = str(history[1].get("content") or "")
+        m = re.search(r"(\d+)\s+prior interaction turn", content)
+        if m:
+            try:
+                prior_dropped = int(m.group(1))
+            except ValueError:
+                prior_dropped = 1
+        else:
+            prior_dropped = 1
+        history.pop(1)
 
     is_copilot = "copilot" in (provider or "").lower() or "copilot" in (model or "").lower()
 
@@ -300,10 +329,23 @@ def compress_history(
         return tokens
 
     total_tokens = sum(_msg_tokens(msg) for msg in history)
+    dropped_this_run = 0
+
     while total_tokens > limit and len(history) > 2:
         before_len = len(history)
         atomic_prune_messages(history, target_drops=1)
         after_len = len(history)
         if after_len >= before_len:
             break
+        dropped_this_run += (before_len - after_len)
         total_tokens = sum(_msg_tokens(msg) for msg in history)
+
+    # Re-insert or update synthetic truncation notice if any messages were pruned
+    total_dropped = prior_dropped + dropped_this_run
+    if total_dropped > 0 and len(history) >= 1:
+        notice_content = (
+            f"{TRUNCATION_NOTICE_PREFIX}\n"
+            f"{total_dropped} prior interaction turn(s) were trimmed to stay within the token budget.\n"
+            f"Refer to the Living Disk State (PLAN.md) snapshot for current progress and completed tasks."
+        )
+        history.insert(1, {"role": "user", "content": notice_content})
