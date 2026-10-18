@@ -60,7 +60,13 @@ class PlanStateError(Exception):
     pass
 
 
+class PlanStateCorruptionError(PlanStateError):
+    """Raised when post-write checksum verification or disk integrity fails."""
+    pass
+
+
 class PlanLockError(PlanStateError):
+
     """Raised when plan file lock acquisition times out."""
     pass
 
@@ -106,8 +112,11 @@ class PlanState:
     tasks: List[PlanTask]
     plan_path: Path
     raw_content: str
+    state_hash: str = ""
+    revision: int = 0
 
     @property
+
     def completed_count(self) -> int:
         return sum(1 for t in self.tasks if t.status in (TaskStatus.DONE, TaskStatus.CANCELLED))
 
@@ -198,15 +207,23 @@ class PlanFileLock:
 
 def _atomic_write(target_path: Path, content: str) -> None:
     """
-    Write content to temporary file and replace target atomically.
-    Includes 3-attempt exponential backoff for Windows PermissionError.
-    Files are normalized to LF on write.
+    Write content to temporary file colocated in target's directory and replace target atomically.
+    Includes SHA-256 pre/post write verification and 3-attempt exponential backoff
+    for Windows PermissionError. Files are normalized to LF on write.
     """
-    target = Path(target_path).resolve()
-    tmp_path = target.with_name(f".{target.name}.tmp")
-    normalized = content.replace("\r\n", "\n")
+    import hashlib
 
-    tmp_path.write_text(normalized, encoding="utf-8")
+    target = Path(target_path).resolve()
+    parent_dir = target.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+
+    # Unique temporary file strictly in the target's parent directory (same filesystem/volume)
+    tmp_path = parent_dir / f".{target.name}.{os.getpid()}_{time.time_ns()}.tmp"
+    normalized = content.replace("\r\n", "\n")
+    encoded = normalized.encode("utf-8")
+    expected_hash = hashlib.sha256(encoded).hexdigest()
+
+    tmp_path.write_bytes(encoded)
 
     last_error: Optional[Exception] = None
     backoff = 0.05
@@ -214,6 +231,14 @@ def _atomic_write(target_path: Path, content: str) -> None:
     for attempt in range(3):
         try:
             os.replace(str(tmp_path), str(target))
+            # Post-write SHA-256 verification
+            written_bytes = target.read_bytes()
+            actual_hash = hashlib.sha256(written_bytes).hexdigest()
+            if actual_hash != expected_hash:
+                raise PlanStateCorruptionError(
+                    f"Post-write checksum verification failed for '{target}'! "
+                    f"Expected {expected_hash}, got {actual_hash}"
+                )
             return
         except PermissionError as e:
             last_error = e
@@ -226,6 +251,7 @@ def _atomic_write(target_path: Path, content: str) -> None:
     tmp_path.unlink(missing_ok=True)
     if last_error:
         raise last_error
+
 
 
 # ============================================================================
@@ -352,12 +378,17 @@ def parse_plan(path: Union[Path, str] = "PLAN.md") -> PlanState:
             "Ensure tasks match '- [ ] 1. <description>' under '## Execution Plan'."
         )
 
+    import hashlib
+    state_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
     return PlanState(
         objective=objective or "Unspecified Objective",
         tasks=tasks,
         plan_path=plan_path,
         raw_content=raw,
+        state_hash=state_hash,
     )
+
 
 
 def _resolve_task_index(tasks: List[PlanTask], identifier: Union[int, str]) -> int:

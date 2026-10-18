@@ -181,3 +181,28 @@ def test_file_lock_and_stale_recovery(tmp_path: Path):
         assert lock_file.exists()
 
     assert not lock_file.exists()
+
+
+
+def test_atomic_write_colocation_and_checksum_verification(tmp_path: Path):
+    from aja.orchestration.plan_state import _atomic_write, PlanStateCorruptionError
+
+    target_file = tmp_path / "subdir" / "PLAN.md"
+    content = "# Objective\nTest colocation and checksum\n\n## Execution Plan\n- [ ] 1. Do thing\n"
+
+    # 1. Normal atomic write
+    _atomic_write(target_file, content)
+    assert target_file.exists()
+    assert target_file.read_text(encoding="utf-8") == content
+
+    # Verify state_hash in parse_plan
+    parsed = parse_plan(target_file)
+    assert len(parsed.state_hash) == 16
+
+    # 2. Test checksum mismatch detection
+    from unittest.mock import patch
+    with patch.object(Path, "read_bytes", return_value=b"corrupted bytes"):
+        with pytest.raises(PlanStateCorruptionError) as exc_info:
+            _atomic_write(target_file, content)
+        assert "Post-write checksum verification failed" in str(exc_info.value)
+
