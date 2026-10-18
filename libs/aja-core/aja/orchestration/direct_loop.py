@@ -338,6 +338,8 @@ async def run_direct_loop(
     verification_fn: Optional[Callable[[], Any]] = None,
     quotas: Optional[Any] = None,
     workspace_root: Optional[Union[Path, str]] = None,
+    run_journal: Optional[Any] = None,
+    run_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run the single-agent tool-calling loop to completion.
 
@@ -405,6 +407,16 @@ async def run_direct_loop(
             except Exception as hook_err:
                 logger.debug("on_resource_attribution hook failed: %s", hook_err)
 
+        if run_journal and run_id:
+            try:
+                run_journal.complete_run(
+                    run_id=run_id,
+                    final_status="COMPLETED" if status == "completed" else "FAILED",
+                    metadata={"status": status, "reason": reason, "error_message": error_message},
+                )
+            except Exception as j_err:
+                logger.debug("Failed to complete_run in journal: %s", j_err)
+
         out: Dict[str, Any] = {"status": status, "turns": iteration, "attribution": attribution.to_dict()}
         if reason is not None:
             out["reason"] = reason
@@ -420,6 +432,18 @@ async def run_direct_loop(
         active_plan_path = Path(plan_path).resolve()
     elif use_plan and Path("PLAN.md").exists():
         active_plan_path = Path("PLAN.md").resolve()
+
+    if run_journal:
+        if not run_id:
+            run_id = f"run-{uuid.uuid4().hex[:12]}"
+        try:
+            run_journal.start_run(
+                run_id=run_id,
+                task=objective,
+                metadata={"model": model, "provider": provider},
+            )
+        except Exception as j_err:
+            logger.debug("Failed to start_run in journal: %s", j_err)
 
     if not system_prompt:
         try:
@@ -819,11 +843,46 @@ async def run_direct_loop(
             calls_to_dispatch = [call for i, call in enumerate(formatted_calls) if i not in probe_overrides]
             dispatched_results = []
             if calls_to_dispatch:
+                from aja.orchestration.concurrency import determine_execution_mode, ExecutionMode
+                exec_mode, exec_reason = determine_execution_mode(calls_to_dispatch)
+
+                if run_journal and run_id:
+                    for call in calls_to_dispatch:
+                        try:
+                            run_journal.append_event(
+                                run_id=run_id,
+                                event_type="tool_intent",
+                                step_index=iteration,
+                                payload={
+                                    "tool": call.get("tool"),
+                                    "args": call.get("args"),
+                                    "mode": exec_mode.value,
+                                },
+                            )
+                        except Exception as j_err:
+                            logger.debug("Failed to append tool_intent to journal: %s", j_err)
+
                 dispatched_results = await executor.dispatch_tool_calls(
                     tool_calls=calls_to_dispatch,
                     trace_id=trace_id_getter(),
                     dry_run=dry_run,
                 )
+
+                if run_journal and run_id:
+                    for res in dispatched_results:
+                        try:
+                            run_journal.append_event(
+                                run_id=run_id,
+                                event_type="tool_result",
+                                step_index=iteration,
+                                payload={
+                                    "tool": getattr(res, "tool", "unknown"),
+                                    "success": getattr(res, "success", True),
+                                    "error": getattr(res, "error", None),
+                                },
+                            )
+                        except Exception as j_err:
+                            logger.debug("Failed to append tool_result to journal: %s", j_err)
 
             # Recombine results in original call order
             results = []

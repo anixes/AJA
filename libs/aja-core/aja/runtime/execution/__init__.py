@@ -16,7 +16,17 @@ from aja.runtime.execution.contracts import (
     WorkspaceDiff,
     WorkspaceSnapshot,
 )
-from aja.runtime.execution.manager import ExecutionManager, get_default_execution_manager
+
+
+def __getattr__(name: str):
+    if name in ("ExecutionManager", "get_default_execution_manager"):
+        from aja.runtime.execution.manager import (
+            ExecutionManager,
+            get_default_execution_manager,
+        )
+        return ExecutionManager if name == "ExecutionManager" else get_default_execution_manager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ExecutionManifest",

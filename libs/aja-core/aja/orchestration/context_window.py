@@ -327,9 +327,14 @@ def compress_history(
     raw_limit = resolve_model_limit(model, provider)
     limit = raw_limit - effective_reserve
     # History floor: guarantee enough budget for multi-turn history even with heavy tool/prompt overhead
-    history_floor = 2_500 if is_copilot else 4_096
-    if limit < history_floor:
-        limit = max(history_floor, int(raw_limit * 0.35))
+    if overhead > 0:
+        history_floor = 800 if is_copilot else 1_500
+        if limit < history_floor:
+            limit = history_floor
+    else:
+        history_floor = 2_500 if is_copilot else 4_096
+        if limit < history_floor:
+            limit = max(history_floor, int(raw_limit * 0.35))
 
     def _msg_tokens(msg: Dict[str, Any]) -> int:
         tokens = estimate_tokens(str(msg.get("content") or ""))
