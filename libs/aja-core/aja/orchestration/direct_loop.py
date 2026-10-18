@@ -251,6 +251,7 @@ async def run_direct_loop(
     check_git: bool = True,
     plan_path: Optional[Union[Path, str]] = None,
     use_plan: bool = False,
+    tool_profile: Optional[str] = "code",
     max_verification_retries: int = 3,
     verification_fn: Optional[Callable[[], Any]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -296,7 +297,10 @@ async def run_direct_loop(
             {"role": "user", "content": f"Please execute this task directly: {objective}"}
         ]
 
-    tool_schemas = tools_registry.get_schemas(interactive=interactive)
+    try:
+        tool_schemas = tools_registry.get_schemas(interactive=interactive, profile=tool_profile)
+    except TypeError:
+        tool_schemas = tools_registry.get_schemas(interactive=interactive)
     import inspect
     try:
         _comp_sig = inspect.signature(compressor)
@@ -342,20 +346,27 @@ async def run_direct_loop(
         except Exception as e:  # best-effort: compression must never kill the loop
             logger.debug("History compression skipped: %s", e)
 
-        turn_system = system_prompt
+        # Ephemeral Plan Anchor (P1.2): keep system_prompt 100% static to preserve prefix
+        # caching, and append the current plan snapshot as an ephemeral user message to call_prompt.
+        call_prompt = list(history)
         if active_plan_path and active_plan_path.exists():
             from aja.orchestration.plan_state import render_compact_progress
             try:
                 progress_block = render_compact_progress(active_plan_path)
-                turn_system = f"{system_prompt or ''}\n\n[Living Disk State: PLAN.md]\n{progress_block}".strip()
+                anchor_msg = (
+                    f"[Living Disk State — Current Snapshot]\n"
+                    f"{progress_block}\n\n"
+                    f"(Ground truth snapshot for turn {iteration}. Refer strictly to this snapshot for task status; do not repeat completed tasks.)"
+                )
+                call_prompt.append({"role": "user", "content": anchor_msg})
             except Exception as e:
                 logger.debug("Plan progress render skipped: %s", e)
 
         try:
             response = await gateway.chat(
                 model=model,
-                prompt=history,
-                system=turn_system,
+                prompt=call_prompt,
+                system=system_prompt,
                 tools=tool_schemas,
             )
         except Exception as e:

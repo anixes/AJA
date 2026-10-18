@@ -23,10 +23,14 @@ class MockGateway:
         self.responses = list(responses)
         self.call_count = 0
         self.last_system_prompt = None
+        self.last_prompt = None
+        self.system_prompts_seen = []
 
     async def chat(self, model=None, prompt=None, system=None, tools=None):
         self.call_count += 1
         self.last_system_prompt = system
+        self.last_prompt = prompt
+        self.system_prompts_seen.append(system)
         if self.responses:
             return self.responses.pop(0)
         return "Finished."
@@ -81,8 +85,10 @@ def test_plan_exit_contract_rejects_incomplete_plan(tmp_path: Path):
         assert outcome is not None
         assert outcome["status"] == "completed"
         assert outcome["turns"] == 2
-        # Verify that Living Disk State was injected into the turn system prompt
-        assert "[Living Disk State: PLAN.md]" in (gateway.last_system_prompt or "")
+        # Verify that Living Disk State was injected as an ephemeral trailing user anchor,
+        # leaving system_prompt clean and static to protect provider prefix caching.
+        assert any("[Living Disk State — Current Snapshot]" in str(m.get("content")) for m in gateway.last_prompt)
+        assert "[Living Disk State: PLAN.md]" not in (gateway.last_system_prompt or "")
 
     asyncio.run(_run())
 
@@ -270,4 +276,65 @@ def test_incremental_task_verification_gate(tmp_path: Path):
         assert ladder_calls >= 2
 
     asyncio.run(_run())
+
+
+def test_ephemeral_plan_anchor_preserves_static_system_and_history_invariance(tmp_path: Path):
+    """
+    Verify P1.2 architecture:
+    1. system_prompt remains 100% static across multi-turn execution (protecting prefix caching).
+    2. Ephemeral plan anchor is injected at the tail of call_prompt.
+    3. Caller's session_history is NOT polluted with trailing duplicate anchors.
+    """
+    plan_file = tmp_path / "PLAN.md"
+    init_plan(
+        "Static System Test",
+        ["Task A", "Task B"],
+        path=plan_file,
+    )
+
+    async def _run():
+        class MultiTurnGateway(MockGateway):
+            async def chat(self, model=None, prompt=None, system=None, tools=None):
+                if self.call_count == 1:
+                    update_task_status(plan_file, 1, TaskStatus.DONE)
+                elif self.call_count == 2:
+                    update_task_status(plan_file, 2, TaskStatus.DONE)
+                return await super().chat(model=model, prompt=prompt, system=system, tools=tools)
+
+        gateway = MultiTurnGateway([
+            "Finished step 1",
+            "Finished step 2",
+            "Finished all steps",
+        ])
+
+        history = [{"role": "user", "content": "Start work"}]
+        static_system = "You are a specialized test agent."
+
+        outcome = await run_direct_loop(
+            "Execute mission",
+            gateway=gateway,
+            tools_registry=MockRegistry(),
+            executor=MockExecutor(),
+            system_prompt=static_system,
+            session_history=history,
+            plan_path=plan_file,
+            max_turns=5,
+        )
+
+        assert outcome is not None
+        assert outcome["status"] == "completed"
+        # 1. System prompt was 100% static on every call
+        assert len(gateway.system_prompts_seen) >= 2
+        for s in gateway.system_prompts_seen:
+            assert s == static_system
+
+        # 2. Ephemeral anchor appeared in call_prompt on each turn
+        assert any("[Living Disk State — Current Snapshot]" in str(m.get("content")) for m in gateway.last_prompt)
+
+        # 3. Caller's persistent history does NOT have trailing plan anchors
+        for msg in history:
+            assert "[Living Disk State — Current Snapshot]" not in str(msg.get("content"))
+
+    asyncio.run(_run())
+
 
