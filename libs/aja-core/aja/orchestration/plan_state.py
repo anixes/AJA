@@ -223,34 +223,48 @@ def _atomic_write(target_path: Path, content: str) -> None:
     encoded = normalized.encode("utf-8")
     expected_hash = hashlib.sha256(encoded).hexdigest()
 
-    tmp_path.write_bytes(encoded)
-
     last_error: Optional[Exception] = None
     backoff = 0.05
+    replace_succeeded = False
 
-    for attempt in range(3):
-        try:
-            os.replace(str(tmp_path), str(target))
-            # Post-write SHA-256 verification
+    try:
+        tmp_path.write_bytes(encoded)
+
+        for attempt in range(3):
+            try:
+                os.replace(str(tmp_path), str(target))
+                replace_succeeded = True
+                break
+            except PermissionError as e:
+                last_error = e
+                time.sleep(backoff)
+                backoff *= 2
+
+        if not replace_succeeded and last_error:
+            raise last_error
+
+        # Post-write SHA-256 verification (with Windows scanner retry)
+        written_bytes: Optional[bytes] = None
+        backoff = 0.05
+        for attempt in range(3):
+            try:
+                written_bytes = target.read_bytes()
+                break
+            except PermissionError as e:
+                time.sleep(backoff)
+                backoff *= 2
+
+        if written_bytes is None:
             written_bytes = target.read_bytes()
-            actual_hash = hashlib.sha256(written_bytes).hexdigest()
-            if actual_hash != expected_hash:
-                raise PlanStateCorruptionError(
-                    f"Post-write checksum verification failed for '{target}'! "
-                    f"Expected {expected_hash}, got {actual_hash}"
-                )
-            return
-        except PermissionError as e:
-            last_error = e
-            time.sleep(backoff)
-            backoff *= 2
-        except Exception as e:
-            tmp_path.unlink(missing_ok=True)
-            raise e
 
-    tmp_path.unlink(missing_ok=True)
-    if last_error:
-        raise last_error
+        actual_hash = hashlib.sha256(written_bytes).hexdigest()
+        if actual_hash != expected_hash:
+            raise PlanStateCorruptionError(
+                f"Post-write checksum verification failed for '{target}'! "
+                f"Expected {expected_hash}, got {actual_hash}"
+            )
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 

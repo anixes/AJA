@@ -41,12 +41,18 @@ def is_pid_alive(pid: int) -> bool:
     # 1. Try psutil if installed for high fidelity
     try:
         import psutil
-        proc = psutil.Process(pid)
-        return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+        try:
+            proc = psutil.Process(pid)
+            return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+        except psutil.AccessDenied:
+            # Process exists but we lack permissions to inspect it -> ALIVE
+            return True
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return False
+        except Exception:
+            pass  # Fall through to platform-specific checks
     except ImportError:
         pass
-    except Exception:
-        return False
 
     # 2. Windows fallback using kernel32
     if sys.platform == "win32":
@@ -55,11 +61,16 @@ def is_pid_alive(pid: int) -> bool:
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             STILL_ACTIVE = 259
+            ERROR_ACCESS_DENIED = 5
             kernel32 = ctypes.windll.kernel32
             handle = kernel32.OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION, False, pid
             )
             if not handle:
+                # If OpenProcess failed due to access denied, the process exists!
+                err = kernel32.GetLastError()
+                if err == ERROR_ACCESS_DENIED:
+                    return True
                 return False
             try:
                 exit_code = ctypes.c_ulong()

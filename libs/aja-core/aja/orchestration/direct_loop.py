@@ -543,7 +543,9 @@ async def run_direct_loop(
                                 f"[bold green]✔ Incremental verification passed for task(s): {sorted(newly_done)}[/bold green]"
                             )
             except Exception as e:
-                logger.debug("[DirectLoop] Incremental verification error: %s", e)
+                logger.warning("[DirectLoop] Incremental verification error: %s", e)
+                if console:
+                    console.print(f"[yellow]⚠ [Incremental Verification Warning] {e}[/yellow]")
 
         commands = _extract_bash_commands(content)
 
