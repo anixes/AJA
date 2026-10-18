@@ -1,6 +1,7 @@
 import inspect
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -69,6 +70,60 @@ class ToolSignatureError(TypeError):
     runtime can journal signature drift as TOOL_FAILED instead of silently
     misclassifying "Tool Execution Error: ..." output as success.
     """
+
+
+class ToolProfile:
+    """Standard tool profiles for controlling tool token budget and capabilities."""
+    CODE = "code"
+    BROWSER = "browser"
+    DESKTOP = "desktop"
+    MOBILE = "mobile"
+    FULL = "full"
+    ALL = "all"
+
+
+CODE_TOOL_NAMES = {
+    "read_file",
+    "write_file",
+    "grep_search",
+    "multi_replace",
+    "sleep",
+    "run_shell_command",
+    "list_directory",
+    "find_files",
+    "get_file_info",
+    "create_directory",
+    "git_status",
+    "git_diff",
+    "git_commit",
+    "ask_user",
+}
+
+BROWSER_TOOL_NAMES = {
+    "browser.extract_markdown",
+    "browser.wait_for_selector",
+    "browser.navigate",
+    "browser.click",
+    "browser.fill",
+    "browser.screenshot",
+    "browser.extract_text",
+    "browser.close",
+}
+
+DESKTOP_TOOL_NAMES = {
+    "desktop.screenshot",
+    "desktop.click",
+    "desktop.type",
+    "desktop.hotkey",
+    "desktop.move_mouse",
+}
+
+MOBILE_TOOL_NAMES = {
+    "mobile_send_sms",
+    "mobile_get_battery",
+    "mobile_get_location",
+    "mobile_push_notification",
+}
 
 def _convert_to_jupyter_notebook(content: str) -> str:
     """Smart notebook converter: wraps markdown/python text into valid Jupyter notebook JSON format."""
@@ -233,7 +288,11 @@ class NativeToolRegistry:
         except Exception as e:
             logger.debug("Mobile tools registration skipped: %s", e)
 
-    def get_schemas(self, interactive: bool = True) -> List[Dict[str, Any]]:
+    def get_schemas(
+        self,
+        interactive: bool = True,
+        profile: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         schemas = [
             {
                 "type": "function",
@@ -971,7 +1030,33 @@ class NativeToolRegistry:
         except Exception as exc:
             logger.debug("External MCP schemas unavailable: %s", exc)
         all_schemas = schemas + list(self._external_schemas.values())
-        return [self._sanitize_schema(t) for t in all_schemas]
+        sanitized = [self._sanitize_schema(t) for t in all_schemas]
+
+        resolved_profile = (profile or os.environ.get("AJA_TOOL_PROFILE") or "").strip().lower()
+        if not resolved_profile or resolved_profile in (ToolProfile.ALL, ToolProfile.FULL):
+            return sanitized
+
+        if resolved_profile == ToolProfile.CODE:
+            allowed_tools = set(CODE_TOOL_NAMES)
+        elif resolved_profile == ToolProfile.BROWSER:
+            allowed_tools = set(CODE_TOOL_NAMES) | set(BROWSER_TOOL_NAMES)
+        elif resolved_profile == ToolProfile.DESKTOP:
+            allowed_tools = set(CODE_TOOL_NAMES) | set(DESKTOP_TOOL_NAMES)
+        elif resolved_profile == ToolProfile.MOBILE:
+            allowed_tools = set(CODE_TOOL_NAMES) | set(MOBILE_TOOL_NAMES)
+        else:
+            logger.warning("[NativeToolRegistry] Unknown tool profile '%s', falling back to CODE profile.", profile)
+            allowed_tools = set(CODE_TOOL_NAMES)
+
+        filtered = []
+        for s in sanitized:
+            fn = s.get("function", s)
+            name = fn.get("name", "")
+            orig_name = desanitize_tool_name(name)
+            if orig_name in allowed_tools or name in allowed_tools:
+                filtered.append(s)
+
+        return filtered
 
     @staticmethod
     def _sanitize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
