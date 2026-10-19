@@ -24,6 +24,8 @@ def _make_gateway():
     gw.vector_memory = MagicMock()
     gw.gateway_state = MagicMock()
     gw.gateway_state.get_session.return_value = {"history": []}
+    gw._chat_via_core = AsyncMock(return_value="ok")
+    gw.chat = AsyncMock(return_value="ok")
     return gw
 
 

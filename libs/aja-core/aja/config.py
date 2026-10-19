@@ -110,8 +110,8 @@ def _resolve_config_path() -> Path:
                         "[Config Drift] Workspace '%s' (%s) and Global '%s' (%s) disagree; using workspace config.",
                         local_path, m_local, data_path, m_data,
                     )
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            logger.debug("[Config] Drift check skipped: %s", e)
 
     if local_path.exists() and os.access(str(local_path.parent), os.W_OK):
         return local_path
@@ -161,8 +161,8 @@ def _get_legacy_model(key: str, default: Optional[str] = None) -> Optional[str]:
             v = getattr(models_cfg, key, None)
             if v:
                 return str(v).strip()
-    except Exception:
-        pass
+    except (AttributeError, TypeError) as e:
+        logger.debug("[Config] Legacy model lookup skipped: %s", e)
     return default
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import stat
 import shutil
 import subprocess
@@ -9,6 +10,8 @@ from typing import List, Optional
 
 from aja.config import PROJECT_ROOT, DATA_DIR
 from aja.runtime.execution.contracts import WorkspaceDiff, WorkspaceSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceManager:

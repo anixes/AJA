@@ -30,9 +30,17 @@ class CopilotAdapter(OpenAICompatAdapter):
     and protocol translation between Chat Completions and Responses endpoints.
     """
 
-    def __init__(self, api_key: str = "", base_url: str = "", **kwargs):
-        super().__init__(provider="copilot", api_key=api_key, base_url=base_url)
+    def __init__(
+        self,
+        provider: str = "copilot",
+        api_key: str = "",
+        base_url: str = "",
+        session_getter: Any = None,
+        **kwargs,
+    ):
+        super().__init__(provider="copilot", api_key=api_key, base_url=base_url, **kwargs)
         self._refresh_lock = asyncio.Lock()
+        self._session_getter = session_getter
         self._session: Optional[aiohttp.ClientSession] = None
 
     def _normalize_copilot_model(self, model: Optional[str]) -> str:
@@ -75,6 +83,11 @@ class CopilotAdapter(OpenAICompatAdapter):
         return False
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
+        if self._session_getter is not None:
+            sess = self._session_getter()
+            if asyncio.iscoroutine(sess):
+                return await sess
+            return sess
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120))
         return self._session

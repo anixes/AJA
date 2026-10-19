@@ -244,6 +244,16 @@ class LLMGateway:
             await self._session.close()
             self._session = None
 
+    async def close(self) -> None:
+        """Alias for aclose() to support standard closing conventions."""
+        await self.aclose()
+
+    async def __aenter__(self) -> "LLMGateway":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.aclose()
+
     def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
@@ -371,7 +381,35 @@ class LLMGateway:
         adapter_cls = get_adapter_class(self.provider)
         if adapter_cls is not None:
             if self.provider not in self._adapters:
-                self._adapters[self.provider] = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
+                try:
+                    self._adapters[self.provider] = adapter_cls(
+                        provider=self.provider,
+                        api_key=self.api_key,
+                        base_url=self.base_url or "",
+                        session_getter=self._get_session,
+                        client_getter=self._get_openai_client,
+                        backoff_sleep_func=_backoff_sleep,
+                    )
+                except TypeError:
+                    try:
+                        self._adapters[self.provider] = adapter_cls(
+                            provider=self.provider,
+                            api_key=self.api_key,
+                            base_url=self.base_url or "",
+                            session_getter=self._get_session,
+                        )
+                    except TypeError:
+                        try:
+                            self._adapters[self.provider] = adapter_cls(
+                                api_key=self.api_key,
+                                base_url=self.base_url or "",
+                                session_getter=self._get_session,
+                            )
+                        except TypeError:
+                            self._adapters[self.provider] = adapter_cls(
+                                api_key=self.api_key,
+                                base_url=self.base_url or "",
+                            )
             adapter = self._adapters[self.provider]
 
             try:
@@ -384,21 +422,33 @@ class LLMGateway:
                     extra_body=extra_body,
                     retries=retries,
                 )
+                if tools is not None:
+                    return {
+                        "content": llm_resp.content or None,
+                        "tool_calls": [
+                            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                            for tc in llm_resp.tool_calls
+                        ],
+                    }
+                return llm_resp.content or None
             except Exception as e:
-                err_msg = str(e).lower()
-                if any(k in err_msg for k in ("401", "403", "unauthorized", "expired", "token")):
-                    self._adapters.pop(self.provider, None)
-                raise
+                failed_adapter = self._adapters.pop(self.provider, None)
+                if failed_adapter is not None:
+                    close = getattr(failed_adapter, "close", None)
+                    if close is not None:
+                        try:
+                            await close()
+                        except Exception:
+                            pass
 
-            if tools is not None:
-                return {
-                    "content": llm_resp.content or None,
-                    "tool_calls": [
-                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                        for tc in llm_resp.tool_calls
-                    ],
-                }
-            return llm_resp.content or None
+                status_code = getattr(e, "status_code", None) or getattr(e, "status", None)
+                if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (401, 403, 429):
+                    logger.error(
+                        "[Gateway Facade] Non-retryable provider error (%s %s): %s",
+                        self.provider, status_code, redact_secrets(str(e))
+                    )
+                    return None
+                logger.debug("[Gateway Facade] Adapter path failed (%s), trying direct client", e)
 
         # Direct client path with retry loop for OpenAI-compatible fallback
         client = self._get_openai_client()
@@ -482,8 +532,7 @@ class LLMGateway:
 
     async def close(self) -> None:
         """Clean close."""
-        if self._session and not self._session.closed:
-            await self._session.close()
+        await self.aclose()
 
 
 # Backward-compatible alias

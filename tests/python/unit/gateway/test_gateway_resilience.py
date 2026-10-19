@@ -160,8 +160,6 @@ class _FakeSession:
 
 
 def test_copilot_responses_400_fast_fails_with_status(monkeypatch):
-    _force_legacy_path(monkeypatch)
-
     async def fake_backoff(attempt):  # would stall the test if invoked
         raise AssertionError("backoff sleep must not fire on a 4xx")
 

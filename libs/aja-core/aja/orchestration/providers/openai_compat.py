@@ -67,7 +67,15 @@ from aja.gateway.client_factory import (
 class OpenAICompatAdapter:
     """ProviderAdapter over any OpenAI-compatible Chat Completions endpoint."""
 
-    def __init__(self, provider: str, api_key: str = "", base_url: str = ""):
+    def __init__(
+        self,
+        provider: str = "openai",
+        api_key: str = "",
+        base_url: str = "",
+        client_getter: Any = None,
+        backoff_sleep_func: Any = None,
+        **kwargs,
+    ):
         self.provider_name = (provider or "openai").lower()
         self.provider = self.provider_name
         self.base_url = (
@@ -80,6 +88,8 @@ class OpenAICompatAdapter:
                 f"Unknown provider '{provider}'. Please provide a base_url for custom endpoints."
             )
         self.api_key = self._resolve_api_key(api_key)
+        self._client_getter = client_getter
+        self._backoff_sleep_func = backoff_sleep_func
         self._client: Optional["AsyncOpenAI"] = None
         self._client_loop = None
 
@@ -147,6 +157,8 @@ class OpenAICompatAdapter:
 
     def _get_client(self) -> "AsyncOpenAI":
         """Loop-aware lazy AsyncOpenAI client (recreated across event loops)."""
+        if self._client_getter is not None:
+            return self._client_getter()
         extra_headers = {
             "HTTP-Referer": "https://github.com/aja",
             "X-Title": "AJA Swarm Toolkit",
@@ -319,7 +331,7 @@ class OpenAICompatAdapter:
                     )
                     if attempt == attempts - 1:
                         return LLMResponse(content="", model=model)
-                    await _backoff_sleep(attempt)
+                    await self._sleep(attempt)
                     attempt += 1
                     continue
 
@@ -341,10 +353,18 @@ class OpenAICompatAdapter:
                 )
                 if attempt == attempts - 1:
                     return LLMResponse(content="", model=model)
-                await _backoff_sleep(attempt)
+                await self._sleep(attempt)
                 attempt += 1
 
         return LLMResponse(content="", model=model)
+
+    async def _sleep(self, attempt: int) -> None:
+        if self._backoff_sleep_func is not None:
+            res = self._backoff_sleep_func(attempt)
+            if asyncio.iscoroutine(res):
+                await res
+        else:
+            await _backoff_sleep(attempt)
 
     # --------------------------------------------------------------- stream
 

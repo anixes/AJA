@@ -372,10 +372,11 @@ async def test_gateway_chat_closes_per_call_adapter():
         gw = LLMGateway(provider="e2b-dummy", api_key="k", base_url="http://localhost:9")
         out = await gw.chat(model="m1", prompt="hi")
         assert out == "adapter-ok"
-        assert closed["count"] == 1, "adapter never closed -> leaked connection pool"
-
         await gw.chat(model="m1", prompt="hi again")
-        assert closed["count"] == 2, "each chat() creates (and must close) an adapter"
+        assert closed["count"] == 0, "adapter is cached across chat calls"
+
+        await gw.close()
+        assert closed["count"] == 1, "adapter closed on gateway shutdown"
     finally:
         _REGISTRY.pop("e2b-dummy", None)
 
