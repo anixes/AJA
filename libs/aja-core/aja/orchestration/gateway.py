@@ -222,12 +222,27 @@ class LLMGateway:
         else:
             self.api_key = raw_key
 
+        self._adapters: Dict[str, Any] = {}
         self._session: Optional[aiohttp.ClientSession] = None
 
         if not self.base_url:
             raise ValueError(
                 f"Unknown provider '{self.provider}'. Please provide a base_url for custom endpoints."
             )
+
+    async def aclose(self) -> None:
+        """Close cached adapters and HTTP sessions."""
+        for adapter in list(self._adapters.values()):
+            close = getattr(adapter, "close", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:
+                    pass
+        self._adapters.clear()
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -351,187 +366,55 @@ class LLMGateway:
         if self.provider == "google":
             return await self._google_generate_content(model, prompt, system, temperature, tools)
 
-        if self.provider == "copilot" and (
-            not model or model in ("copilot", "github-copilot", "default")
-        ):
-            model = "gpt-4o-mini"
+        from aja.orchestration.providers import get_adapter_class
 
-        use_responses = False
-        if self.provider == "copilot":
-            if model and model.startswith("copilot:"):
-                model = model[8:]
-            m_lower = (model or "").lower()
-            if "/" in m_lower:
-                m_lower = m_lower.rsplit("/", 1)[-1]
-            if (
-                m_lower.startswith("gpt-")
-                and not m_lower.startswith("gpt-5-mini")
-                and m_lower not in ("gpt-4o-mini", "gpt-4o", "gpt-4")
-            ):
-                use_responses = True
-            if "claude" in m_lower:
-                use_responses = True
-            if isinstance(prompt, list) and any(
-                isinstance(m.get("content"), list)
-                and any(
-                    isinstance(p, dict) and p.get("type") == "image_url"
-                    for p in m["content"]
-                )
-                for m in prompt
-            ):
-                use_responses = True
+        adapter_cls = get_adapter_class(self.provider)
+        if adapter_cls is not None:
+            if self.provider not in self._adapters:
+                self._adapters[self.provider] = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
+            adapter = self._adapters[self.provider]
 
-        if not use_responses:
             try:
-                from aja.orchestration.providers import get_adapter_class
-
-                adapter_cls = get_adapter_class(self.provider)
-                if adapter_cls is not None:
-                    adapter = adapter_cls(api_key=self.api_key, base_url=self.base_url or "")
-                    try:
-                        llm_resp = await adapter.chat(
-                            model=model,
-                            messages=self._normalize_prompt_to_messages(prompt),
-                            system=system,
-                            tools=tools,
-                            temperature=temperature,
-                            extra_body=extra_body,
-                            retries=retries,
-                        )
-                    finally:
-                        close = getattr(adapter, "close", None)
-                        if close is not None:
-                            try:
-                                await close()
-                            except Exception:
-                                pass
-                    if tools is not None:
-                        return {
-                            "content": llm_resp.content or None,
-                            "tool_calls": [
-                                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                                for tc in llm_resp.tool_calls
-                            ],
-                        }
-                    return llm_resp.content or None
+                llm_resp = await adapter.chat(
+                    model=model,
+                    messages=self._normalize_prompt_to_messages(prompt),
+                    system=system,
+                    tools=tools,
+                    temperature=temperature,
+                    extra_body=extra_body,
+                    retries=retries,
+                )
             except Exception as e:
-                logger.debug("[Gateway Facade] Adapter path failed (%s), trying direct client", e)
+                err_msg = str(e).lower()
+                if any(k in err_msg for k in ("401", "403", "unauthorized", "expired", "token")):
+                    self._adapters.pop(self.provider, None)
+                raise
 
-        # Direct client path with retry loop
-        client = None
-        if not use_responses:
-            client = self._get_openai_client()
-            messages = [{"role": "system", "content": system}, *self._normalize_prompt_to_messages(prompt)]
-            kwargs: Dict[str, Any] = {"model": model, "messages": messages}
-            if temperature is not None:
-                kwargs["temperature"] = temperature
-            if tools:
-                kwargs["tools"] = tools
-            if extra_body:
-                kwargs.update(extra_body)
+            if tools is not None:
+                return {
+                    "content": llm_resp.content or None,
+                    "tool_calls": [
+                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                        for tc in llm_resp.tool_calls
+                    ],
+                }
+            return llm_resp.content or None
+
+        # Direct client path with retry loop for OpenAI-compatible fallback
+        client = self._get_openai_client()
+        messages = [{"role": "system", "content": system}, *self._normalize_prompt_to_messages(prompt)]
+        kwargs: Dict[str, Any] = {"model": model, "messages": messages}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if tools:
+            kwargs["tools"] = tools
+        if extra_body:
+            kwargs.update(extra_body)
 
         attempt = 0
         while attempt < retries:
             attempt += 1
             try:
-                if self.provider == "copilot" and use_responses:
-                    input_items = []
-                    if isinstance(prompt, list):
-                        for m in prompt:
-                            role = m.get("role", "user")
-                            content = m.get("content", m.get("text", ""))
-                            if role == "user":
-                                if isinstance(content, list):
-                                    parts = []
-                                    for part in content:
-                                        if isinstance(part, str):
-                                            parts.append({"type": "input_text", "text": part})
-                                        elif isinstance(part, dict):
-                                            ptype = part.get("type")
-                                            if ptype == "text":
-                                                parts.append({"type": "input_text", "text": part.get("text", "")})
-                                            elif ptype == "image_url":
-                                                img_url = (
-                                                    part.get("image_url", {}).get("url")
-                                                    if isinstance(part.get("image_url"), dict)
-                                                    else part.get("image_url")
-                                                )
-                                                parts.append({"type": "input_image", "image_url": img_url})
-                                    input_items.append({"role": "user", "content": parts})
-                                else:
-                                    input_items.append({"role": "user", "content": [{"type": "input_text", "text": str(content)}]})
-                            elif role == "system":
-                                input_items.append({"role": "system", "content": [{"type": "input_text", "text": str(content)}]})
-                            elif role == "assistant":
-                                input_items.append({"role": "assistant", "content": [{"type": "input_text", "text": str(content)}]})
-                    else:
-                        input_items = [{"role": "user", "content": [{"type": "input_text", "text": str(prompt)}]}]
-
-                    payload = {
-                        "model": model,
-                        "input": input_items,
-                    }
-                    if system:
-                        payload["instructions"] = system
-                    if temperature is not None:
-                        payload["temperature"] = float(temperature)
-                    if extra_body:
-                        payload.update(extra_body)
-
-                    url = f"{(self.base_url or 'https://api.githubcopilot.com').rstrip('/')}/v1/responses"
-                    req_headers = {
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    }
-                    req_headers.update(self.extra_headers)
-
-                    session = self._get_session()
-                    async with session.post(url, json=payload, headers=req_headers) as resp:
-                        if resp.status in (401, 403) and attempt < retries:
-                            from aja.copilot_auth import (
-                                get_copilot_api_token,
-                                invalidate_copilot_cache,
-                                resolve_copilot_token,
-                            )
-
-                            invalidate_copilot_cache()
-                            raw_token, _ = resolve_copilot_token()
-                            if raw_token:
-                                self.api_key = get_copilot_api_token(raw_token) or raw_token
-                            continue
-
-                        if resp.status != 200:
-                            detail = await resp.text()
-                            err = ValueError(
-                                f"Copilot Responses API Error {resp.status}: {detail}"
-                            )
-                            err.status_code = resp.status
-                            raise err
-                        data = await resp.json()
-
-                    output_items = data.get("output", [])
-                    resp_content = ""
-                    resp_tool_calls = []
-                    for item in output_items:
-                        itype = item.get("type")
-                        if itype == "message":
-                            parts = item.get("content", [])
-                            for part in parts:
-                                if part.get("type") == "output_text":
-                                    resp_content += part.get("text", "")
-                        elif itype == "function_call":
-                            call_id = item.get("call_id") or f"fc_{item.get('id')}"
-                            resp_tool_calls.append(
-                                {
-                                    "id": call_id,
-                                    "name": item.get("name"),
-                                    "arguments": item.get("arguments", "{}"),
-                                }
-                            )
-
-                    if tools is not None:
-                        return {"content": resp_content or None, "tool_calls": resp_tool_calls}
-                    return resp_content or None
 
                 response = await client.chat.completions.create(**kwargs)
                 choices = getattr(response, "choices", None) or []

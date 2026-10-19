@@ -51,8 +51,14 @@ class MCPServerConfig(BaseModel):
     permission_scope: Optional[str] = None
 
 class SwarmModels(BaseModel):
-    planner: str = "google:gemini-2.0-flash"
-    worker: str = "google:gemini-2.0-flash"
+    planner: Optional[str] = Field(
+        default=None,
+        description="Legacy role key. Deprecated in favor of swarm_settings.active_model.",
+    )
+    worker: Optional[str] = Field(
+        default=None,
+        description="Legacy role key. Deprecated in favor of swarm_settings.active_model.",
+    )
     critic: Optional[str] = Field(
         default=None,
         description="Deprecated in 2026 unified harness. Ignored at runtime in favor of deterministic test verifiers.",

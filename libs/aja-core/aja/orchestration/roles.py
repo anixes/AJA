@@ -1,10 +1,10 @@
 """
-roles.py - Heterogeneous Role Dispatcher for AJA (OpenCode 2 Pattern).
+roles.py - Heterogeneous Role Dispatcher for AJA (Legacy / Experimental).
 ======================================================================
-Coordinates multi-model execution by decomposing missions into discrete roles:
-- Planner: High-reasoning model (Cloud Gemini/Claude/OpenAI) for task breakdown.
-- Worker: Fast/local model (llama.cpp with GBNF or fast cloud) for tool execution.
-- Verifier: Validates acceptance criteria and workspace health before completion.
+NOTE: This multi-role dispatcher is legacy/experimental. Modern AJA uses
+a unified single-model execution loop (aja.orchestration.direct_loop /
+ConversationCore) driven by active_model, with automated AST/test
+verification gates rather than LLM-based role bouncing.
 """
 
 from __future__ import annotations

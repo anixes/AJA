@@ -4,7 +4,7 @@ import os
 import asyncio
 import threading
 from concurrent.futures import Future
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 import aja.config
 from aja.orchestration.gateway import LLMGateway
@@ -103,13 +103,13 @@ def resolve_active_model_string(explicit_model: Optional[str] = None) -> str:
         return explicit_model.strip()
 
     # 2. Environment variable override
-    env_model = os.getenv("AJA_MODEL", "").strip()
+    env_model = (os.getenv("AJA_ACTIVE_MODEL") or os.getenv("AJA_MODEL", "")).strip()
     if env_model:
         return env_model
 
     # 3. Read from aja.json
     try:
-        config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
+        config_path = str(getattr(aja.config, "CONFIG_PATH", os.path.join(aja.config.PROJECT_ROOT, "aja.json")))
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
@@ -157,10 +157,76 @@ def resolve_active_model_string(explicit_model: Optional[str] = None) -> str:
     return DEFAULT_MODEL_CHAIN[0]
 
 
+class ModelRouter(LLMGateway):
+    """
+    Multi-provider router that dispatches model requests to the appropriate
+    cached LLMGateway instance based on provider affinity.
+    Satisfies isinstance(router, LLMGateway) without type-breaking changes.
+    """
+
+    def __init__(self, default_model: Optional[str] = None):
+        self._default_model = default_model
+        self._adapters: Dict[str, Any] = {}
+
+    @property
+    def active_model(self) -> str:
+        return self._default_model or resolve_active_model_string()
+
+    @property
+    def provider(self) -> str:
+        prov, _ = resolve_provider_model(self.active_model, "hybrid", "gemma-4-e2b", "gemini-2.5-flash")
+        return prov
+
+    @property
+    def base_url(self) -> str:
+        gw, _ = get_gateway_for_model(self.active_model)
+        return getattr(gw, "base_url", "")
+
+    @property
+    def api_key(self) -> str:
+        gw, _ = get_gateway_for_model(self.active_model)
+        return getattr(gw, "api_key", "")
+
+    async def chat(
+        self,
+        model: Optional[str] = None,
+        prompt: Union[str, List[Dict[str, Any]]] = "",
+        system: str = "You are a helpful assistant.",
+        retries: int = 3,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        target_model = model or self.active_model
+        gw, resolved_name = get_gateway_for_model(target_model)
+        return await gw.chat(
+            model=resolved_name,
+            prompt=prompt,
+            system=system,
+            retries=retries,
+            temperature=temperature,
+            tools=tools,
+            extra_body=extra_body,
+        )
+
+    async def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
+        gw, _ = get_gateway_for_model(self.active_model)
+        return await gw.embed(texts)
+
+    async def aclose(self) -> None:
+        pass
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        gw, _ = get_gateway_for_model(self.active_model)
+        return getattr(gw, name)
+
+
 def get_gateway(model: Optional[str] = None):
     global _gateway
     resolved_model = resolve_active_model_string(model)
-    _gateway, _ = get_gateway_for_model(resolved_model)
+    _gateway = ModelRouter(default_model=resolved_model)
     return _gateway
 
 def resolve_provider_model(
@@ -266,7 +332,7 @@ def get_gateway_for_model(model_str, capability: Optional[str] = None):
     local_model_fallback = "gemma-4-e2b"
     cloud_model_fallback = "gemini-2.5-flash"
     try:
-        config_path = os.path.join(aja.config.PROJECT_ROOT, "aja.json")
+        config_path = str(getattr(aja.config, "CONFIG_PATH", os.path.join(aja.config.PROJECT_ROOT, "aja.json")))
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)

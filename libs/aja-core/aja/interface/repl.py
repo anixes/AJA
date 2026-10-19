@@ -27,7 +27,11 @@ supplied, keeping mocked turns fully testable under plain pytest.
 from __future__ import annotations
 
 import asyncio
+import warnings
 from typing import Any, Awaitable, Callable, Optional, Tuple
+
+# Suppress pandas computation/expressions version UserWarnings on Anaconda
+warnings.filterwarnings("ignore", category=UserWarning, module=r"pandas\.core\.computation|numexpr")
 
 from rich.console import Console
 from rich.live import Live
@@ -276,17 +280,19 @@ class TerminalREPL:
 
             return hybrid_recall(query)
 
-        gateway, tools_registry, executor = _resolve_production_stack()
         model = None
         system_prompt = None
         try:
-            from aja.config import AJA_PLANNER_MODEL
+            from aja.llm import resolve_active_model_string
             from aja.cognitive.prompts import build_system_prompt
 
-            model = AJA_PLANNER_MODEL or None
+            model = resolve_active_model_string()
             system_prompt = build_system_prompt()
         except Exception:  # best-effort: gateway falls back to its default model
             pass
+
+        gateway, tools_registry, executor = _resolve_production_stack(model=model)
+
         return ConversationCore(
             gateway=gateway,
             tools_registry=tools_registry,
@@ -773,10 +779,10 @@ class TerminalREPL:
             pass
         provider, model = "unknown", "unknown"
         try:
-            from aja.config import AJA_PLANNER_MODEL
+            from aja.llm import resolve_active_model_string, resolve_provider_model
 
-            provider, _, model = AJA_PLANNER_MODEL.partition(":")
-            provider, model = provider or "unknown", model or AJA_PLANNER_MODEL
+            active_model = resolve_active_model_string()
+            provider, model = resolve_provider_model(active_model, "hybrid", "gemma-4-e2b", "gemini-2.5-flash")
         except Exception:
             pass
         return (version, provider, model)
@@ -883,10 +889,10 @@ class TerminalREPL:
         )
 
 
-def _resolve_production_stack():
+def _resolve_production_stack(model: Optional[str] = None):
     """Resolve gateway/tools/executor for the default core (lazy, test-free path)."""
     from aja.llm import get_gateway
     from aja.orchestration.tools.executor import ToolExecutor
     from aja.orchestration.tools.native import NativeToolRegistry
 
-    return (get_gateway(), NativeToolRegistry(), ToolExecutor())
+    return (get_gateway(model=model), NativeToolRegistry(), ToolExecutor())

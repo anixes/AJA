@@ -41,6 +41,12 @@ def _register_defaults() -> None:
         pass
 
     try:
+        from aja.orchestration.providers.copilot_adapter import CopilotAdapter
+        register_adapter("copilot", CopilotAdapter)
+    except ImportError:
+        pass
+
+    try:
         from aja.orchestration.providers.anthropic_adapter import AnthropicAdapter
         register_adapter("anthropic", AnthropicAdapter)
     except ImportError:

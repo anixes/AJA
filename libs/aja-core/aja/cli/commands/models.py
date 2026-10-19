@@ -5,11 +5,17 @@ Interactive Copilot model selector for Swarm Planner / Single Agent Worker.
 """
 
 import json
+import logging
+import os
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from rich.prompt import Prompt
 
-from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL, DATA_DIR
+from aja.config import AJA_PLANNER_MODEL, AJA_WORKER_MODEL, CONFIG_PATH, DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -93,28 +99,61 @@ def handle_models_command(args: str = "", console: Optional["Console"] = None) -
         else:
             w_model = choices_map[w_choice]
 
-    cfg_path = DATA_DIR / "aja.json"
-    data = {}
-    if cfg_path.exists():
-        with open(cfg_path, encoding="utf-8") as f:
-            data = json.load(f)
+    def _atomic_write_model_config(target_path: Path, model_name: str) -> None:
+        cfg_data = {}
+        if target_path.exists():
+            try:
+                with open(target_path, encoding="utf-8") as f:
+                    cfg_data = json.load(f)
+            except Exception as read_err:
+                logger.debug("Failed reading existing config at %s: %s", target_path, read_err)
 
-    if "swarm_settings" not in data:
-        data["swarm_settings"] = {}
-    if "models" not in data["swarm_settings"]:
-        data["swarm_settings"]["models"] = {}
+        if "swarm_settings" not in cfg_data:
+            cfg_data["swarm_settings"] = {}
 
-    data["swarm_settings"]["models"]["planner"] = p_model
-    data["swarm_settings"]["models"]["worker"] = w_model
+        cfg_data["swarm_settings"]["active_model"] = model_name
+        # Clean out legacy zombie role keys if present, preserving any other keys like vision
+        if "models" in cfg_data.get("swarm_settings", {}):
+            models_dict = cfg_data["swarm_settings"].get("models")
+            if isinstance(models_dict, dict):
+                for k in ("planner", "worker", "critic"):
+                    models_dict.pop(k, None)
+                if not models_dict:
+                    cfg_data["swarm_settings"].pop("models", None)
+            else:
+                cfg_data["swarm_settings"].pop("models", None)
 
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+        tmp_path = target_path.with_suffix(".tmp")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(cfg_data, f, indent=4)
+
+        # Retry replace for Windows file locks
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, target_path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+
+    cfg_path = CONFIG_PATH or (DATA_DIR / "aja.json")
+    _atomic_write_model_config(cfg_path, p_model)
+
+    # If cfg_path is local workspace, synchronize DATA_DIR / aja.json
+    data_cfg = DATA_DIR / "aja.json"
+    if cfg_path.resolve() != data_cfg.resolve():
+        try:
+            _atomic_write_model_config(data_cfg, p_model)
+        except Exception as e:
+            logger.warning("Failed to synchronize global config at %s: %s", data_cfg, e)
 
     import aja.config
 
+    aja.config.AJA_ACTIVE_MODEL = p_model
     aja.config.AJA_PLANNER_MODEL = p_model
-    aja.config.AJA_WORKER_MODEL = w_model
+    aja.config.AJA_WORKER_MODEL = p_model
 
     console.print("[green]✔ Successfully updated models![/green]")
-    console.print(f"[bold cyan]Engine: Swarm Agents (Planner):[/] {p_model}")
-    console.print(f"[bold cyan]Engine: Single Agent Worker:[/] {w_model}")
+    console.print(f"[bold cyan]Engine: Active Model:[/] {p_model}")

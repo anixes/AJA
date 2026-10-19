@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 import filelock
@@ -87,9 +88,39 @@ def _get_data_dir() -> Path:
 DATA_DIR = _get_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-CONFIG_PATH = DATA_DIR / "aja.json"
-if not CONFIG_PATH.exists() and (PROJECT_ROOT / "aja.json").exists():
-    CONFIG_PATH = PROJECT_ROOT / "aja.json"
+
+def _resolve_config_path() -> Path:
+    env_path = os.getenv("AJA_CONFIG_PATH")
+    if env_path and Path(env_path).exists():
+        return Path(env_path).resolve()
+
+    local_path = PROJECT_ROOT / "aja.json"
+    data_path = DATA_DIR / "aja.json"
+
+    # Emit warning if both exist and disagree on active/planner model
+    if local_path.exists() and data_path.exists() and local_path.resolve() != data_path.resolve():
+        try:
+            with open(local_path, "r", encoding="utf-8") as f1, open(data_path, "r", encoding="utf-8") as f2:
+                cfg_local = json.load(f1).get("swarm_settings", {})
+                cfg_data = json.load(f2).get("swarm_settings", {})
+                m_local = cfg_local.get("active_model") or cfg_local.get("models", {}).get("planner")
+                m_data = cfg_data.get("active_model") or cfg_data.get("models", {}).get("planner")
+                if m_local and m_data and m_local != m_data:
+                    logger.warning(
+                        "[Config Drift] Workspace '%s' (%s) and Global '%s' (%s) disagree; using workspace config.",
+                        local_path, m_local, data_path, m_data,
+                    )
+        except Exception:
+            pass
+
+    if local_path.exists() and os.access(str(local_path.parent), os.W_OK):
+        return local_path
+    if data_path.exists():
+        return data_path
+    return local_path if local_path.exists() else data_path
+
+
+CONFIG_PATH = _resolve_config_path()
 
 
 # Load and validate configuration with Pydantic
@@ -123,35 +154,37 @@ CONFIG = load_and_validate_config()
 
 
 # Model Selection
-def _get_default_model(key, default):
+def _get_legacy_model(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
-        val = getattr(CONFIG.swarm_settings.models, key, default)
-        return val if val else default
+        models_cfg = getattr(getattr(CONFIG, "swarm_settings", None), "models", None)
+        if models_cfg:
+            v = getattr(models_cfg, key, None)
+            if v:
+                return str(v).strip()
     except Exception:
-        logger.exception("Failed to load model default %s", key)
+        pass
     return default
 
 
 AJA_OPERATING_MODE = os.getenv(
     "AJA_OPERATING_MODE", getattr(getattr(CONFIG, "swarm_settings", None), "operating_mode", "hybrid") or "hybrid"
 )
-AJA_PLANNER_MODEL = os.getenv(
-    "AJA_PLANNER_MODEL", _get_default_model("planner", "google:gemini-2.0-flash")
-)
-AJA_WORKER_MODEL = os.getenv(
-    "AJA_WORKER_MODEL", _get_default_model("worker", "google:gemini-2.0-flash")
-)
 AJA_ACTIVE_MODEL = os.getenv(
-    "AJA_ACTIVE_MODEL", getattr(getattr(CONFIG, "swarm_settings", None), "active_model", None) or AJA_PLANNER_MODEL
+    "AJA_ACTIVE_MODEL",
+    os.getenv("AJA_MODEL")
+    or getattr(getattr(CONFIG, "swarm_settings", None), "active_model", None)
+    or _get_legacy_model("planner")
+    or _get_legacy_model("worker")
+    or "gate:qwen"
 )
+# Backward-compatibility shims: alias to AJA_ACTIVE_MODEL to prevent divergence
+AJA_PLANNER_MODEL = os.getenv("AJA_PLANNER_MODEL", AJA_ACTIVE_MODEL)
+AJA_WORKER_MODEL = os.getenv("AJA_WORKER_MODEL", AJA_ACTIVE_MODEL)
+AJA_CRITIC_MODEL = os.getenv("AJA_CRITIC_MODEL", AJA_ACTIVE_MODEL)
 AJA_VISION_MODEL = os.getenv(
-    "AJA_VISION_MODEL", getattr(getattr(CONFIG, "swarm_settings", None), "vision_model", None) or _get_default_model("vision", None)
-)
-# Critic defaults to the planner model (adversarial separation by system prompt).
-# Override with AJA_CRITIC_MODEL env var or aja.json swarm_settings.models.critic
-# to wire a dedicated reasoning model (e.g. o1) for critique passes.
-AJA_CRITIC_MODEL = os.getenv(
-    "AJA_CRITIC_MODEL", _get_default_model("critic", AJA_PLANNER_MODEL)
+    "AJA_VISION_MODEL",
+    getattr(getattr(CONFIG, "swarm_settings", None), "vision_model", None)
+    or _get_legacy_model("vision"),
 )
 
 # Telegram Configuration
