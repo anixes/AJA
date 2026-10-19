@@ -1,76 +1,76 @@
 {
-  "project_name": "AJA",
-  "territories": [
-    {
-      "path": "libs/aja-core",
-      "health_cmd": "python -m aja status",
-      "auto_heal": false
-    }
-  ],
-  "swarm_settings": {
-    "offline_mode": false,
-    "max_agents": 5,
-    "check_interval": 30,
-    "active_model": "gate:qwen",
-    "operating_mode": "hybrid",
-    "allow_out_of_bounds_paths": false
-  },
-  "mcp_servers": [
-    {
-      "server_id": "sqlite",
-      "transport": "stdio",
-      "enabled": true,
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sqlite",
-        ".aja/aja.db"
-      ],
-      "permission_scope": "mcp.sqlite"
+    "project_name": "AJA",
+    "territories": [
+        {
+            "path": "libs/aja-core",
+            "health_cmd": "python -m aja status",
+            "auto_heal": false
+        }
+    ],
+    "swarm_settings": {
+        "offline_mode": false,
+        "max_agents": 5,
+        "check_interval": 30,
+        "active_model": "gate:qwen",
+        "operating_mode": "hybrid",
+        "allow_out_of_bounds_paths": false
     },
-    {
-      "server_id": "memory",
-      "transport": "stdio",
-      "enabled": true,
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ],
-      "permission_scope": "mcp.memory"
-    },
-    {
-      "server_id": "postgres",
-      "transport": "stdio",
-      "enabled": false,
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-postgres"
-      ],
-      "permission_scope": "mcp.postgres"
-    },
-    {
-      "server_id": "gdrive",
-      "transport": "stdio",
-      "enabled": false,
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-gdrive"
-      ],
-      "permission_scope": "mcp.gdrive"
-    },
-    {
-      "server_id": "github",
-      "transport": "stdio",
-      "enabled": false,
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
-      "permission_scope": "mcp.github"
-    }
-  ]
+    "mcp_servers": [
+        {
+            "server_id": "sqlite",
+            "transport": "stdio",
+            "enabled": true,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-sqlite",
+                ".aja/aja.db"
+            ],
+            "permission_scope": "mcp.sqlite"
+        },
+        {
+            "server_id": "memory",
+            "transport": "stdio",
+            "enabled": true,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-memory"
+            ],
+            "permission_scope": "mcp.memory"
+        },
+        {
+            "server_id": "postgres",
+            "transport": "stdio",
+            "enabled": false,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-postgres"
+            ],
+            "permission_scope": "mcp.postgres"
+        },
+        {
+            "server_id": "gdrive",
+            "transport": "stdio",
+            "enabled": false,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-gdrive"
+            ],
+            "permission_scope": "mcp.gdrive"
+        },
+        {
+            "server_id": "github",
+            "transport": "stdio",
+            "enabled": false,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-github"
+            ],
+            "permission_scope": "mcp.github"
+        }
+    ]
 }
